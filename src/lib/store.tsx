@@ -24,6 +24,8 @@ interface Store {
   /** 桌面 letterbox 专用：模拟输入法占位（真机顶栏无此按钮，恒为 false） */
   kbSim: boolean
   toggleKbSim: () => void
+  /** 系统输入法展开中（input/textarea 聚焦即视同键盘弹出；真机键盘模型的状态源） */
+  kbOpen: boolean
 
   /* 同步 */
   online: boolean
@@ -96,6 +98,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [sheet, setSheet] = useState<SheetId>(null)
   const [activeTab, setActiveTab] = useState('ai')
   const [kbSim, setKbSim] = useState(false)
+  const [kbOpen, setKbOpen] = useState(false)
 
   const [online, setOnline] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -151,6 +154,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const openSheet = useCallback((id: Exclude<SheetId, null>) => setSheet(id), [])
   const closeSheet = useCallback(() => setSheet(null), [])
   const toggleKbSim = useCallback(() => setKbSim(s => !s), [])
+
+  /* 系统键盘探测：文本输入聚焦 ≈ 键盘弹出（自定义数字键盘是 button，不触发，符合预期）。
+     真机上配合 viewport 的 resizes-content：键盘收缩布局视口 + kb-open 隐藏底栏 = 原生键盘模型。 */
+  useEffect(() => {
+    const isText = (t: EventTarget | null) => t instanceof HTMLElement && t.matches('input, textarea')
+    const onIn = (e: FocusEvent) => { if (isText(e.target)) setKbOpen(true) }
+    const onOut = (e: FocusEvent) => { if (isText(e.target)) setKbOpen(false) }
+    document.addEventListener('focusin', onIn)
+    document.addEventListener('focusout', onOut)
+    return () => {
+      document.removeEventListener('focusin', onIn)
+      document.removeEventListener('focusout', onOut)
+    }
+  }, [])
 
   const markPending = useCallback((label: string, opId?: string) => {
     setPending(p => [...p, opId ? { label, opId } : { label }])
@@ -512,7 +529,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [voicePhase, stopVoice])
 
   const value: Store = {
-    theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, activeTab, setActiveTab, kbSim, toggleKbSim,
+    theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
     online, syncing, syncPct, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, unpair,
     schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, habits, toggleHabit,
     txs, saveTx,

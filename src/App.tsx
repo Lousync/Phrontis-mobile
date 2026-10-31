@@ -8,11 +8,12 @@ import { UsagePage } from './components/pages/UsagePage'
 import { SettingsPage } from './components/pages/SettingsPage'
 
 function Shell() {
-  const { activeTab, sheet, kbSim } = useApp()
+  const { activeTab, sheet, kbSim, kbOpen } = useApp()
   const p = (id: string) => activeTab === id
   return (
     <>
-      <div className={'app' + (kbSim ? ' kb-sim' : '')}>
+      {/* kb-open = 键盘占据屏幕（真机 focus 探测 / 桌面模拟） */}
+      <div className={'app' + (kbOpen ? ' kb-open' : '') + (kbSim ? ' kb-sim' : '')}>
         <TopBar />
         <main className="pages">
           <AiPage active={p('ai')} />

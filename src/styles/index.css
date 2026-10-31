@@ -475,6 +475,20 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .qr-grid { display: grid; width: 200px; height: 200px; padding: 12px; background: #fff; border-radius: 14px; }
 .qr-cell { width: 100%; height: 100%; }
 
+/* ============ 键盘模型：键盘弹出 = 键盘盖住底栏（原生 App 语义） ============
+ * 真机（coarse 指针）：input/textarea 聚焦（store 的 kbOpen）≈ 键盘弹出。
+ * 配合 index.html 的 interactive-widget=resizes-content：布局视口随键盘收缩 +
+ * 底栏移出文档流下滑隐藏 → 输入区/页面内容直接停靠到键盘上沿，顶栏保持不动。
+ * 桌面模拟（kb-sim）在下方 hover/fine 媒体块里走同一套视觉。
+ * 注意桌面 letterbox（fine 指针）真聚焦输入框时没有键盘占据空间，绝不能隐藏底栏。 */
+@media (pointer: coarse) {
+  .app.kb-open .tabbar {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 0;
+    transform: translateY(110%); visibility: hidden;
+    transition: transform .22s ease, visibility .22s;
+  }
+}
+
 /* ============ Toast ============ */
 .toast-wrap { position: absolute; bottom: calc(78px + env(safe-area-inset-bottom)); left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 60; pointer-events: none; }
 .toast {
@@ -501,10 +515,17 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 @media (hover: hover) and (pointer: fine) {
   .kb-sim-btn { display: flex; }
   .kb-sim-btn.on { color: var(--accent-hover); background: var(--accent-soft); }
-  .app.kb-sim { height: 55dvh; }
+  /* 模拟态 = 键盘展开态：壳收缩 + 底部方角（与键盘齐平）+ 底栏被「键盘」盖住 */
+  .app.kb-sim { height: 55dvh; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .app.kb-sim .tabbar {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 0;
+    transform: translateY(110%); visibility: hidden;
+    transition: transform .22s ease, visibility .22s;
+  }
   .kb-sim-band {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+    position: fixed; bottom: 0; z-index: 60;
     top: calc(55dvh + 12px); /* 手机壳底缘（12px 上边距 + 55dvh），紧贴模拟键盘 */
+    left: 50%; width: min(420px, 100%); transform: translateX(-50%); /* 与手机壳同列，真机键盘即屏幕宽 */
     display: flex; align-items: center; justify-content: center;
     border-top: 1px dashed var(--border);
     color: var(--text-muted); font-size: 12px; letter-spacing: 2px;
