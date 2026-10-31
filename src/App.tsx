@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { AppProvider, useApp } from './lib/store'
 import { TabBar, Toasts, TopBar } from './components/chrome'
 import { AiPage, SessionSheet } from './components/pages/AiPage'
@@ -9,9 +8,7 @@ import { UsagePage } from './components/pages/UsagePage'
 import { SettingsPage } from './components/pages/SettingsPage'
 
 function Shell() {
-  const { activeTab, sheet } = useApp()
-  /* 桌面 letterbox 专用：模拟输入法占位（真机 <480px 时按钮不渲染），验证键盘弹起时贴底控件上提 */
-  const [kbSim, setKbSim] = useState(false)
+  const { activeTab, sheet, kbSim } = useApp()
   const p = (id: string) => activeTab === id
   return (
     <>
@@ -32,9 +29,6 @@ function Shell() {
         {sheet === 'sessions' && <SessionSheet />}
         <Toasts />
       </div>
-      <button className={'kb-sim-toggle' + (kbSim ? ' on' : '')} onClick={() => setKbSim(s => !s)}>
-        {kbSim ? '关闭模拟输入法' : '模拟输入法'}
-      </button>
       {kbSim && <div className="kb-sim-band">模拟输入法区域 · 真机此处为键盘</div>}
     </>
   )

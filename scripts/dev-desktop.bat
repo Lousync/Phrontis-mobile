@@ -25,7 +25,9 @@ echo ==============================================
 echo.
 
 rem open an Edge app-mode window (no tabs / address bar) once vite is up
-start "" /min cmd /c "timeout /t 4 /nobreak >nul && start msedge --app=http://localhost:%PORT% --window-size=452,940"
+rem window 500 wide = 420px phone slab + gutters (letterbox form, and the
+rem keyboard-sim toggle lives in the gutter instead of covering the tabbar)
+start "" /min cmd /c "timeout /t 4 /nobreak >nul && start msedge --app=http://localhost:%PORT% --window-size=500,940"
 
 cd /d "%REPO%"
 call npm run dev -- --strictPort

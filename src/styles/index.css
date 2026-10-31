@@ -490,22 +490,17 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .toast.warn .tdot { background: var(--amber); }
 .toast.info .tdot { background: var(--accent); }
 
-/* ============ 桌面 letterbox 专用：模拟输入法（真机不渲染此控件） ============
+/* ============ 桌面专用：模拟输入法（真机触屏不出现此按钮） ============
  * 真机键盘收缩布局视口的行为由 index.html 的 interactive-widget=resizes-content 提供；
- * 桌面浏览器没有键盘也无法模拟，这个开关把手机壳压到 55dvh 并画出「键盘占位」，
- * 用来验证贴底输入框 / 抽屉在键盘弹出时正确上提。 */
-.kb-sim-toggle { display: none; }
-@media (min-width: 480px) {
-  .kb-sim-toggle {
-    position: fixed; right: 18px; bottom: 18px; z-index: 70;
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 7px 14px; border-radius: 999px;
-    border: 1px solid var(--border); background: var(--outside);
-    color: var(--text-secondary); font-size: 12px;
-    opacity: .8; transition: opacity .15s, border-color .15s, color .15s;
-  }
-  .kb-sim-toggle:hover { opacity: 1; }
-  .kb-sim-toggle.on { border-color: var(--accent); color: var(--accent-hover); opacity: 1; }
+ * 桌面浏览器没有键盘也无法模拟，顶栏的键盘按钮把手机壳压到 55dvh 并画出「键盘占位」，
+ * 用来验证贴底输入框 / 抽屉在键盘弹出时正确上提。
+ * 显示条件按指针能力（hover + 精确指针）而非宽度：启动器 app 窗口只有 500 宽，
+ * 按宽度门限会漏掉它；真机触屏上该媒体条件恒不成立。按钮在顶栏文档流内，
+ * 不遮任何可点区域（上一版固定悬浮曾盖住底栏 Tab）。 */
+.kb-sim-btn { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .kb-sim-btn { display: flex; }
+  .kb-sim-btn.on { color: var(--accent-hover); background: var(--accent-soft); }
   .app.kb-sim { height: 55dvh; }
   .kb-sim-band {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;

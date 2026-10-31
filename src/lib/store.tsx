@@ -21,6 +21,9 @@ interface Store {
   closeSheet: () => void
   activeTab: string
   setActiveTab: (t: string) => void
+  /** 桌面 letterbox 专用：模拟输入法占位（真机顶栏无此按钮，恒为 false） */
+  kbSim: boolean
+  toggleKbSim: () => void
 
   /* 同步 */
   online: boolean
@@ -92,6 +95,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [sheet, setSheet] = useState<SheetId>(null)
   const [activeTab, setActiveTab] = useState('ai')
+  const [kbSim, setKbSim] = useState(false)
 
   const [online, setOnline] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -146,6 +150,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setTheme = useCallback((t: ThemeName) => setThemeState(t), [])
   const openSheet = useCallback((id: Exclude<SheetId, null>) => setSheet(id), [])
   const closeSheet = useCallback(() => setSheet(null), [])
+  const toggleKbSim = useCallback(() => setKbSim(s => !s), [])
 
   const markPending = useCallback((label: string, opId?: string) => {
     setPending(p => [...p, opId ? { label, opId } : { label }])
@@ -507,7 +512,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [voicePhase, stopVoice])
 
   const value: Store = {
-    theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, activeTab, setActiveTab,
+    theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, activeTab, setActiveTab, kbSim, toggleKbSim,
     online, syncing, syncPct, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, unpair,
     schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, habits, toggleHabit,
     txs, saveTx,

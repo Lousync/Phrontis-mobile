@@ -1,8 +1,8 @@
 import { useApp } from '../lib/store'
-import { IBars, IBook, ICalendar, IGear, ISparkle, IWallet } from './icons'
+import { IBars, IBook, ICalendar, IGear, IKeyboard, ISparkle, IWallet } from './icons'
 
 export function TopBar() {
-  const { online, syncing, pending, toggleOnline } = useApp()
+  const { online, syncing, pending, toggleOnline, kbSim, toggleKbSim } = useApp()
   return (
     <header className="topbar">
       <div className="brand">Phrontis <small>MOBILE</small></div>
@@ -11,6 +11,14 @@ export function TopBar() {
         <span className="dot" />
         <span>{syncing ? '同步中…' : online ? '已连接电脑' : '离线模式'}</span>
         {pending.length > 0 && <span className="badge">{pending.length}</span>}
+      </button>
+      {/* 桌面 letterbox 专用：模拟输入法（真机触屏经 CSS 隐藏），验证键盘弹起时贴底控件上提 */}
+      <button
+        className={'icon-btn kb-sim-btn' + (kbSim ? ' on' : '')}
+        onClick={toggleKbSim}
+        title="模拟输入法（桌面专用）：验证键盘弹出时输入框上提"
+      >
+        <IKeyboard size={17} />
       </button>
     </header>
   )
