@@ -11,7 +11,7 @@
     "smoke": "vite build && node scripts/smoke.mjs",
     "cap:sync": "vite build && cap sync",
     "android:open": "cap open android",
-    "android:apk": "vite build && cap sync android && cd android && gradlew.bat assembleDebug"
+    "android:apk": "vite build && cap sync android && cd android && set \"JAVA_HOME=D:\\develp\\jdk-21.0.2\"&& set \"GRADLE_USER_HOME=D:\\develp\\.gradle\"&& gradlew.bat assembleDebug"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.4",

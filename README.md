@@ -17,17 +17,19 @@ npm run dev          # 局域网可访问（--host 已开）：手机同 WiFi �
 
 手机浏览器打开后可通过「添加到主屏幕」安装为独立全屏应用（PWA manifest 已配）。
 
-### 打安卓 APK（需一次性安装 Android Studio）
+### 打安卓 APK
 
-1. 安装 [Android Studio](https://developer.android.com/studio)（含 SDK），首次启动按默认勾选装好 SDK Platform + Build-Tools；
-2. 回到本仓库执行：
+构建链已装在 `D:\develp`（不在 C 盘）：Android Studio 2026.2.2.8（IDE + JBR）、JDK 21（构建用，Gradle 8.11.1 不支持更高）、Android SDK（platform-35 / build-tools 35.0.0 / platform-tools）、Gradle 缓存。gradle wrapper 发行包走腾讯镜像（官方源的重定向 CDN 在国内部分网络下 TLS 握手失败）。
 
 ```bash
-npm run android:apk      # 产物：android/app/build/outputs/apk/debug/app-debug.apk
+npm run android:apk      # 产物：android/app/build/outputs/apk/debug/app-debug.apk（约 4MB）
 ```
 
-3. 或 `npm run android:open` 用 Android Studio 打开工程，连真机点 Run（USB 调试）。
-4. 真机调试：`npx cap run android --livereload --external`（热刷新）；Chrome `chrome://inspect` 看 WebView 控制台。
+传到手机直接安装（需允许「安装未知来源应用」）。开发期更顺手的路径：
+
+- `npm run android:open` —— Android Studio 打开工程，连真机点 Run（需 USB 调试）
+- `npx cap run android --livereload --external` —— 热刷新
+- Chrome `chrome://inspect` —— 看 WebView 控制台
 
 ## 当前进度
 
