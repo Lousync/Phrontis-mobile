@@ -50,7 +50,7 @@ export function UsagePage({ active }: { active: boolean }) {
     <section className={'page' + (active ? ' active' : '')}>
       <div className="ai-head">
         <span className="t">AI 用量</span>
-        <div className="seg" style={{ width: 200, margin: '0 0 0 auto' }}>
+        <div className="seg" id="usageSeg" style={{ width: 200, margin: '0 0 0 auto' }}>
           {(['d1', 'd7', 'd30'] as Win[]).map(w => (
             <button key={w} className={win === w ? 'on' : ''} onClick={() => setWin(w)}>
               {w === 'd1' ? '今日' : w === 'd7' ? '近 7 天' : '近 30 天'}
