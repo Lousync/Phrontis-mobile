@@ -2,7 +2,10 @@
 <html lang="zh-CN" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <!-- interactive-widget=resizes-content：Android Chrome 108+ 默认只缩「视觉视口」（resizes-visual），
+         键盘弹出时 100dvh 壳不动、贴底输入框被盖住；resizes-content 让布局视口随键盘收缩，
+         整壳与贴底控件随之上提（对应桌面 letterbox 的「模拟输入法」开关）。user-scalable=no 禁放大是可访问性反模式，一并移除。 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="theme-color" content="#1e1e1e" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />

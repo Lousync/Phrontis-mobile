@@ -51,6 +51,7 @@ body {
   overscroll-behavior: none;
 }
 button { font-family: inherit; border: none; background: none; color: inherit; cursor: pointer; }
+button, a, [role="button"] { touch-action: manipulation; } /* 免去双击缩放判定，点按零延迟 */
 input, textarea, select { font-family: inherit; color: var(--text-primary); }
 
 /* 应用壳：桌面浏览器里收窄为手机宽居中（letterbox），真机上自然满宽 */
@@ -280,7 +281,7 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 
 /* ============ 笔记 ============ */
 .search-box { display: flex; align-items: center; gap: 8px; background: var(--bg-primary); border: 1px solid var(--border-soft); border-radius: 11px; padding: 0 12px; height: 38px; }
-.search-box input { flex: 1; background: none; border: none; outline: none; font-size: 13px; min-width: 0; }
+.search-box input { flex: 1; background: none; border: none; outline: none; font-size: 16px; min-width: 0; }
 .search-box input::placeholder { color: var(--text-muted); }
 .search-box svg { color: var(--text-muted); flex: none; }
 .vault-line { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-muted); padding: 2px 2px 0; }
@@ -378,7 +379,7 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 @keyframes vbar { 0%, 100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
 .input-bar { display: flex; align-items: center; gap: 8px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 22px; padding: 4px 4px 4px 6px; transition: border-color .15s; }
 .input-bar:focus-within { border-color: var(--accent); }
-.input-bar input { flex: 1; background: none; border: none; outline: none; font-size: 14px; min-width: 0; }
+.input-bar input { flex: 1; background: none; border: none; outline: none; font-size: 16px; min-width: 0; }
 .input-bar input:disabled { opacity: .55; }
 .send-btn { width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; flex: none; transition: background .15s, transform .1s, opacity .2s; }
 .send-btn:hover { background: var(--accent-hover); }
@@ -400,7 +401,7 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .sess-acts button { padding: 6px 10px; border-radius: 8px; font-size: 11.5px; background: var(--bg-tertiary); color: var(--text-secondary); transition: background .13s; }
 .sess-acts button:hover { background: var(--bg-hover); }
 .sess-acts button.danger { color: var(--red); }
-.sess-input { flex: 1; min-width: 0; background: var(--bg-tertiary); border: 1px solid var(--accent); border-radius: 8px; padding: 7px 10px; font-size: 13px; outline: none; }
+.sess-input { flex: 1; min-width: 0; background: var(--bg-tertiary); border: 1px solid var(--accent); border-radius: 8px; padding: 7px 10px; font-size: 16px; outline: none; }
 
 /* ---- 用量 ---- */
 .ubar-wrap { display: flex; align-items: flex-end; gap: 2px; height: 96px; margin-top: 8px; }
@@ -450,7 +451,7 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .keypad button:active { transform: scale(.93); }
 .field { margin: 12px 0; }
 .field label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 7px; }
-.field input, .field textarea { width: 100%; background: var(--bg-tertiary); border: 1px solid var(--border-soft); border-radius: 11px; padding: 11px 13px; font-size: 14px; outline: none; transition: border-color .15s; resize: none; }
+.field input, .field textarea { width: 100%; background: var(--bg-tertiary); border: 1px solid var(--border-soft); border-radius: 11px; padding: 11px 13px; font-size: 16px; outline: none; transition: border-color .15s; resize: none; }
 .field input:focus, .field textarea:focus { border-color: var(--accent); }
 
 /* 设置 */
@@ -488,6 +489,33 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .toast.ok .tdot { background: var(--green); }
 .toast.warn .tdot { background: var(--amber); }
 .toast.info .tdot { background: var(--accent); }
+
+/* ============ 桌面 letterbox 专用：模拟输入法（真机不渲染此控件） ============
+ * 真机键盘收缩布局视口的行为由 index.html 的 interactive-widget=resizes-content 提供；
+ * 桌面浏览器没有键盘也无法模拟，这个开关把手机壳压到 55dvh 并画出「键盘占位」，
+ * 用来验证贴底输入框 / 抽屉在键盘弹出时正确上提。 */
+.kb-sim-toggle { display: none; }
+@media (min-width: 480px) {
+  .kb-sim-toggle {
+    position: fixed; right: 18px; bottom: 18px; z-index: 70;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--outside);
+    color: var(--text-secondary); font-size: 12px;
+    opacity: .8; transition: opacity .15s, border-color .15s, color .15s;
+  }
+  .kb-sim-toggle:hover { opacity: 1; }
+  .kb-sim-toggle.on { border-color: var(--accent); color: var(--accent-hover); opacity: 1; }
+  .app.kb-sim { height: 55dvh; }
+  .kb-sim-band {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+    top: calc(55dvh + 12px); /* 手机壳底缘（12px 上边距 + 55dvh），紧贴模拟键盘 */
+    display: flex; align-items: center; justify-content: center;
+    border-top: 1px dashed var(--border);
+    color: var(--text-muted); font-size: 12px; letter-spacing: 2px;
+    pointer-events: none;
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
