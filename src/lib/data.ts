@@ -168,6 +168,17 @@ export function mdRender(src: string): string {
 export const fmtMoney = (n: number) => n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 export const fmtMin = (m: number) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0')
 
+/** 真实日期（同步回来的条目）→ 流水展示分组（今天/昨天/M月D日）与副标题 */
+export function txDisplay(dateIso: string, time: string): { date: string; sub: string } {
+  const d = new Date(dateIso + 'T00:00:00')
+  const md = (d.getMonth() + 1) + '月' + d.getDate() + '日'
+  const iso = (x: Date) => x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0')
+  const now = new Date()
+  const y = new Date(now); y.setDate(now.getDate() - 1)
+  const date = dateIso === iso(now) ? '今天' : dateIso === iso(y) ? '昨天' : md
+  return { date, sub: time ? md + ' · ' + time : md }
+}
+
 export function fmtK(n: number): string {
   if (n >= 10000) return (n / 10000).toFixed(1).replace(/\.0$/, '') + ' 万'
   if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k'
@@ -186,22 +197,4 @@ export function sessGroupKey(ts: number): 'today' | 'yesterday' | 'd7' | 'd30' |
   return 'older'
 }
 
-/* 伪 QR 码（演示用，确定性图案 + 三个定位角） */
-export function drawQrGrid(n = 21): number[][] {
-  let seed = 20261031
-  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648 }
-  const grid: number[][] = Array.from({ length: n }, () => Array(n).fill(0))
-  const finder = (r: number, c: number) => {
-    for (let i = 0; i < 7; i++) for (let j = 0; j < 7; j++) {
-      const edge = i === 0 || i === 6 || j === 0 || j === 6
-      const core = i >= 2 && i <= 4 && j >= 2 && j <= 4
-      grid[r + i][c + j] = edge || core ? 1 : 0
-    }
-  }
-  finder(0, 0); finder(0, n - 7); finder(n - 7, 0)
-  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
-    const inFinder = (r < 8 && c < 8) || (r < 8 && c >= n - 8) || (r >= n - 8 && c < 8)
-    if (!inFinder && rnd() > 0.52) grid[r][c] = 1
-  }
-  return grid
-}
+/* 伪 QR 码绘制已随 M1 真实配对移除（配对改为设置页输入地址 + 配对码，扫码随 M6 APK 接入） */

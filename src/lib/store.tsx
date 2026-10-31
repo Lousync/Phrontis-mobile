@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { AiMode, Folder, Habit, Msg, PhoneNote, Session, SheetId, SchedView, ThemeName, Todo, Tx, VoicePhase } from './types'
-import { seedFolders, seedHabits, seedSessions, seedTodos, seedTxs, TODAY, VOICE_PHRASES, WELCOME, fmtMoney } from './data'
+import type { AiMode, Folder, Habit, LedgerSyncData, Msg, PairedDevice, PhoneNote, Session, SheetId, SchedView, ThemeName, Todo, Tx, VoicePhase } from './types'
+import { seedFolders, seedHabits, seedSessions, seedTodos, seedTxs, TODAY, VOICE_PHRASES, WELCOME, fmtMoney, txDisplay } from './data'
+import { enqueueOp, getPaired, getQueue, pairWith as pairRequest, probeOnline, syncNow, unpair as unpairDevice, uuid, type RemoteLedgerItem } from './sync'
 
 export interface ToastItem { id: number; msg: string; type: 'ok' | 'warn' | 'info' }
 export type Card = { kind: 'tx' | 'move'; confirmed?: boolean }
@@ -25,11 +26,14 @@ interface Store {
   online: boolean
   syncing: boolean
   syncPct: number
-  pending: Array<{ label: string }>
+  pending: Array<{ label: string; opId?: string }>
   lastSync: string
+  paired: PairedDevice | null
   toggleOnline: () => void
   runSync: () => void
-  markPending: (label: string) => void
+  markPending: (label: string, opId?: string) => void
+  pairWith: (input: string, code: string) => Promise<void>
+  unpair: () => void
 
   /* 日程 */
   schedView: SchedView
@@ -92,8 +96,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [online, setOnline] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [syncPct, setSyncPct] = useState(0)
-  const [pending, setPending] = useState<Array<{ label: string }>>([])
+  const [pending, setPending] = useState<Array<{ label: string; opId?: string }>>([])
   const [lastSync, setLastSync] = useState('今天 09:12')
+  const [paired, setPaired] = useState<PairedDevice | null>(() => getPaired())
 
   const [schedView, setSchedView] = useState<SchedView>('list')
   const [selDate, setSelDate] = useState(TODAY)
@@ -128,6 +133,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const sessionsRef = useRef(sessions); sessionsRef.current = sessions
   const curSessionRef = useRef(curSession); curSessionRef.current = curSession
   const streamingRef = useRef(streaming); streamingRef.current = streaming
+  const runSyncRef = useRef<() => void>(() => {})
 
   useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
 
@@ -141,44 +147,151 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const openSheet = useCallback((id: Exclude<SheetId, null>) => setSheet(id), [])
   const closeSheet = useCallback(() => setSheet(null), [])
 
-  const markPending = useCallback((label: string) => {
-    setPending(p => [...p, { label }])
+  const markPending = useCallback((label: string, opId?: string) => {
+    setPending(p => [...p, opId ? { label, opId } : { label }])
+  }, [])
+
+  /* 电脑下行的记账条目按 id 幂等并入本地流水（自己的上行被原样带回时 = 无操作） */
+  const applyRemoteLedger = useCallback((remote: RemoteLedgerItem[]) => {
+    if (!remote.length) return
+    setTxs(list => {
+      const byId = new Map(list.map(t => [t.id, t]))
+      const known = new Set(list.map(t => t.id))
+      for (const r of remote) {
+        const d = r.data
+        const disp = txDisplay(d.date, d.time)
+        byId.set(r.id, {
+          id: r.id, date: disp.date, sub: disp.sub,
+          name: d.merchant || d.category, cat: d.category,
+          amt: d.type === 'expense' ? -d.amount : d.amount, acc: d.payment || '其他',
+        })
+      }
+      const fresh: Tx[] = []
+      const kept: Tx[] = []
+      for (const t of byId.values()) (known.has(t.id) ? kept : fresh).push(t)
+      return [...fresh.reverse(), ...kept]
+    })
   }, [])
 
   const runSync = useCallback(() => {
-    if (syncingRef.current) return
-    if (!onlineRef.current) { toast('电脑不在线，同步搁置', 'warn'); return }
-    const n = pendingRef.current.length
-    if (n === 0) { toast('没有待同步的变更', 'info'); return }
-    setSyncing(true)
-    let p = 0
-    const timer = setInterval(() => {
-      p = Math.min(100, p + 14 + Math.random() * 16)
-      setSyncPct(p)
-      if (p >= 100) {
-        clearInterval(timer)
-        setTimeout(() => {
-          setPending([])
-          setSyncing(false)
-          setSyncPct(0)
-          setLastSync('刚刚')
-          setPhoneNotes(list => list.map(x => ({ ...x, synced: true })))
-          toast('已同步 ' + n + ' 条变更到电脑', 'ok')
-        }, 250)
+    void (async () => {
+      if (syncingRef.current) return
+      const device = getPaired()
+      if (!device || !onlineRef.current) {
+        /* 未配对 / 离线 → 原型演示通路（数据只动本地展示） */
+        if (!onlineRef.current) { toast('电脑不在线，同步搁置', 'warn'); return }
+        const n = pendingRef.current.length
+        if (n === 0) { toast('没有待同步的变更', 'info'); return }
+        setSyncing(true)
+        let pct = 0
+        const timer = setInterval(() => {
+          pct = Math.min(100, pct + 14 + Math.random() * 16)
+          setSyncPct(pct)
+          if (pct >= 100) {
+            clearInterval(timer)
+            setTimeout(() => {
+              setPending([])
+              setSyncing(false)
+              setSyncPct(0)
+              setLastSync('刚刚')
+              setPhoneNotes(list => list.map(x => ({ ...x, synced: true })))
+              toast('已同步 ' + n + ' 条变更到电脑', 'ok')
+            }, 250)
+          }
+        }, 200)
+        return
       }
-    }, 200)
-  }, [toast])
+      /* 已配对 → 真实对账（push 队列 + pull 记账增量） */
+      if (getQueue().length === 0 && pendingRef.current.length === 0) { toast('没有待同步的变更', 'info'); return }
+      setSyncing(true)
+      setSyncPct(8)
+      try {
+        const out = await syncNow(pct => setSyncPct(pct))
+        applyRemoteLedger(out.remote)
+        const handled = new Set(out.handledIds)
+        setPending(list => list.filter(x => !x.opId || !handled.has(x.opId)))
+        setSyncing(false)
+        setSyncPct(0)
+        const now = new Date()
+        setLastSync('今天 ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'))
+        const parts: string[] = []
+        if (out.applied) parts.push('上行 ' + out.applied + ' 条')
+        if (out.conflicts) parts.push(out.conflicts + ' 条以电脑为准')
+        if (out.pulled) parts.push('下行 ' + out.pulled + ' 条')
+        const remain = getQueue().length
+        const remainNote = remain ? '（' + remain + ' 条日程变更待 M2 接入）' : ''
+        toast(parts.length ? '已同步：' + parts.join(' · ') + remainNote : '与电脑已是对账状态' + remainNote, 'ok')
+      } catch (e) {
+        setSyncing(false)
+        setSyncPct(0)
+        toast(e instanceof Error ? e.message : '同步失败', 'warn')
+      }
+    })()
+  }, [toast, applyRemoteLedger])
 
   const toggleOnline = useCallback(() => {
-    const next = !onlineRef.current
-    setOnline(next)
-    if (next) {
-      toast('已连上 Phrontis-PC', 'ok')
-      if (pendingRef.current.length) setTimeout(runSync, 900)
-    } else {
-      toast('已切到离线 · 数据照常记在手机', 'warn')
+    void (async () => {
+      const device = getPaired()
+      if (!device) {
+        /* 原型演示通路 */
+        const next = !onlineRef.current
+        setOnline(next)
+        if (next) {
+          toast('已连上 Phrontis-PC', 'ok')
+          if (pendingRef.current.length) setTimeout(() => void runSyncRef.current(), 900)
+        } else {
+          toast('已切到离线 · 数据照常记在手机', 'warn')
+        }
+        return
+      }
+      if (onlineRef.current) {
+        setOnline(false)
+        toast('已切到离线 · 数据照常记在手机', 'warn')
+        return
+      }
+      toast('正在连接 ' + device.pcName + '…', 'info')
+      const ok = await probeOnline()
+      setOnline(ok)
+      if (ok) {
+        toast('已连上 ' + device.pcName, 'ok')
+        if (getQueue().length) setTimeout(() => void runSyncRef.current(), 400)
+      } else {
+        toast('连不上电脑：确认同一网络、电脑端服务已开启', 'warn')
+      }
+    })()
+  }, [toast])
+
+  /* ---------- 配对 ---------- */
+
+  const pairWith = useCallback(async (input: string, code: string) => {
+    try {
+      const device = await pairRequest(input, code, 'Phrontis 手机')
+      setPaired(device)
+      toast('已配对 ' + device.pcName + ' · 开始首次对账', 'ok')
+      const ok = await probeOnline()
+      setOnline(ok)
+      if (ok) setTimeout(() => void runSyncRef.current(), 500)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '配对失败', 'warn')
     }
-  }, [runSync, toast])
+  }, [toast])
+
+  const unpair = useCallback(() => {
+    unpairDevice()
+    setPaired(null)
+    setOnline(true)
+    toast('已解除配对，数据保留在手机', 'ok')
+  }, [toast])
+
+  /* 已配对：启动即探测电脑，在线且有积压就自动对账 */
+  useEffect(() => {
+    if (!getPaired()) return
+    void probeOnline().then(ok => {
+      setOnline(ok)
+      if (ok && getQueue().length) setTimeout(() => void runSyncRef.current(), 800)
+    })
+  }, [])
+  runSyncRef.current = runSync
 
   /* ---------- 日程 ---------- */
 
@@ -210,8 +323,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const saveTx = useCallback((input: { type: 'expense' | 'income'; amount: number; cat: string; acc: string }) => {
     const isExp = input.type === 'expense'
-    setTxs(list => [{ id: nextId('x'), date: '今天', sub: '10月31日 · 刚刚', name: input.cat, cat: input.cat, amt: isExp ? -input.amount : input.amount, acc: input.acc }, ...list])
-    markPending((isExp ? '支出' : '收入') + ' ¥' + fmtMoney(input.amount) + ' · ' + input.cat)
+    /* 条目 UUID 在生成时定死并终身不变：本地展示与上行同步共用同一 id */
+    const id = uuid()
+    const nowD = new Date()
+    const pad2 = (n: number) => String(n).padStart(2, '0')
+    const dateIso = nowD.getFullYear() + '-' + pad2(nowD.getMonth() + 1) + '-' + pad2(nowD.getDate())
+    const time = pad2(nowD.getHours()) + ':' + pad2(nowD.getMinutes())
+    const data: LedgerSyncData = {
+      date: dateIso, time, type: input.type, amount: input.amount,
+      category: input.cat, payment: input.acc, merchant: input.cat, note: '',
+    }
+    const label = (isExp ? '支出' : '收入') + ' ¥' + fmtMoney(input.amount) + ' · ' + input.cat
+    enqueueOp({ id, domain: 'ledger', updatedAt: nowD.toISOString(), data, label })
+    const disp = txDisplay(dateIso, time)
+    setTxs(list => [{ id, date: disp.date, sub: disp.sub, name: input.cat, cat: input.cat, amt: isExp ? -input.amount : input.amount, acc: input.acc }, ...list])
+    markPending(label, id)
     toast('已记一笔 · 待同步进电脑', 'ok')
   }, [markPending, toast])
 
@@ -382,7 +508,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value: Store = {
     theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, activeTab, setActiveTab,
-    online, syncing, syncPct, pending, lastSync, toggleOnline, runSync, markPending,
+    online, syncing, syncPct, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, unpair,
     schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, habits, toggleHabit,
     txs, saveTx,
     folders, toggleFolder, markCached, phoneNotes, addPhoneNote,

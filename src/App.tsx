@@ -5,7 +5,7 @@ import { SchedulePage, TodoSheet } from './components/pages/SchedulePage'
 import { LedgerPage, TxSheet } from './components/pages/LedgerPage'
 import { NoteSheet, NotesPage } from './components/pages/NotesPage'
 import { UsagePage } from './components/pages/UsagePage'
-import { QrSheet, SettingsPage } from './components/pages/SettingsPage'
+import { SettingsPage } from './components/pages/SettingsPage'
 
 function Shell() {
   const { activeTab, sheet } = useApp()
@@ -26,7 +26,6 @@ function Shell() {
       {sheet === 'todo' && <TodoSheet />}
       {sheet === 'note' && <NoteSheet />}
       {sheet === 'sessions' && <SessionSheet />}
-      {sheet === 'qr' && <QrSheet />}
       <Toasts />
     </div>
   )

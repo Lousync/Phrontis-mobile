@@ -18,6 +18,7 @@
 | 2026-10-31 | **会话管理**：仿 DeepSeek 手机端——搜索 + 时间分组（置顶/今天/昨天/7天内/30天内/更早）+ 单行标题 + 长按呼出操作条（置顶/重命名/删除）。 |
 | 2026-10-31 | **用量**：独立导航 Tab（AI·日程·记账·笔记·用量·设置 六栏），不做 AI 页内嵌细条。 |
 | 2026-10-31 | **语音输入**：做，云端直连优先（详见 §6）；不做本地离线 ASR。 |
+| 2026-10-31 | **M1 拍板**：配对 = 「8 位数字配对码（面板打开时生成、10 分钟有效、**一次配对即作废**）→ 换长期设备令牌」；服务默认端口 **8770**（lanShare 8765 不动）；手机端存储 M1 用 localStorage（等价 Preferences 形态），M2 评估 SQLite；v1 同步域**只做记账 `ledger`**（原「记账+日程双向」收窄，日程随 M2 加域，端点结构不变）；冲突裁决从「各留副本」简化为「同刻桌面赢 + `conflict` 标记回传」，删除同步（墓碑）挂 v1.1。 |
 
 ---
 
@@ -42,12 +43,30 @@
 └─────────────────────────────────────────────┘
 ```
 
-### 2.1 同步协议要点
+### 2.1 同步协议 v1（2026-10-31 冻结，M1 落地口径）
 
-- **按条目合并**：新增型操作（记账一笔、建一条待办、手机笔记）UUID 没见过就并入；修改型操作按「新改的赢」（`updatedAt` + 设备号），冲突兜底给双方各留一份副本。不需要 CRDT。
-- **双向范围**（v1）：记账双向；日程双向；笔记 = 下行按需缓存 + 上行「手机笔记」（落成 vault 普通 `.md`）；AI 会话记录**不上行（二期）**。
-- **触发**：检测到已配对电脑上线 → 自动对账；设置页保留「立即同步」；同步中 UI 有进度，待同步条数在 UI 常显（琥珀色徽标）。
-- **落库纪律**：电脑端同步端点只调 `electron/lib/kbStore/` 既有业务函数，写完 `windowBus.broadcastDataChanged` —— 与 IPC/AI 工具共用同一条写入路径，桌面界面自动刷新。
+传输：局域网明文 HTTP（与 LocalSend / lanShare 同一信任模型），**私网网段白名单** + `Authorization: Bearer <deviceToken>`；报文 JSON；服务端开 CORS（手机 WebView 与服务不同源：`Access-Control-Allow-Origin: *` + 放行 `authorization` 头；令牌不落 cookie，无 CSRF 面）。
+
+**端点（桌面「手机伴侣」服务，默认端口 8770）：**
+
+| 端点 | 说明 |
+|---|---|
+| `POST /api/pair` | `{ code, deviceName }` → `{ ok, deviceToken, protocol: 1, pc: { name }, domains }`；code 8 位数字、10 分钟有效、**配对成功即作废**；尝试限频（10 次/分钟/IP） |
+| `GET /api/ping` | 存活探测（带令牌），手机端以此判断「电脑在线」 |
+| `POST /api/sync/push` | `{ deviceId, changes: [{ domain, id, updatedAt, data }] }` → `{ ok, results: [{ id, applied, conflict?, reason? }], serverTime }` |
+| `POST /api/sync/pull` | `{ since: { ledger: <ms> } }` → `{ ok, changes: { ledger: [{ id, updatedAt, data }] }, cursor: { ledger: <ms> } }` |
+
+**合并规则（不需要 CRDT）：**
+
+- 身份 = 域内条目 UUID（手机生成、终身不变；桌面 repo 需要对应的**保 id upsert**，见 §8）。
+- 新增（id 未见）：直接并入。
+- 修改：`updatedAt`（ISO 字符串）**新的赢**；相同 → 桌面赢，响应标 `conflict: true`，手机以服务端版本为准回写收敛。
+- v1 **没有删除**：删除同步需要墓碑机制，挂 v1.1（M2 一并评估）。
+- 游标 = 毫秒时间戳：手机存 `lastSyncAt.ledger`；push 成功先推进到响应的 `serverTime`，pull 用它过滤 `updatedAt > since`，完成后推进到 `cursor.ledger`。自己推上去的条目会被 pull 原样带回，按 id 幂等合并（收敛性保证）。
+
+**v1 域范围：只做 `ledger`（记账）。** 条目 data = `{ date, time, type: 'expense'|'income', amount, category, payment, merchant, note }`（桌面 `TransactionRow` 的子集；`source` 由服务端补 `'phone'`；转账/定期收入 v1 不上行）。日程随 M2、笔记随 M3 加域，端点结构不变。
+
+**触发：** 已配对且探测到电脑在线 → 自动对账（启动时 + 写操作后 + 手动「立即同步」）；未配对/离线时一切照旧记本地，待同步条数 UI 常显（琥珀色徽标）。
 
 ### 2.2 发现与配对
 
@@ -58,6 +77,8 @@
 3. 文件传输端点 → **域级同步 API**。
 
 mDNS 自动发现是锦上添花，二维码方案第一版就够。
+
+**M1 实操流程**：桌面端入口 = 工具箱 →「手机伴侣」（常驻服务，可开可关，设置项 `companionAutoStart` 开机自启）；桌面出示**配对码 + 二维码**（二维码内容 `http://<ip>:8770/pair#<配对码>`，为将来扫码预留）。手机端 M1 在 设置 → 同步 里**手动输入**地址与配对码（或粘贴桌面端完整配对链接）——手机浏览器测试流程没有相机可用，APK 相机扫码随 M6 打包阶段接入。
 
 ## 3. AI 两档
 
