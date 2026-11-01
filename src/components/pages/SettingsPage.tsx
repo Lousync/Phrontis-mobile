@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import type { AiConfig, AiProvider } from '../../lib/types'
 import { AI_PRESETS, aiConfigReady, testAiConfig } from '../../lib/ai'
 import { useApp } from '../../lib/store'
-import { ICheck, IMonitor } from '../../components/icons'
+import { IBars, ICheck, IChevR, IKeyboard, IMonitor } from '../../components/icons'
+import { PageHead } from '../../components/chrome'
 
 const PROVIDERS: Array<{ key: AiProvider; label: string }> = [
   { key: 'deepseek', label: 'DeepSeek' },
@@ -18,7 +19,7 @@ const PROVIDERS: Array<{ key: AiProvider; label: string }> = [
  * AI 区 = M4a 直连档配置（pm.aiConfig，Key 只在本机）。
  */
 export function SettingsPage({ active }: { active: boolean }) {
-  const { paired, online, syncing, syncPct, lastSync, runSync, pairWith, unpair, theme, setTheme, toast, aiConfig, updateAiConfig } = useApp()
+  const { paired, online, syncing, syncPct, lastSync, runSync, pairWith, unpair, theme, setTheme, toast, aiConfig, updateAiConfig, setActiveTab, kbSim, toggleKbSim } = useApp()
   const [scope, setScope] = useState<Record<string, boolean>>({ 记账: true, 日程: true, 笔记: true, 'AI 会话记录': false })
   const [pairInput, setPairInput] = useState('')
   const [pairCode, setPairCode] = useState('')
@@ -67,7 +68,7 @@ export function SettingsPage({ active }: { active: boolean }) {
 
   return (
     <section className={'page' + (active ? ' active' : '')}>
-      <div className="ai-head"><span className="t">设置</span></div>
+      <PageHead title="设置" />
 
       <div>
         <div className="set-label">同步</div>
@@ -142,6 +143,21 @@ export function SettingsPage({ active }: { active: boolean }) {
       </div>
 
       <div>
+        <div className="set-label">工具</div>
+        <div className="card" style={{ padding: '2px 14px' }}>
+          {/* 用量从底栏降级到这里的二级入口（M3 ≤5 规范） */}
+          <button className="tool-row" onClick={e => setActiveTab('usage', e.currentTarget)}>
+            <span className="tool-ico"><IBars /></span>
+            <span className="tool-body">
+              <span className="n">AI 用量</span>
+              <span className="s">Token · 花费 · 按模型统计</span>
+            </span>
+            <IChevR size={14} />
+          </button>
+        </div>
+      </div>
+
+      <div>
         <div className="set-label">AI 模型（手机直连）</div>
         <div className="card">
           <div className="field" style={{ marginTop: 2 }}>
@@ -184,11 +200,17 @@ export function SettingsPage({ active }: { active: boolean }) {
             <button className={theme === 'dark' ? 'on' : ''} onClick={() => setTheme('dark')}>深色</button>
             <button className={theme === 'light' ? 'on' : ''} onClick={() => setTheme('light')}>浅色</button>
           </div>
+          {/* 桌面 letterbox 专用（触屏经 CSS 隐藏）：验证键盘弹出时贴底控件上提 */}
+          <div className="check-row kb-sim-row" onClick={toggleKbSim}>
+            <span className={'box' + (kbSim ? ' on' : '')}>{kbSim && <ICheck size={11} />}</span>
+            模拟输入法 <IKeyboard size={13} style={{ color: 'var(--text-muted)' }} />
+            <span className="why">桌面调试</span>
+          </div>
           <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6 }}>正式版提供「跟随桌面端主题」选项，主题配置随同步走。</div>
         </div>
       </div>
 
-      <div className="ver">Phrontis Mobile 0.3.0 · 与桌面 3.15.1 配套</div>
+      <div className="ver">Phrontis Mobile 0.4.0 · 与桌面 3.15.1 配套</div>
     </section>
   )
 }

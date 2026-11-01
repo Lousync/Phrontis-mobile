@@ -1,5 +1,5 @@
 import { AppProvider, useApp } from './lib/store'
-import { TabBar, Toasts, TopBar } from './components/chrome'
+import { ShellChrome, Toasts } from './components/chrome'
 import { AiPage, SessionSheet } from './components/pages/AiPage'
 import { SchedulePage, TodoSheet } from './components/pages/SchedulePage'
 import { LedgerPage, TxSheet } from './components/pages/LedgerPage'
@@ -14,7 +14,6 @@ function Shell() {
     <>
       {/* kb-open = 键盘占据屏幕（真机 focus 探测 / 桌面模拟） */}
       <div className={'app' + (kbOpen ? ' kb-open' : '') + (kbSim ? ' kb-sim' : '')}>
-        <TopBar />
         <main className="pages">
           <AiPage active={p('ai')} />
           <SchedulePage active={p('schedule')} />
@@ -23,7 +22,7 @@ function Shell() {
           <UsagePage active={p('usage')} />
           <SettingsPage active={p('settings')} />
         </main>
-        <TabBar />
+        <ShellChrome />
         {(sheet === 'tx' || sheet === 'tx-edit') && <TxSheet />}
         {sheet === 'todo' && <TodoSheet selDate={selDate} />}
         {sheet === 'note' && <NoteSheet />}

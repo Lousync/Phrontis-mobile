@@ -1,4 +1,4 @@
-/* M0 冒烟测试：自起 vite preview，无头 Edge 遍历六 Tab + 核心交互，采集运行时错误。npm run smoke */
+/* M0 冒烟测试：自起 vite preview，无头 Edge 遍历 5 页签浮坞壳层 + 核心交互，采集运行时错误。npm run smoke */
 import { spawn } from 'child_process'
 import { chromium } from 'playwright'
 
@@ -33,20 +33,50 @@ await page.goto(BASE, { waitUntil: 'networkidle' })
 await page.waitForTimeout(400)
 
 ok('应用挂载（#root 有内容）', await page.locator('#root .app').count() === 1)
-ok('默认落在 AI Tab', await page.locator('#root .page.active .ai-head').count() === 1)
+ok('默认落在 AI 页（大标题页头）', (await page.locator('#root .page.active .pg-head .t').innerText()) === 'AI 助手')
+ok('标题下元信息行（SyncMeta）渲染', (await page.locator('#root .page.active .pg-head .c-meta').count()) === 1)
 ok('AI 欢迎消息渲染', (await page.locator('#root .chat .msg').count()) >= 1)
+ok('浮坞 5 页签（用量已降级）', (await page.locator('#root .dock button').count()) === 5)
 
-const tabs = [['AI', '.ai-head'], ['日程', '.week-strip'], ['记账', '.month-head'], ['笔记', '.search-box'], ['用量', '.ubar-wrap'], ['设置', '.ver']]
+const tabs = [['AI', '.chat .msg'], ['日程', '.week-strip'], ['记账', '.stat-row'], ['笔记', '.search-box'], ['设置', '.ver']]
 for (const [label, probe] of tabs) {
-  await page.locator('.tabbar button', { hasText: label }).click()
+  await page.locator('#root .dock button', { hasText: label }).click()
   await page.waitForTimeout(250)
-  ok(`Tab「${label}」切换渲染（${probe}）`, (await page.locator('#root .page.active ' + probe).count()) >= 1)
+  ok(`页签「${label}」切换渲染（${probe}）`, (await page.locator('#root .page.active ' + probe).count()) >= 1)
 }
 
-/* 日程：切到排期视图（时间轴）与打卡视图；周条翻周 */
-await page.locator('.tabbar button', { hasText: '日程' }).click()
-await page.locator('.view-seg button', { hasText: '排期' }).click()
+/* 收拢顶栏与浮坞收缩：设置页内容足够长，JS 置 scrollTop 触发 scroll 事件 */
+await page.locator('#root .dock button', { hasText: '设置' }).click()
+await page.waitForTimeout(250)
+await page.locator('#root .page.active').evaluate(el => { el.scrollTop = 300 })
+await page.waitForTimeout(250)
+ok('滚动 >46px：小顶栏淡入', (await page.locator('#root .c-bar.on').count()) === 1)
+ok('滚动下潜：浮坞收缩成当前页胶囊', (await page.locator('#root .dock.min').count()) === 1)
+await page.locator('#root .page.active').evaluate(el => { el.scrollTop = 0 })
+await page.waitForTimeout(250)
+ok('回顶：小顶栏与浮坞复位', (await page.locator('#root .c-bar.on').count()) === 0 && (await page.locator('#root .dock.min').count()) === 0)
+
+/* 二级入口：设置 → 工具 → AI 用量 → 返回 */
+await page.locator('#root .tool-row', { hasText: 'AI 用量' }).click()
+await page.waitForTimeout(250)
+ok('用量二级入口（24 根小时柱）', (await page.locator('#root .ubar').count()) === 24)
+await page.locator('#usageSeg button', { hasText: '近 30 天' }).click()
 await page.waitForTimeout(200)
+ok('用量近 30 天（30 根柱）', (await page.locator('#root .ubar').count()) === 30)
+await page.locator('#root .pg-back').click()
+await page.waitForTimeout(250)
+ok('用量返回设置页', (await page.locator('#root .page.active .tool-row').count()) === 1)
+
+/* 日程：待办勾选组合拳 / 排期 / 打卡 / 周条翻周 */
+await page.locator('#root .dock button', { hasText: '日程' }).click()
+await page.waitForTimeout(250)
+ok('日程大标题 + 进度环', (await page.locator('#root .page.active .ring').count()) === 1)
+const doneBefore = await page.locator('#root .todo-item.done').count()
+await page.locator('#root .todo-item:not(.done) .todo-check').first().click()
+await page.waitForTimeout(250)
+ok('勾选完成反馈（done 态 + 对勾绘制类）', (await page.locator('#root .todo-item.done').count()) === doneBefore + 1)
+await page.locator('.view-seg button', { hasText: '排期' }).click()
+await page.waitForTimeout(300)
 ok('日程排期视图（时间轴块）', (await page.locator('#root .gblock').count()) >= 3)
 await page.locator('.view-seg button', { hasText: '打卡' }).click()
 await page.waitForTimeout(200)
@@ -59,8 +89,9 @@ await page.locator('#root .today-jump').click()
 await page.waitForTimeout(150)
 ok('回到今天（按钮消失）', (await page.locator('#root .today-jump').count()) === 0)
 
-/* 记账：打开记一笔键盘，输入并保存一条（含两位小数） */
-await page.locator('.tabbar button', { hasText: '记账' }).click()
+/* 记账：记一笔（FAB 圆形展开抽屉）→ 落账 → 未配对元信息行跳设置 */
+await page.locator('#root .dock button', { hasText: '记账' }).click()
+await page.waitForTimeout(250)
 await page.locator('#root .page.active .fab').click()
 await page.waitForTimeout(350)
 ok('记一笔抽屉（键盘）', (await page.locator('#root .keypad button').count()) === 12)
@@ -72,16 +103,13 @@ ok('金额两位小数（¥38.50）', (await page.locator('#root .sheet .amt-dis
 await page.locator('.sheet .btn-primary').click()
 await page.waitForTimeout(300)
 ok('记一笔落账（出现 ¥38.50）', (await page.locator('#root .tx-amt', { hasText: '¥38.50' }).count()) >= 1)
-ok('待同步徽标出现', (await page.locator('#root .sync-pill .badge').count()) === 1)
-
-/* 同步胶囊：未配对 → 引导去设置页配对（不再假装在线/离线切换） */
-await page.locator('.sync-pill').click()
+await page.locator('#root .page.active .c-meta.unp').click()
 await page.waitForTimeout(250)
-ok('未配对点胶囊跳设置页', (await page.locator('#root .page.active .set-label').count()) >= 1)
+ok('未配对点元信息行跳设置页', (await page.locator('#root .page.active .set-label').count()) >= 1)
 
 /* AI：会话抽屉 + 语音按钮状态机 */
-await page.locator('.tabbar button', { hasText: 'AI' }).click()
-await page.locator('#root .page.active .ai-head .icon-btn').click()
+await page.locator('#root .dock button', { hasText: 'AI' }).click()
+await page.locator('#root .page.active .pg-head .icon-btn').click()
 await page.waitForTimeout(350)
 ok('会话抽屉（时间分组）', (await page.locator('#root .sess-group-head').count()) >= 4)
 await page.locator('#root .sess-row').first().click({ position: { x: 10, y: 10 } })
@@ -94,14 +122,8 @@ await page.locator('.mic-btn').click()
 await page.waitForTimeout(2800)
 ok('转写自动发送（AI 回复出现）', (await page.locator('#root .chat .msg.ai').count()) >= 2)
 
-/* 用量：切窗口 */
-await page.locator('.tabbar button', { hasText: '用量' }).click()
-await page.locator('#usageSeg button', { hasText: '近 30 天' }).click()
-await page.waitForTimeout(200)
-ok('用量近 30 天（30 根柱）', (await page.locator('#root .ubar').count()) === 30)
-
 /* 设置：主题切换 */
-await page.locator('.tabbar button', { hasText: '设置' }).click()
+await page.locator('#root .dock button', { hasText: '设置' }).click()
 await page.locator('#root .page.active .seg button', { hasText: '浅色' }).click()
 await page.waitForTimeout(200)
 ok('浅色主题生效', (await page.locator('html[data-theme="light"]').count()) === 1)

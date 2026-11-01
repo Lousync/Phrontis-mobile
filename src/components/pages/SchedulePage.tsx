@@ -1,9 +1,21 @@
 import { useRef, useState } from 'react'
 import type { Habit, Todo, TodoType } from '../../lib/types'
 import { TODO_TYPE_LABEL, TODAY, dayIso, fmtMin, weekOf } from '../../lib/data'
+import { burstAt } from '../../lib/fx'
 import { useApp } from '../../lib/store'
-import { ICheck, IChevL, IChevR, IPlus } from '../../components/icons'
+import { IChevL, IChevR, IPlus } from '../../components/icons'
 import { Grip, Sheet } from '../../components/Sheet'
+import { PageHead } from '../../components/chrome'
+
+/** 两笔对勾（逐段绘制用），待办与打卡共用 */
+function CheckDraw({ size = 14 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size}>
+      <path className="ck1" d="M5 12.5l4.5 4.5" />
+      <path className="ck2" d="M9.5 17L19 7.5" />
+    </svg>
+  )
+}
 
 function TodoItem({ t, confirming, onAsk, onConfirm, onCancel }: {
   t: Todo
@@ -15,6 +27,7 @@ function TodoItem({ t, confirming, onAsk, onConfirm, onCancel }: {
   const { toggleTodo } = useApp()
   /* 长按呼出删除确认（pointer 手势；滚动产生的 move 会自动取消，不误触） */
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const checkRef = useRef<HTMLButtonElement>(null)
   const armPress = () => {
     cancelPress()
     pressTimer.current = setTimeout(() => {
@@ -33,7 +46,17 @@ function TodoItem({ t, confirming, onAsk, onConfirm, onCancel }: {
       onPointerMove={cancelPress}
       onContextMenu={e => { e.preventDefault(); onAsk(t.id) }}
     >
-      <button className="todo-check" onClick={() => toggleTodo(t.id)}><ICheck /></button>
+      <button
+        ref={checkRef}
+        className="todo-check"
+        onClick={() => {
+          /* 完成反馈组合拳：对勾逐笔绘制（CSS）+ 粒子迸发；撤销只反向绘制 */
+          if (!t.done) burstAt(checkRef.current)
+          toggleTodo(t.id)
+        }}
+      >
+        <CheckDraw />
+      </button>
       <div className="todo-body">
         {confirming ? (
           <div className="del-confirm">
@@ -101,22 +124,24 @@ function DayGrid({ dayTodos }: { dayTodos: Todo[] }) {
   const showNow = dayTodos.length > 0 && nowMin >= START && nowMin <= END && dayTodos.some(t => t.date === TODAY)
   return (
     <div className="day-grid" style={{ height: ((END - START) / 60) * H + 14 }}>
-      {hours.map(m => {
+      {hours.map((m, i) => {
         const top = ((m - START) / 60) * H + 12
+        /* 小时线逐段画出：横向 staggered */
+        const delay = { animationDelay: i * 28 + 'ms' }
         return (
           <div key={m}>
-            <div className="hour-row" style={{ top }} />
-            <div className="hour-label" style={{ top }}>{fmtMin(m)}</div>
+            <div className="hour-row" style={{ top, ...delay }} />
+            <div className="hour-label" style={{ top, ...delay }}>{fmtMin(m)}</div>
           </div>
         )
       })}
-      {blocks.map(t => {
+      {blocks.map((t, i) => {
         const top = ((t.sched!.s - START) / 60) * H + 12
         const h = Math.max(28, ((t.sched!.e - t.sched!.s) / 60) * H - 4)
         const c = colorOf(t)
         return (
           <div key={t.id} className={'gblock' + (t.done ? ' done' : '')}
-            style={{ top, height: h, borderLeftColor: c, background: `color-mix(in srgb, ${c} 13%, transparent)` }}
+            style={{ top, height: h, borderLeftColor: c, background: `color-mix(in srgb, ${c} 13%, transparent)`, animationDelay: 240 + i * 45 + 'ms' }}
             onClick={() => toast(t.title + ' ' + fmtMin(t.sched!.s) + '–' + fmtMin(t.sched!.e), 'info')}>
             <span className="gt">{t.title}</span>
             <span className="gm" style={{ color: c }}>{fmtMin(t.sched!.s)}–{fmtMin(t.sched!.e)}{t.done ? ' · 已完成' : ''}</span>
@@ -131,6 +156,7 @@ function DayGrid({ dayTodos }: { dayTodos: Todo[] }) {
 
 function HabitCard({ h }: { h: Habit }) {
   const { toggleHabit } = useApp()
+  const btnRef = useRef<HTMLButtonElement>(null)
   const doneToday = !!h.hist[5]
   const pct = Math.min(100, h.weekDone / h.target * 100)
   const WD = ['一', '二', '三', '四', '五', '六', '日']
@@ -150,7 +176,13 @@ function HabitCard({ h }: { h: Habit }) {
       <div className="habit-foot">
         <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flex: 'none' }}>本周 {h.weekDone}/{h.target}</span>
         <div className="habit-prog"><span className="fill" style={{ width: pct + '%', background: h.color }} /></div>
-        <button className={'habit-btn' + (doneToday ? ' done' : '')} onClick={() => toggleHabit(h.id)}><ICheck size={14} /></button>
+        <button
+          ref={btnRef}
+          className={'habit-btn' + (doneToday ? ' done' : '')}
+          onClick={() => { if (!doneToday) burstAt(btnRef.current); toggleHabit(h.id) }}
+        >
+          <CheckDraw size={15} />
+        </button>
       </div>
     </div>
   )
@@ -189,7 +221,10 @@ export function SchedulePage({ active }: { active: boolean }) {
   const [delId, setDelId] = useState<string | null>(null)
   const [weekOff, setWeekOff] = useState(0)
   const dayTodos = todos.filter(t => t.date === selDate)
+  const totalN = dayTodos.filter(t => !t.parentId).length
   const doneN = dayTodos.filter(t => t.done && !t.parentId).length
+  const full = totalN > 0 && doneN === totalN
+  const frac = totalN ? doneN / totalN : 0
   const week = weekOf(weekOff)
   /* 日期头按真实日期渲染；星期从 selDate 自身算——翻周后选中日不在当前周条里 */
   const selD = new Date(selDate + 'T00:00:00')
@@ -198,12 +233,24 @@ export function SchedulePage({ active }: { active: boolean }) {
   const rel = selDate === TODAY ? ' · 今天' : selDate === dayIso(1) ? ' · 明天' : ''
 
   return (
-    <section className={'page' + (active ? ' active' : '')}>
-      <div className="date-head">
-        <span className="d">{dn}</span><span className="w">周{wd}{rel}</span>
-        <span className="progress">{dayTodos.length ? '已完成 ' + doneN + '/' + (dayTodos.length - dayTodos.filter(t => t.parentId).length) : ''}</span>
-      </div>
-      <div className="progress-track"><div className="progress-fill" style={{ width: (dayTodos.length ? doneN / dayTodos.length * 100 : 0) + '%' }} /></div>
+    <section className={'page' + (active ? ' active' : '') + (full ? ' all-done' : '')}>
+      <PageHead title={dn} sub={'周' + wd + rel}>
+        <span className={'ring' + (full ? ' full' : '')}>
+          <svg width={30} height={30}>
+            <circle className="rbg" cx={15} cy={15} r={12} />
+            <circle className="rfg" cx={15} cy={15} r={12} style={{ strokeDashoffset: 75.4 * (1 - frac) }} />
+          </svg>
+          <span className="rtx">
+            <span className="roll">
+              <span className="roll-col" style={{ transform: `translateY(-${doneN * 12}px)` }}>
+                {Array.from({ length: totalN + 1 }, (_, i) => <b key={i}>{i}</b>)}
+              </span>
+            </span>
+            /{totalN}
+          </span>
+        </span>
+      </PageHead>
+      <div className={'progress-track' + (full ? ' ok' : '')}><div className="progress-fill" style={{ width: frac * 100 + '%' }} /></div>
 
       <div className="week-strip">
         <button className="month-arrow wk-arrow" title="上一周" onClick={() => setWeekOff(o => o - 1)}><IChevL size={13} /></button>
@@ -236,11 +283,11 @@ export function SchedulePage({ active }: { active: boolean }) {
         id => { deleteTodo(id); setDelId(null) },
         () => setDelId(null),
       )}
-      {schedView === 'grid' && <DayGrid dayTodos={dayTodos} />}
+      {schedView === 'grid' && <DayGrid key={selDate} dayTodos={dayTodos} />}
       {schedView === 'habit' && habits.map(h => <HabitCard key={h.id} h={h} />)}
 
       {schedView === 'list' && (
-        <button className="add-bar" onClick={() => openSheet('todo')}>
+        <button className="add-bar" onClick={e => openSheet('todo', e.currentTarget)}>
           <IPlus />添加待办
         </button>
       )}

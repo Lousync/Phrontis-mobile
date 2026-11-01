@@ -7,6 +7,7 @@ import {
 import { useApp } from '../../lib/store'
 import { IChevL, IChevR, IPlus, IBackspace } from '../../components/icons'
 import { Grip, Sheet } from '../../components/Sheet'
+import { PageHead } from '../../components/chrome'
 
 /** 记一笔 / 改一笔 双模式：tx-edit 打开时从 store.editTxId 钉住的条目预填 */
 function TxSheet() {
@@ -72,14 +73,14 @@ function TxSheet() {
   )
 }
 
-/** 单条流水：点按进改账抽屉；长按（550ms）/右键呼出行内删除确认（点按会被长按吞掉） */
+/** 单条流水：点按进改账抽屉（从触发行圆形展开）；长按（550ms）/右键呼出行内删除确认 */
 function TxRow({ t, confirming, onAsk, onConfirm, onCancel, onEdit }: {
   t: Tx
   confirming: boolean
   onAsk: (id: string) => void
   onConfirm: (id: string) => void
   onCancel: () => void
-  onEdit: (id: string) => void
+  onEdit: (id: string, from?: HTMLElement | null) => void
 }) {
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const consumed = useRef(false)
@@ -103,7 +104,7 @@ function TxRow({ t, confirming, onAsk, onConfirm, onCancel, onEdit }: {
       onPointerLeave={cancelPress}
       onPointerMove={cancelPress}
       onContextMenu={e => { e.preventDefault(); consumed.current = true; onAsk(t.id) }}
-      onClick={() => { if (!consumed.current && !confirming) onEdit(t.id) }}
+      onClick={e => { if (!consumed.current && !confirming) onEdit(t.id, e.currentTarget) }}
     >
       <div className="tx-ico" style={{ color, background: `color-mix(in srgb, ${color} 13%, transparent)` }}>{t.cat[0]}</div>
       <div className="tx-body">
@@ -134,11 +135,12 @@ export function LedgerPage({ active }: { active: boolean }) {
 
   return (
     <section className={'page' + (active ? ' active' : '')}>
-      <div className="month-head">
-        <button className="month-arrow" onClick={() => setMonth(m => monthShift(m, -1))}><IChevL size={14} /></button>
-        <span className="m">{monthLabel(month)}</span>
-        <button className="month-arrow" onClick={() => setMonth(m => monthShift(m, 1))}><IChevR size={14} /></button>
-      </div>
+      <PageHead title={monthLabel(month)}>
+        <span className="month-arrows">
+          <button className="month-arrow" title="上一月" onClick={() => setMonth(m => monthShift(m, -1))}><IChevL size={14} /></button>
+          <button className="month-arrow" title="下一月" onClick={() => setMonth(m => monthShift(m, 1))}><IChevR size={14} /></button>
+        </span>
+      </PageHead>
       <div className="card stat-row">
         <div className="stat"><div className="lab">支出</div><div className="val">¥{fmtMoney(stats.expense)}</div></div>
         <div className="stat"><div className="lab">收入</div><div className="val income">¥{fmtMoney(stats.income)}</div></div>
@@ -166,7 +168,7 @@ export function LedgerPage({ active }: { active: boolean }) {
           </div>
         )
       })}
-      <button className="fab" onClick={() => openSheet('tx')}><IPlus size={22} /></button>
+      <button className="fab" onClick={e => openSheet('tx', e.currentTarget)}><IPlus size={22} /></button>
     </section>
   )
 }

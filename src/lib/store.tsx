@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import type { ReactNode } from 'react'
 import type { AiChatMsg, AiConfig, AiMode, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteProposal, PairedDevice, PhoneNote, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
 import { seedFolders, seedHabits, seedSessions, seedTodos, seedEntries, TODAY, VOICE_PHRASES, welcomeText, dayIso, fmtMoney, monthOf, monthStats, txToDisplay } from './data'
@@ -38,10 +39,13 @@ interface Store {
   toast: (msg: string, type?: ToastItem['type']) => void
   toasts: ToastItem[]
   sheet: SheetId
-  openSheet: (id: Exclude<SheetId, null>) => void
+  openSheet: (id: Exclude<SheetId, null>, from?: HTMLElement | null) => void
   closeSheet: () => void
+  /** 当前抽屉的触发元素（FAB / 行 / 按钮）：抽屉以它为圆心圆形扩散展开 */
+  sheetOrigin: HTMLElement | null
   activeTab: string
-  setActiveTab: (t: string) => void
+  /** Tab 切换：从触发元素中心圆形铺开（View Transitions；不支持或减动效 → 瞬时切换） */
+  setActiveTab: (t: string, from?: HTMLElement | null) => void
   /** 桌面 letterbox 专用：模拟输入法占位（真机顶栏无此按钮，恒为 false） */
   kbSim: boolean
   toggleKbSim: () => void
@@ -83,7 +87,7 @@ interface Store {
   deleteTx: (id: string) => void
   /** 「改一笔」抽屉的目标条目 */
   editTxId: string | null
-  openTxEdit: (id: string) => void
+  openTxEdit: (id: string, from?: HTMLElement | null) => void
 
   /* 笔记 */
   folders: Folder[]
@@ -131,7 +135,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<ThemeName>('dark')
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [sheet, setSheet] = useState<SheetId>(null)
-  const [activeTab, setActiveTab] = useState('ai')
+  const [sheetOrigin, setSheetOrigin] = useState<HTMLElement | null>(null)
+  const [activeTab, setActiveTabState] = useState('ai')
+  const activeTabRef = useRef(activeTab); activeTabRef.current = activeTab
   const [kbSim, setKbSim] = useState(false)
   const [kbOpen, setKbOpen] = useState(false)
 
@@ -201,13 +207,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const setTheme = useCallback((t: ThemeName) => setThemeState(t), [])
-  const openSheet = useCallback((id: Exclude<SheetId, null>) => setSheet(id), [])
-  const closeSheet = useCallback(() => setSheet(null), [])
+  const openSheet = useCallback((id: Exclude<SheetId, null>, from?: HTMLElement | null) => {
+    setSheetOrigin(from ?? null)
+    setSheet(id)
+  }, [])
+  const closeSheet = useCallback(() => { setSheet(null); setSheetOrigin(null) }, [])
   const toggleKbSim = useCallback(() => setKbSim(s => !s), [])
 
-  /* 「改一笔」抽屉：打开前先钉住目标条目（TxSheet 挂载时读取） */
+  /* Tab 切换 = 从按点圆形铺开：旧帧定格为底、新页经 clip-path 圆铺满（260ms）。
+     View Transitions 需要 WebView 111+；不支持或系统减动效 → 瞬时切换 */
+  const setActiveTab = useCallback((t: string, from?: HTMLElement | null) => {
+    if (t === activeTabRef.current) return
+    const doc = document as Document & { startViewTransition?: (cb: () => void) => { ready: Promise<void> } }
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (typeof doc.startViewTransition !== 'function' || reduce) {
+      setActiveTabState(t)
+      return
+    }
+    const vt = doc.startViewTransition(() => { flushSync(() => setActiveTabState(t)) })
+    void vt.ready.then(() => {
+      const w = document.documentElement.clientWidth
+      const h = document.documentElement.clientHeight
+      const b = from?.getBoundingClientRect()
+      const x = b ? b.left + b.width / 2 : w / 2
+      const y = b ? b.top + b.height / 2 : h - 64
+      const r = Math.hypot(Math.max(x, w - x), Math.max(y, h - y)) + 20
+      document.documentElement.animate(
+        { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] },
+        { duration: 260, easing: 'cubic-bezier(.23,1,.32,1)', pseudoElement: '::view-transition-new(root)' },
+      )
+    }).catch(() => { /* 转场被跳过（如连续快速切换）：无需动画 */ })
+  }, [])
+
+  /* 「改一笔」抽屉：打开前先钉住目标条目（TxSheet 挂载时读取），从触发行圆形展开 */
   const [editTxId, setEditTxId] = useState<string | null>(null)
-  const openTxEdit = useCallback((id: string) => { setEditTxId(id); setSheet('tx-edit') }, [])
+  const openTxEdit = useCallback((id: string, from?: HTMLElement | null) => {
+    setEditTxId(id)
+    setSheetOrigin(from ?? null)
+    setSheet('tx-edit')
+  }, [])
 
   /* 系统键盘探测：文本输入聚焦 ≈ 键盘弹出（自定义数字键盘是 button，不触发，符合预期）。
      真机上配合 viewport 的 resizes-content：键盘收缩布局视口 + kb-open 隐藏底栏 = 原生键盘模型。
@@ -895,7 +933,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [voicePhase, stopVoice])
 
   const value: Store = {
-    theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
+    theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, sheetOrigin, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
     online, syncing, syncPct, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, unpair,
     schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, deleteTodo, habits, toggleHabit,
     entries, txs, saveTx, updateTx, deleteTx, editTxId, openTxEdit,

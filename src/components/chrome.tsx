@@ -1,56 +1,111 @@
+import { useEffect, useRef } from 'react'
+import type { ReactNode } from 'react'
 import { useApp } from '../lib/store'
-import { IBars, IBook, ICalendar, IGear, IKeyboard, ISparkle, IWallet } from './icons'
+import { IBook, ICalendar, IChevL, IGear, ISparkle, IWallet } from './icons'
 
-export function TopBar() {
-  const { online, syncing, pending, paired, toggleOnline, setActiveTab, kbSim, toggleKbSim } = useApp()
-  /* 未配对时不谎报「已连接」：胶囊只显示真实状态，点了引导去设置页配对 */
-  const label = syncing ? '同步中…' : paired ? (online ? '已连接电脑' : '离线模式') : '未配对'
-  const cls = paired ? (online ? '' : ' offline') : ' unpaired'
-  return (
-    <header className="topbar">
-      <div className="brand">Phrontis <small>MOBILE</small></div>
-      <div className="spacer" />
-      <button
-        className={'sync-pill' + cls + (syncing ? ' syncing' : '')}
-        onClick={() => { if (paired) toggleOnline(); else setActiveTab('settings') }}
-        title={paired ? undefined : '去设置页配对电脑'}
-      >
-        <span className="dot" />
-        <span>{label}</span>
-        {pending.length > 0 && <span className="badge">{pending.length}</span>}
-      </button>
-      {/* 桌面 letterbox 专用：模拟输入法（真机触屏经 CSS 隐藏），验证键盘弹起时贴底控件上提 */}
-      <button
-        className={'icon-btn kb-sim-btn' + (kbSim ? ' on' : '')}
-        onClick={toggleKbSim}
-        title="模拟输入法（桌面专用）：验证键盘弹出时输入框上提"
-      >
-        <IKeyboard size={17} />
-      </button>
-    </header>
-  )
-}
-
+/* 底栏 5 目的地（M3 ≤5 规范）：用量是低频查看页，降级为「设置 → 工具」二级入口 */
 const TABS: Array<{ id: string; label: string; icon: (p: { size?: number }) => React.ReactElement }> = [
   { id: 'ai', label: 'AI', icon: ISparkle },
   { id: 'schedule', label: '日程', icon: ICalendar },
   { id: 'ledger', label: '记账', icon: IWallet },
   { id: 'notes', label: '笔记', icon: IBook },
-  { id: 'usage', label: '用量', icon: IBars },
   { id: 'settings', label: '设置', icon: IGear },
 ]
 
-export function TabBar() {
-  const { activeTab, setActiveTab } = useApp()
+/** 页面大标题（含非页签页：用量走二级入口，小顶栏同样要显示它的名字） */
+const PAGE_TITLES: Record<string, string> = {
+  ai: 'AI 助手', schedule: '日程', ledger: '记账', notes: '笔记', usage: 'AI 用量', settings: '设置',
+}
+
+/** 标题下元信息行（备忘录式）：同步状态进排版，不再做漂浮胶囊；异常态变色 */
+export function SyncMeta() {
+  const { online, syncing, pending, paired, lastSync, setActiveTab } = useApp()
+  if (syncing) return <div className="c-meta"><span className="c-mdot sync" />正在对账…</div>
+  if (!paired) return (
+    <button className="c-meta unp" onClick={e => setActiveTab('settings', e.currentTarget)} title="去设置页配对电脑">
+      <span className="c-mdot" />未配对电脑 · 点此去设置
+    </button>
+  )
+  if (!online) return <div className="c-meta off"><span className="c-mdot" />电脑离线 · 数据照常记在本机</div>
+  if (pending.length) return <div className="c-meta warn"><span className="c-mdot" />待同步 {pending.length} 条 · 联网后自动重试</div>
+  return <div className="c-meta"><span className="c-mdot" />已连接 {paired.pcName} · 上次同步 {lastSync}</div>
+}
+
+/**
+ * 大标题页头（定稿 C，参考苹果备忘录）：标题行 + 可选行内控件，元信息行自动换到标题下。
+ * onBack：二级页面（用量）返回上一页。
+ */
+export function PageHead({ title, sub, children, onBack }: {
+  title: ReactNode
+  sub?: ReactNode
+  children?: ReactNode
+  onBack?: () => void
+}) {
   return (
-    <nav className="tabbar">
-      {TABS.map(t => (
-        <button key={t.id} className={activeTab === t.id ? 'active' : ''} onClick={() => setActiveTab(t.id)}>
-          <t.icon />
-          {t.label}
-        </button>
-      ))}
-    </nav>
+    <div className="pg-head">
+      {onBack && <button className="icon-btn pg-back" onClick={onBack} title="返回设置"><IChevL size={17} /></button>}
+      <span className="t">{title}</span>
+      {sub != null && <span className="sub">{sub}</span>}
+      {children}
+      <SyncMeta />
+    </div>
+  )
+}
+
+/**
+ * 壳层 chrome：收拢顶栏（滚动 >46px 淡入）+ 浮动玻璃坞（5 页签，滚动收缩成当前页胶囊）+ 桌面键盘模拟按钮。
+ * 滚动监听走捕获：scroll 不冒泡，一个监听器接住所有页面/聊天区的滚动，只认当前激活页。
+ */
+export function ShellChrome() {
+  const { activeTab, setActiveTab } = useApp()
+  const barRef = useRef<HTMLElement>(null)
+  const dockRef = useRef<HTMLElement>(null)
+  const lastSt = useRef(0)
+
+  useEffect(() => {
+    const onScroll = (e: Event) => {
+      const t = e.target
+      if (!(t instanceof HTMLElement)) return
+      const isActivePage = t.classList.contains('page') && t.classList.contains('active')
+      /* AI 页的滚动区是内层 .chat（composer 常驻），也驱动浮坞收缩 */
+      if (!isActivePage && !t.classList.contains('chat')) return
+      const st = t.scrollTop
+      const last = lastSt.current
+      if (st > last + 6 && st > 90) dockRef.current?.classList.add('min')
+      else if (st < last - 4 || st < 90) dockRef.current?.classList.remove('min')
+      lastSt.current = st
+      if (isActivePage) barRef.current?.classList.toggle('on', st > 46)
+    }
+    document.addEventListener('scroll', onScroll, true)
+    return () => document.removeEventListener('scroll', onScroll, true)
+  }, [])
+
+  /* 切页复位：新页从顶部开始，收拢态不跟随 */
+  useEffect(() => {
+    lastSt.current = 0
+    barRef.current?.classList.remove('on')
+    dockRef.current?.classList.remove('min')
+  }, [activeTab])
+
+  return (
+    <>
+      <header ref={barRef} className="c-bar"><span className="c-t">{PAGE_TITLES[activeTab] ?? ''}</span></header>
+      <nav className="dock" ref={dockRef} aria-label="主导航">
+        {TABS.map(t => (
+          <button
+            key={t.id}
+            className={activeTab === t.id ? 'on' : ''}
+            onClick={e => {
+              if (activeTab === t.id) { dockRef.current?.classList.remove('min'); return }
+              setActiveTab(t.id, e.currentTarget)
+            }}
+          >
+            <t.icon />
+            <span className="dk-lb">{t.label}</span>
+          </button>
+        ))}
+      </nav>
+    </>
   )
 }
 

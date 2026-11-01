@@ -19,6 +19,7 @@
   --blue: #3794ff;
   --amber: #cca700;
   --outside: #141516;
+  --glass: rgba(37, 37, 38, .78);
 }
 :root[data-theme="light"] {
   --bg-primary: #ffffff;
@@ -38,6 +39,7 @@
   --blue: #0063bf;
   --amber: #9a6700;
   --outside: #ccd3da;
+  --glass: rgba(255, 255, 255, .82);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -84,57 +86,75 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 
 /* ============ 顶栏 ============ */
-.topbar {
-  flex: none; display: flex; align-items: center; gap: 8px;
-  padding: calc(10px + env(safe-area-inset-top)) 14px 10px; background: var(--bg-primary);
-}
-.brand { font-size: 17px; font-weight: 700; letter-spacing: .4px; display: flex; align-items: baseline; gap: 6px; }
-.brand small { font-size: 10px; font-weight: 400; color: var(--text-muted); letter-spacing: 1px; }
-.topbar .spacer { flex: 1; }
 .icon-btn { width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); transition: background .15s, color .15s, transform .15s; }
 .icon-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
 .icon-btn:active { transform: scale(.92); }
-
-.sync-pill {
-  display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px;
-  border-radius: 16px; background: var(--bg-tertiary); border: 1px solid var(--border-soft);
-  font-size: 12px; color: var(--text-secondary); transition: border-color .2s, background .2s; position: relative;
-}
-.sync-pill:hover { border-color: var(--accent); }
-.sync-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px rgba(137, 209, 133, .7); transition: background .2s; flex: none; }
-.sync-pill.offline .dot { background: var(--text-muted); box-shadow: none; }
-.sync-pill.unpaired .dot { background: var(--text-muted); box-shadow: none; }
-.sync-pill .badge {
-  min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; background: var(--amber);
-  color: #1a1a1a; font-size: 10.5px; font-weight: 700; display: flex; align-items: center; justify-content: center;
-}
-.sync-pill .badge.hidden { display: none; }
-.sync-pill.syncing .dot { background: var(--accent); animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: .3; } }
+
+/* ============ 备忘录式页头（定稿 C）：每页大标题 + 标题下元信息行 ============ */
+.pg-head { display: flex; align-items: center; flex-wrap: wrap; column-gap: 10px; row-gap: 2px; margin: 2px 0 0; }
+.pg-head .t { font-size: 26px; font-weight: 700; letter-spacing: .3px; }
+.pg-head .sub { font-size: 12px; color: var(--text-secondary); padding-bottom: 4px; }
+.pg-head .pg-back { flex: none; }
+.c-meta { width: 100%; display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-muted); }
+button.c-meta { cursor: pointer; text-align: left; }
+button.c-meta:active { opacity: .7; }
+.c-mdot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
+.c-mdot.sync { background: var(--accent); animation: pulse 1s infinite; }
+.c-meta.unp .c-mdot { background: var(--text-muted); }
+.c-meta.warn { color: var(--amber); }
+.c-meta.warn .c-mdot { background: var(--amber); }
+.c-meta.off { color: var(--red); }
+.c-meta.off .c-mdot { background: var(--red); }
+
+/* 大标题滚动收拢：>46px 淡入的小顶栏（毛玻璃，盖在内容上，不占布局） */
+.c-bar {
+  position: absolute; top: 0; left: 0; right: 0; height: calc(44px + env(safe-area-inset-top)); z-index: 6;
+  display: flex; align-items: flex-end; padding: 0 16px 6px;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4);
+  border-bottom: 1px solid var(--border-soft);
+  opacity: 0; pointer-events: none; transition: opacity .2s ease-out;
+}
+.c-bar.on { opacity: 1; pointer-events: auto; }
+.c-bar .c-t { font-size: 15px; font-weight: 700; }
 
 /* ============ 页面容器 ============ */
 .pages { flex: 1; position: relative; overflow: hidden; background: var(--bg-secondary); }
 .page {
-  position: absolute; inset: 0; overflow-y: auto; padding: 4px 16px 24px;
+  position: absolute; inset: 0; overflow-y: auto; padding: 12px 16px calc(96px + env(safe-area-inset-bottom));
   display: none; flex-direction: column; gap: 14px; overscroll-behavior: contain;
 }
 .page.active { display: flex; animation: pageIn .22s ease; }
 @keyframes pageIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
-/* ============ 底部 Tab ============ */
-.tabbar {
-  flex: none; background: var(--bg-primary); border-top: 1px solid var(--border-soft);
-  display: flex; padding: 6px 8px calc(14px + env(safe-area-inset-bottom));
+/* 全部完成：页面色温极淡变暖（勾选组合拳的收尾一层） */
+.page.all-done { background: linear-gradient(180deg, rgba(137, 209, 133, .055), transparent 260px); transition: background .4s ease-out; }
+
+/* ============ 浮动玻璃坞（Liquid Glass，5 页签） ============
+ * 浮在内容上（z 30），下滚收缩成当前页小胶囊、上滑或点当前胶囊展开。
+ * 贴底控件（FAB / 添加条）因此抬到坞上方。 */
+.dock {
+  position: absolute; left: 12px; right: 12px; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 30;
+  display: flex; gap: 2px; padding: 6px; border-radius: 24px; background: var(--glass);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .5), inset 0 0 0 1px rgba(255, 255, 255, .07);
+  transition: left .3s cubic-bezier(.23, 1, .32, 1), right .3s cubic-bezier(.23, 1, .32, 1);
 }
-.tabbar button {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
-  color: var(--text-muted); font-size: 10.5px; border-radius: 12px; padding-top: 5px;
-  transition: color .18s;
+.dock button {
+  flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 5px;
+  height: 46px; border-radius: 18px; color: var(--text-muted); max-width: 90px; overflow: hidden;
+  transition: max-width .3s cubic-bezier(.23, 1, .32, 1), opacity .2s ease-out, padding .3s cubic-bezier(.23, 1, .32, 1),
+    color .18s ease-out, background .18s ease-out, transform .15s ease-out;
 }
-.tabbar button svg { transition: transform .18s; }
-.tabbar button.active { color: var(--accent-hover); }
-.tabbar button.active svg { transform: translateY(-1px); }
-.tabbar button:active svg { transform: scale(.88); }
+.dock button:active { transform: scale(.92); }
+.dock button.on { color: var(--accent-hover); background: var(--accent-soft); }
+.dock .dk-lb { font-size: 10.5px; white-space: nowrap; max-width: 34px; opacity: 1; transition: max-width .28s cubic-bezier(.23, 1, .32, 1), opacity .16s ease-out; }
+.dock.min { left: auto; right: 14px; }
+.dock.min button { flex: none; padding: 0; }
+.dock.min button .dk-lb { max-width: 0; opacity: 0; }
+.dock.min button:not(.on) { max-width: 0; opacity: 0; pointer-events: none; }
+.dock.min button.on { max-width: 46px; padding: 0 12px; }
 
 /* ============ 卡片与通用 ============ */
 .card { background: var(--bg-primary); border: 1px solid var(--border-soft); border-radius: 14px; padding: 14px; }
@@ -154,12 +174,26 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .empty { text-align: center; color: var(--text-muted); font-size: 12.5px; padding: 28px 0; }
 
 /* ============ 日程 ============ */
-.date-head { display: flex; align-items: baseline; gap: 10px; padding: 6px 2px 0; }
-.date-head .d { font-size: 24px; font-weight: 700; }
-.date-head .w { font-size: 13px; color: var(--text-secondary); }
-.date-head .progress { margin-left: auto; font-size: 12px; color: var(--text-secondary); }
 .progress-track { height: 4px; border-radius: 2px; background: var(--bg-tertiary); overflow: hidden; margin: 10px 2px 0; }
-.progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width .4s ease; }
+.progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width .4s ease, background .2s; }
+.progress-track.ok .progress-fill { background: var(--green); }
+
+/* 进度环 + 数字滚动（勾选组合拳：环前进 + 数字滚动 + 全完成变绿） */
+.ring { position: relative; width: 30px; height: 30px; flex: none; margin-left: auto; align-self: center; }
+.ring svg { transform: rotate(-90deg); display: block; }
+.ring .rbg { fill: none; stroke: var(--bg-tertiary); stroke-width: 3; }
+.ring .rfg {
+  fill: none; stroke: var(--accent-hover); stroke-width: 3; stroke-linecap: round;
+  stroke-dasharray: 75.4; transition: stroke-dashoffset .34s cubic-bezier(.23, 1, .32, 1), stroke .2s;
+}
+.ring.full .rfg { stroke: var(--green); }
+.ring .rtx {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 700; color: var(--text-secondary); font-variant-numeric: tabular-nums;
+}
+.roll { display: inline-block; height: 12px; overflow: hidden; }
+.roll-col { display: block; transition: transform .34s cubic-bezier(.23, 1, .32, 1); }
+.roll-col b { display: block; height: 12px; line-height: 12px; font-weight: 700; }
 
 .week-strip { display: flex; gap: 4px; align-items: stretch; }
 .wk-arrow { flex: none; align-self: center; }
@@ -202,10 +236,29 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .todo-check {
   width: 21px; height: 21px; border-radius: 7px; border: 1.6px solid var(--text-muted);
   flex: none; margin-top: 1px; display: flex; align-items: center; justify-content: center;
-  color: transparent; transition: all .18s;
+  color: transparent; transition: all .18s; position: relative;
 }
-.todo-item.done .todo-check { background: var(--accent); border-color: var(--accent); color: #fff; }
+.todo-item.done .todo-check { background: var(--accent); border-color: var(--accent); color: #fff; transform: scale(1.08); }
 .todo-item.done .todo-title { color: var(--text-muted); text-decoration: line-through; }
+/* 对勾两笔逐段绘制（完成反馈组合拳第一层） */
+.todo-check svg { display: block; }
+.todo-check svg path { fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.todo-check svg .ck1 { stroke-dasharray: 7; stroke-dashoffset: 7; transition: stroke-dashoffset .14s ease-out; }
+.todo-check svg .ck2 { stroke-dasharray: 14; stroke-dashoffset: 14; transition: stroke-dashoffset .16s ease-out .1s; }
+.todo-item.done .todo-check svg .ck1,
+.todo-item.done .todo-check svg .ck2 { stroke-dashoffset: 0; }
+
+/* 粒子：勾选时从按钮中心迸出（fx.ts 注入 .parts） */
+.parts { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.parts i {
+  position: absolute; left: 50%; top: 50%; width: 5px; height: 5px; margin: -2.5px;
+  border-radius: 50%; background: var(--accent-hover);
+  animation: part .42s cubic-bezier(.2, .7, .3, 1) forwards;
+}
+@keyframes part {
+  from { transform: translate(0, 0) scale(1); opacity: 1; }
+  to { transform: translate(var(--tx), var(--ty)) scale(.2); opacity: 0; }
+}
 .todo-body { flex: 1; min-width: 0; }
 .todo-title { font-size: 14.5px; line-height: 1.45; transition: color .18s; }
 .todo-meta { display: flex; gap: 8px; margin-top: 5px; align-items: center; font-size: 11.5px; color: var(--text-muted); flex-wrap: wrap; }
@@ -225,17 +278,22 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .folder-head .count { margin-left: auto; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 .day-grid { position: relative; background: var(--bg-primary); border: 1px solid var(--border-soft); border-radius: 14px; overflow: hidden; }
-.hour-row { position: absolute; left: 0; right: 0; height: 1px; background: var(--border-soft); }
-.hour-label { position: absolute; left: 9px; font-size: 10px; color: var(--text-muted); transform: translateY(-50%); font-variant-numeric: tabular-nums; }
+/* 排期画线：小时线逐段画出 → 时间块浮起（按日重挂时重播，SchedulePage 以 selDate 为 key） */
+.hour-row { position: absolute; left: 0; right: 0; height: 1px; background: var(--border-soft); transform-origin: left; animation: drawX .3s cubic-bezier(.23, 1, .32, 1) both; }
+.hour-label { position: absolute; left: 9px; font-size: 10px; color: var(--text-muted); transform: translateY(-50%); font-variant-numeric: tabular-nums; animation: fadeUp .3s ease-out both; }
+@keyframes drawX { from { transform: scaleX(0); } }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(-4px); } }
 .gblock {
   position: absolute; left: 46px; right: 10px; border-radius: 9px; padding: 4px 9px;
-  border-left: 3px solid; overflow: hidden; animation: itemIn .25s ease; cursor: pointer;
+  border-left: 3px solid; overflow: hidden; cursor: pointer;
+  animation: blockIn .34s cubic-bezier(.23, 1, .32, 1) both;
 }
+@keyframes blockIn { from { opacity: 0; transform: translateY(8px) scale(.98); } }
 .gblock .gt { display: block; font-size: 11.5px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gblock .gm { font-size: 10px; opacity: .8; font-variant-numeric: tabular-nums; }
 .gblock.done { opacity: .45; }
 .gblock.done .gt { text-decoration: line-through; }
-.now-line { position: absolute; left: 40px; right: 0; height: 2px; background: var(--red); z-index: 2; }
+.now-line { position: absolute; left: 40px; right: 0; height: 2px; background: var(--red); z-index: 2; animation: drawX .4s .5s cubic-bezier(.23, 1, .32, 1) both; }
 .now-line::before { content: ''; position: absolute; left: -5px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
 
 .habit-card { display: flex; flex-direction: column; gap: 12px; }
@@ -256,13 +314,18 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .habit-prog .fill { display: block; height: 100%; border-radius: 2px; transition: width .35s ease; }
 .habit-btn {
   width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid var(--hc); color: var(--hc);
-  display: flex; align-items: center; justify-content: center; transition: all .15s; flex: none;
+  display: flex; align-items: center; justify-content: center; transition: all .15s; flex: none; position: relative;
 }
 .habit-btn:active { transform: scale(.88); }
 .habit-btn.done { background: var(--hc); color: #141414; }
+/* 打卡对勾逐笔绘制（与待办同款两笔路径） */
+.habit-btn svg path { fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.habit-btn svg .ck1 { stroke-dasharray: 7; stroke-dashoffset: 7; transition: stroke-dashoffset .14s ease-out; }
+.habit-btn svg .ck2 { stroke-dasharray: 14; stroke-dashoffset: 14; transition: stroke-dashoffset .16s ease-out .1s; }
+.habit-btn.done svg .ck1, .habit-btn.done svg .ck2 { stroke-dashoffset: 0; }
 
 .add-bar {
-  position: absolute; left: 16px; right: 16px; bottom: 16px; height: 46px; border-radius: 23px;
+  position: absolute; left: 16px; right: 16px; bottom: calc(100px + env(safe-area-inset-bottom)); height: 46px; border-radius: 23px;
   background: var(--bg-primary); border: 1px solid var(--border); display: flex; align-items: center; gap: 10px;
   padding: 0 18px; color: var(--text-secondary); font-size: 13.5px; box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
   transition: border-color .15s, transform .12s; z-index: 5;
@@ -272,8 +335,7 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .add-bar svg { color: var(--accent-hover); }
 
 /* ============ 记账 ============ */
-.month-head { display: flex; align-items: center; gap: 12px; padding: 8px 2px 2px; }
-.month-head .m { font-size: 20px; font-weight: 700; }
+.month-arrows { margin-left: auto; display: flex; gap: 2px; }
 .month-arrow { width: 26px; height: 26px; border-radius: 8px; color: var(--text-muted); display: flex; align-items: center; justify-content: center; }
 .month-arrow:hover { background: var(--bg-tertiary); }
 .stat-row { display: flex; gap: 12px; }
@@ -292,7 +354,7 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .tx-amt { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .tx-amt.income { color: var(--green); }
 .fab {
-  position: absolute; right: 18px; bottom: 18px; width: 54px; height: 54px; border-radius: 18px; z-index: 20;
+  position: absolute; right: 18px; bottom: calc(100px + env(safe-area-inset-bottom)); width: 54px; height: 54px; border-radius: 18px; z-index: 20;
   background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center;
   box-shadow: 0 10px 26px rgba(0, 122, 204, .4); transition: transform .15s, background .15s;
 }
@@ -329,7 +391,8 @@ button.vault-line:disabled { cursor: default; }
 .badge-sync.pending { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
 .badge-sync.synced { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
 
-.reader { position: absolute; inset: 0; background: var(--bg-secondary); z-index: 10; display: none; flex-direction: column; }
+/* z 35：盖过浮坞（30）、被抽屉（40+）盖住 */
+.reader { position: absolute; inset: 0; background: var(--bg-secondary); z-index: 35; display: none; flex-direction: column; }
 .reader.open { display: flex; animation: readerIn .24s ease; }
 @keyframes readerIn { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
 .reader-top { flex: none; display: flex; align-items: center; gap: 10px; padding: calc(8px + env(safe-area-inset-top)) 14px 8px; border-bottom: 1px solid var(--border-soft); background: var(--bg-primary); }
@@ -349,8 +412,6 @@ button.vault-line:disabled { cursor: default; }
 .reader-foot .note { font-size: 11px; color: var(--text-muted); flex: 1; line-height: 1.5; }
 
 /* ============ AI ============ */
-.ai-head { display: flex; align-items: center; gap: 8px; padding: 6px 2px 0; }
-.ai-head .t { font-size: 17px; font-weight: 700; }
 .ai-mode { display: flex; background: var(--bg-primary); border: 1px solid var(--border-soft); border-radius: 11px; padding: 3px; gap: 2px; margin-left: auto; }
 .ai-mode button { padding: 5px 11px; border-radius: 8px; font-size: 11.5px; color: var(--text-muted); transition: all .18s; display: flex; align-items: center; gap: 5px; }
 .ai-mode button.on { background: var(--accent-soft); color: var(--accent-hover); }
@@ -498,6 +559,20 @@ button.vault-line:disabled { cursor: default; }
 .check-row .why { margin-left: auto; font-size: 11px; color: var(--text-muted); }
 .ver { text-align: center; color: var(--text-muted); font-size: 11px; padding: 8px 0 4px; }
 
+/* 设置 → 工具：二级入口行（用量等低频页从这里进） */
+.tool-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 10px 2px; border-radius: 9px; transition: background .13s; }
+.tool-row:active { background: var(--bg-tertiary); }
+.tool-row .tool-ico { width: 34px; height: 34px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-hover); display: flex; align-items: center; justify-content: center; flex: none; }
+.tool-row .tool-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tool-row .n { font-size: 13.5px; color: var(--text-primary); }
+.tool-row .s { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+.tool-row > svg { color: var(--text-muted); flex: none; }
+
+/* ============ Tab 圆形扩散转场 ============
+ * 旧帧定格为底、新页经 WAAPI 驱动的 clip-path 圆铺满（store setActiveTab）。
+ * 关掉默认交叉淡化（否则两层叠加曝光），mix-blend-mode 回 normal。 */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+
 .qr-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 6px 0 2px; }
 .qr-grid { display: grid; width: 200px; height: 200px; padding: 12px; background: #fff; border-radius: 14px; }
 .qr-cell { width: 100%; height: 100%; }
@@ -505,12 +580,10 @@ button.vault-line:disabled { cursor: default; }
 /* ============ 键盘模型：键盘弹出 = 键盘盖住底栏（原生 App 语义） ============
  * 真机（coarse 指针）：input/textarea 聚焦（store 的 kbOpen）≈ 键盘弹出。
  * 配合 index.html 的 interactive-widget=resizes-content：布局视口随键盘收缩 +
- * 底栏移出文档流下滑隐藏 → 输入区/页面内容直接停靠到键盘上沿，顶栏保持不动。
- * 桌面模拟（kb-sim）在下方 hover/fine 媒体块里走同一套视觉。
- * 注意桌面 letterbox（fine 指针）真聚焦输入框时没有键盘占据空间，绝不能隐藏底栏。 */
+ * 浮坞移出文档流下滑隐藏 → 输入区/页面内容直接停靠到键盘上沿。
+ * 注意桌面 letterbox（fine 指针）真聚焦输入框时没有键盘占据空间，绝不能隐藏浮坞。 */
 @media (pointer: coarse) {
-  .app.kb-open .tabbar {
-    position: absolute; left: 0; right: 0; bottom: 0; z-index: 0;
+  .app.kb-open .dock {
     transform: translateY(110%); visibility: hidden;
     transition: transform .22s ease, visibility .22s;
   }
@@ -518,7 +591,7 @@ button.vault-line:disabled { cursor: default; }
 }
 
 /* ============ Toast ============ */
-.toast-wrap { position: absolute; bottom: calc(78px + env(safe-area-inset-bottom)); left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 60; pointer-events: none; }
+.toast-wrap { position: absolute; bottom: calc(100px + env(safe-area-inset-bottom)); left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 60; pointer-events: none; }
 .toast {
   background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary);
   font-size: 12.5px; padding: 9px 18px; border-radius: 20px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
@@ -532,21 +605,18 @@ button.vault-line:disabled { cursor: default; }
 .toast.warn .tdot { background: var(--amber); }
 .toast.info .tdot { background: var(--accent); }
 
-/* ============ 桌面专用：模拟输入法（真机触屏不出现此按钮） ============
+/* ============ 桌面专用：模拟输入法（真机触屏不出现此行） ============
  * 真机键盘收缩布局视口的行为由 index.html 的 interactive-widget=resizes-content 提供；
- * 桌面浏览器没有键盘也无法模拟，顶栏的键盘按钮把手机壳压到 55dvh 并画出「键盘占位」，
+ * 桌面浏览器没有键盘也无法模拟，开关把手机壳压到 55dvh 并画出「键盘占位」，
  * 用来验证贴底输入框 / 抽屉在键盘弹出时正确上提。
- * 显示条件按指针能力（hover + 精确指针）而非宽度：启动器 app 窗口只有 500 宽，
- * 按宽度门限会漏掉它；真机触屏上该媒体条件恒不成立。按钮在顶栏文档流内，
- * 不遮任何可点区域（上一版固定悬浮曾盖住底栏 Tab）。 */
-.kb-sim-btn { display: none; }
+ * 显示条件按指针能力（hover + 精确指针）而非宽度：启动器 app 窗口只有 500 宽。
+ * 壳层改版后无顶栏可挂（右上曾盖住 AI 页的历史按钮，冒烟抓到），落位设置页外观卡。 */
+.kb-sim-row { display: none; }
 @media (hover: hover) and (pointer: fine) {
-  .kb-sim-btn { display: flex; }
-  .kb-sim-btn.on { color: var(--accent-hover); background: var(--accent-soft); }
-  /* 模拟态 = 键盘展开态：壳收缩 + 底部方角（与键盘齐平）+ 底栏被「键盘」盖住 */
+  .kb-sim-row { display: flex; }
+  /* 模拟态 = 键盘展开态：壳收缩 + 底部方角（与键盘齐平）+ 浮坞被「键盘」盖住 */
   .app.kb-sim { height: 55dvh; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
-  .app.kb-sim .tabbar {
-    position: absolute; left: 0; right: 0; bottom: 0; z-index: 0;
+  .app.kb-sim .dock {
     transform: translateY(110%); visibility: hidden;
     transition: transform .22s ease, visibility .22s;
   }

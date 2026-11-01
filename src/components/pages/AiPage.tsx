@@ -4,6 +4,7 @@ import { fmtMoney, mdRender, sessGroupKey, TODO_TYPE_LABEL } from '../../lib/dat
 import { useApp } from '../../lib/store'
 import { ICheck, IHistory, IMic, ISearch, ISend, ISparkle, IPlus, IDots, IStop } from '../icons'
 import { Grip, Sheet } from '../Sheet'
+import { PageHead } from '../chrome'
 
 const TODO_DOT: Record<string, string> = { deadline: 'var(--red)', plan: 'var(--blue)', daily: 'var(--green)' }
 
@@ -248,14 +249,13 @@ export function AiPage({ active }: { active: boolean }) {
 
   return (
     <section className={'page' + (active ? ' active' : '')}>
-      <div className="ai-head">
-        <span className="t">AI 助手</span>
+      <PageHead title="AI 助手">
         <div className="ai-mode">
           <button className={aiMode === 'direct' ? 'on' : ''} onClick={() => setAiMode('direct')}><span className="mdot" />手机直连</button>
           <button className={aiMode === 'pc' ? 'on pc' : ''} onClick={() => setAiMode('pc')}><span className="mdot" />电脑 AI</button>
         </div>
-        <button className="icon-btn" style={{ width: 32, height: 32, flex: 'none' }} onClick={() => openSheet('sessions')}><IHistory /></button>
-      </div>
+        <button className="icon-btn" style={{ width: 32, height: 32, flex: 'none' }} onClick={e => openSheet('sessions', e.currentTarget)}><IHistory /></button>
+      </PageHead>
 
       <div className="chat" ref={chatRef}>
         {sess.messages.map(m => <MsgView key={m.id} m={m} />)}

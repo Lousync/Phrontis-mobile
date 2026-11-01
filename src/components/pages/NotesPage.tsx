@@ -7,6 +7,7 @@ import {
 } from '../../lib/sync'
 import { IBack, IChevR, IFolder, IPen, ISearch } from '../../components/icons'
 import { Grip, Sheet } from '../../components/Sheet'
+import { PageHead } from '../../components/chrome'
 
 function NoteSheet() {
   const { closeSheet, addPhoneNote, toast } = useApp()
@@ -118,6 +119,7 @@ export function NotesPage({ active }: { active: boolean }) {
 
   return (
     <section className={'page' + (active ? ' active' : '')}>
+      <PageHead title="笔记" />
       <div className="search-box">
         <ISearch />
         <input value={kw} onChange={e => setKw(e.target.value)} placeholder="搜索笔记标题" />
@@ -177,7 +179,7 @@ export function NotesPage({ active }: { active: boolean }) {
         </div>
       </div>
 
-      <button className="fab" onClick={() => openSheet('note')}><IPen /></button>
+      <button className="fab" onClick={e => openSheet('note', e.currentTarget)}><IPen /></button>
 
       <div className={'reader' + (reader ? ' open' : '')}>
         <div className="reader-top">

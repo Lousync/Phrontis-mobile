@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { USAGE_MODELS, fmtCost, fmtK, usageData } from '../../lib/data'
 import { useApp } from '../../lib/store'
+import { PageHead } from '../../components/chrome'
 
 type Win = 'd1' | 'd7' | 'd30'
 
@@ -38,7 +39,7 @@ function rangeOf(win: Win) {
 }
 
 export function UsagePage({ active }: { active: boolean }) {
-  const { toast } = useApp()
+  const { toast, setActiveTab } = useApp()
   const [win, setWin] = useState<Win>('d1')
   const r = useMemo(() => rangeOf(win), [win])
 
@@ -48,8 +49,7 @@ export function UsagePage({ active }: { active: boolean }) {
 
   return (
     <section className={'page' + (active ? ' active' : '')}>
-      <div className="ai-head">
-        <span className="t">AI 用量</span>
+      <PageHead title="AI 用量" onBack={() => setActiveTab('settings')}>
         <div className="seg" id="usageSeg" style={{ width: 200, margin: '0 0 0 auto' }}>
           {(['d1', 'd7', 'd30'] as Win[]).map(w => (
             <button key={w} className={win === w ? 'on' : ''} onClick={() => setWin(w)}>
@@ -57,7 +57,7 @@ export function UsagePage({ active }: { active: boolean }) {
             </button>
           ))}
         </div>
-      </div>
+      </PageHead>
 
       <div className="card stat-row" style={{ padding: '12px 14px' }}>
         <div className="stat">
