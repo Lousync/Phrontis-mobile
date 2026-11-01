@@ -20,6 +20,7 @@
 | 2026-10-31 | **语音输入**：做，云端直连优先（详见 §6）；不做本地离线 ASR。 |
 | 2026-10-31 | **M1 拍板**：配对 = 「8 位数字配对码（面板打开时生成、10 分钟有效、**一次配对即作废**）→ 换长期设备令牌」；服务默认端口 **8770**（lanShare 8765 不动）；手机端存储 M1 用 localStorage（等价 Preferences 形态），M2 评估 SQLite；v1 同步域**只做记账 `ledger`**（原「记账+日程双向」收窄，日程随 M2 加域，端点结构不变）；冲突裁决从「各留副本」简化为「同刻桌面赢 + `conflict` 标记回传」，删除同步（墓碑）挂 v1.1。 |
 | 2026-11-01 | **应用内自动更新**仿桌面机制：发布复用公开仓 `Lousync/Phrontis` 的**第三个平台 tag** `v<ver>-mobile`（APK + `mobile-latest.json` 两件套门禁，扩展主仓 `scripts/publish-release.py --platform mobile`）；手机端 检查 → 镜像链下载 → sha256 校验 → 拉起系统安装器（Android 侧载无静默安装，最后一步必须用户点「安装」）。随 M6 落地，详见 §7.1。 |
+| 2026-11-01 | **M2a 拍板**：同步域加 `schedule`（日程，子任务按条目同步、手机只读计数不编辑）；v1.1 **墓碑删除同步**双向打通（墓碑存 vault 随仓走，上限 5000 条）；游标**只在 pull 完成后推进**（修正 M1 在 push 时推游标、漏拉电脑侧早于 push 变更的缺陷）；手机端日程/流水落 localStorage 持久化（SQLite 评估挪到 M2b）；打卡（habit）暂不同步，保持本地演示。 |
 
 ---
 
@@ -63,9 +64,24 @@
 - 新增（id 未见）：直接并入。
 - 修改：`updatedAt`（ISO 字符串）**新的赢**；相同 → 桌面赢，响应标 `conflict: true`，手机以服务端版本为准回写收敛。
 - v1 **没有删除**：删除同步需要墓碑机制，挂 v1.1（M2 一并评估）。
-- 游标 = 毫秒时间戳：手机存 `lastSyncAt.ledger`；push 成功先推进到响应的 `serverTime`，pull 用它过滤 `updatedAt > since`，完成后推进到 `cursor.ledger`。自己推上去的条目会被 pull 原样带回，按 id 幂等合并（收敛性保证）。
+- 游标 = 毫秒时间戳，**按域存**（`lastSync.ledger` / `lastSync.schedule`）。**只在 pull 完成后推进**到响应的 `cursor`：push 不推游标——自己推上去的条目会被 pull 原样带回，按 id 幂等合并（收敛性保证）；若在 push 时就推进游标，会漏掉电脑侧早于本次 push 的变更（M1 缺陷，v1.1 修正）。pull 用各域游标过滤 `updatedAt > since`；冲突触发全量对账时该域游标回 0。
 
-**v1 域范围：只做 `ledger`（记账）。** 条目 data = `{ date, time, type: 'expense'|'income', amount, category, payment, merchant, note }`（桌面 `TransactionRow` 的子集；`source` 由服务端补 `'phone'`；转账/定期收入 v1 不上行）。日程随 M2、笔记随 M3 加域，端点结构不变。
+**v1.1 域范围（2026-11-01，M2a 落地）：`ledger` + `schedule`（日程）。**
+
+- ledger 条目 data 不变（见上）。
+- schedule 条目 data（两端各自映射到本地行）：`{ date, title, type: 'plan'|'deadline'|'daily', time, done, parentId, schedStart, schedEnd }`
+  - `time` 为 `'HH:MM'`（deadline 截止时刻；桌面行存 `'YYYY-MM-DD HH:MM'`，pull 时截回 `'HH:MM'`；空串 = 无）；
+  - `done` ↔ 桌面 `status`（pending/done）；`schedStart`/`schedEnd` 为当天分钟数 ↔ `scheduled_start`/`scheduled_end`（null = 未排期）；
+  - `parentId` 使**子任务行也按条目同步**（手机侧只读：聚合计数展示，不编辑子任务）；
+  - 桌面侧 `description`/`quadrant`/`tag_id`/`sort_order`/`recurring*`/`snooze_until`/`estimate_min`/`created_at` 不参与同步负载，upsert 时原样保留。
+- 笔记仍随 M3 加域，端点结构不变。
+
+**删除同步（墓碑，v1.1）：**
+
+- 上行：删除 = 一条 `data: { deleted: true }` 的变更（domain/id/updatedAt 照常，updatedAt = 删除时刻）。
+- 桌面：收到即删行（日程级联删子任务，逐条记墓碑）；桌面侧自己的删除（界面 / AI 工具 / 7 天完成清理 / 结算撤销）经 repo 删除钩子统一记墓碑。墓碑 = `{ domain, id, deletedAt }`，存 vault（`.knowbase/modules/phoneCompanion/tombstones.json`），随仓迁移；上限 5000 条，超限弃最旧。
+- 裁决：删除与更新在同一条 LWW 时线上——deletedAt/updatedAt 新者赢、相同桌面赢；已墓碑的 id 再收到**更旧**的上行 upsert → 拒绝（`reason: 'tombstoned'`），防止复活；删除比行内 updatedAt 旧 → 拒删回 `conflict`（手机以服务端版本回写收敛）。
+- 下行：pull 响应增 `tombstones: [{ domain, id, deletedAt }]`（`deletedAt > min(各域游标)`）；手机按 id 幂等删本地条目，并丢弃该 id 的在途队列操作。
 
 **触发：** 已配对且探测到电脑在线 → 自动对账（启动时 + 写操作后 + 手动「立即同步」）；未配对/离线时一切照旧记本地，待同步条数 UI 常显（琥珀色徽标）。
 

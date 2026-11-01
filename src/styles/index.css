@@ -204,6 +204,14 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .tag.plan { color: var(--blue); background: color-mix(in srgb, var(--blue) 12%, transparent); }
 .tag.daily { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
 
+/* 长按删除确认（行内化，无弹窗） */
+.del-confirm { display: flex; align-items: center; gap: 10px; animation: itemIn .2s ease; }
+.dc-q { font-size: 13px; color: var(--red); font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-btn { flex: none; height: 28px; padding: 0 14px; border-radius: 9px; font-size: 12.5px; font-weight: 600; transition: transform .12s; }
+.dc-btn:active { transform: scale(.94); }
+.dc-yes { background: var(--red); color: #fff; }
+.dc-no { background: var(--bg-tertiary); color: var(--text-secondary); }
+
 .day-grid { position: relative; background: var(--bg-primary); border: 1px solid var(--border-soft); border-radius: 14px; overflow: hidden; }
 .hour-row { position: absolute; left: 0; right: 0; height: 1px; background: var(--border-soft); }
 .hour-label { position: absolute; left: 9px; font-size: 10px; color: var(--text-muted); transform: translateY(-50%); font-variant-numeric: tabular-nums; }

@@ -1,32 +1,63 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { Habit, Todo, TodoType } from '../../lib/types'
-import { TODO_TYPE_LABEL, TODAY, WEEK, fmtMin } from '../../lib/data'
+import { TODO_TYPE_LABEL, TODAY, WEEK, dayIso, fmtMin } from '../../lib/data'
 import { useApp } from '../../lib/store'
 import { ICheck, IPlus } from '../../components/icons'
 import { Grip, Sheet } from '../../components/Sheet'
 
-function TodoItem({ t }: { t: Todo }) {
+function TodoItem({ t, confirming, onAsk, onConfirm, onCancel }: {
+  t: Todo
+  confirming: boolean
+  onAsk: (id: string) => void
+  onConfirm: (id: string) => void
+  onCancel: () => void
+}) {
   const { toggleTodo } = useApp()
+  /* 长按呼出删除确认（pointer 手势；滚动产生的 move 会自动取消，不误触） */
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const armPress = () => {
+    cancelPress()
+    pressTimer.current = setTimeout(() => { pressTimer.current = null; onAsk(t.id) }, 550)
+  }
+  const cancelPress = () => { if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null } }
   return (
-    <div className={'todo-item' + (t.done ? ' done' : '')}>
+    <div
+      className={'todo-item' + (t.done ? ' done' : '')}
+      onPointerDown={armPress}
+      onPointerUp={cancelPress}
+      onPointerLeave={cancelPress}
+      onPointerMove={cancelPress}
+      onContextMenu={e => { e.preventDefault(); onAsk(t.id) }}
+    >
       <button className="todo-check" onClick={() => toggleTodo(t.id)}><ICheck /></button>
       <div className="todo-body">
-        <div className="todo-title">{t.title}</div>
-        <div className="todo-meta">
-          <span className={'tag ' + t.type}>{TODO_TYPE_LABEL[t.type]}</span>
-          {t.time && <span>{t.time}</span>}
-          {t.sched && <span className="sched-chip">{fmtMin(t.sched.s)}–{fmtMin(t.sched.e)}</span>}
-          {t.subTotal ? <span className="sub-chip">☑ {t.subDone}/{t.subTotal}</span> : null}
-          <span>{t.tag}</span>
-        </div>
+        {confirming ? (
+          <div className="del-confirm">
+            <span className="dc-q">删除「{t.title}」？</span>
+            <button className="dc-btn dc-yes" onClick={() => onConfirm(t.id)}>删除</button>
+            <button className="dc-btn dc-no" onClick={onCancel}>取消</button>
+          </div>
+        ) : (
+          <>
+            <div className="todo-title">{t.title}</div>
+            <div className="todo-meta">
+              <span className={'tag ' + t.type}>{TODO_TYPE_LABEL[t.type]}</span>
+              {t.time && <span>{t.time}</span>}
+              {t.sched && <span className="sched-chip">{fmtMin(t.sched.s)}–{fmtMin(t.sched.e)}</span>}
+              {t.subTotal ? <span className="sub-chip">☑ {t.subDone}/{t.subTotal}</span> : null}
+              <span>{t.tag}</span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
 }
 
-function renderTodoList(dayTodos: Todo[]) {
-  const pending = dayTodos.filter(t => !t.done)
-  const done = dayTodos.filter(t => t.done)
+function renderTodoList(dayTodos: Todo[], delId: string | null, ask: (id: string) => void, confirm: (id: string) => void, cancel: () => void) {
+  const top = dayTodos.filter(t => !t.parentId)
+  const pending = top.filter(t => !t.done)
+  const done = top.filter(t => t.done)
   const groups: Array<[TodoType, string, string]> = [['deadline', '截止', 'gc-deadline'], ['plan', '计划', 'gc-plan'], ['daily', '日常', 'gc-daily']]
   let html: React.ReactNode[] = []
   for (const [type, label, cls] of groups) {
@@ -35,7 +66,9 @@ function renderTodoList(dayTodos: Todo[]) {
     html.push(
       <div className="group-wrap" key={type}>
         <div className="group-head"><span className={'gn ' + cls}>{label}</span><span className="gline" /><span>{items.length}</span></div>
-        <div className="card" style={{ padding: '2px 14px' }}>{items.map(t => <TodoItem key={t.id} t={t} />)}</div>
+        <div className="card" style={{ padding: '2px 14px' }}>
+          {items.map(t => <TodoItem key={t.id} t={t} confirming={delId === t.id} onAsk={ask} onConfirm={confirm} onCancel={cancel} />)}
+        </div>
       </div>,
     )
   }
@@ -43,7 +76,9 @@ function renderTodoList(dayTodos: Todo[]) {
     html = html.concat(
       <div className="group-wrap" key="done">
         <div className="group-head"><span className="gn" style={{ color: 'var(--text-muted)' }}>已完成</span><span className="gline" /><span>{done.length}</span></div>
-        <div className="card" style={{ padding: '2px 14px' }}>{done.map(t => <TodoItem key={t.id} t={t} />)}</div>
+        <div className="card" style={{ padding: '2px 14px' }}>
+          {done.map(t => <TodoItem key={t.id} t={t} confirming={delId === t.id} onAsk={ask} onConfirm={confirm} onCancel={cancel} />)}
+        </div>
       </div>,
     )
   }
@@ -53,7 +88,7 @@ function renderTodoList(dayTodos: Todo[]) {
 function DayGrid({ dayTodos }: { dayTodos: Todo[] }) {
   const { toast } = useApp()
   const START = 8 * 60, END = 23 * 60, H = 46
-  const blocks = dayTodos.filter(t => t.sched)
+  const blocks = dayTodos.filter(t => t.sched && !t.parentId)
   const hours: number[] = []
   for (let m = START; m <= END; m += 60) hours.push(m)
   const colorOf = (t: Todo) => t.type === 'deadline' ? 'var(--red)' : t.type === 'daily' ? 'var(--green)' : 'var(--blue)'
@@ -144,18 +179,21 @@ function TodoSheet() {
 }
 
 export function SchedulePage({ active }: { active: boolean }) {
-  const { todos, habits, selDate, setSelDate, schedView, setSchedView, openSheet } = useApp()
+  const { todos, habits, selDate, setSelDate, schedView, setSchedView, openSheet, deleteTodo } = useApp()
+  const [delId, setDelId] = useState<string | null>(null)
   const dayTodos = todos.filter(t => t.date === selDate)
-  const doneN = dayTodos.filter(t => t.done).length
+  const doneN = dayTodos.filter(t => t.done && !t.parentId).length
   const w = WEEK.find(x => x.iso === selDate)!
-  const dn = selDate === TODAY ? '10月31日' : w.n + '月' + w.n + '日'
-  const rel = selDate === TODAY ? ' · 今天' : selDate === '2026-11-01' ? ' · 明天' : ''
+  /* 日期头按真实日期渲染（M2a 前是写死的 10月31日 / 11月1日） */
+  const selD = new Date(selDate + 'T00:00:00')
+  const dn = (selD.getMonth() + 1) + '月' + selD.getDate() + '日'
+  const rel = selDate === TODAY ? ' · 今天' : selDate === dayIso(1) ? ' · 明天' : ''
 
   return (
     <section className={'page' + (active ? ' active' : '')}>
       <div className="date-head">
         <span className="d">{dn}</span><span className="w">周{w.wd}{rel}</span>
-        <span className="progress">{dayTodos.length ? '已完成 ' + doneN + '/' + dayTodos.length : ''}</span>
+        <span className="progress">{dayTodos.length ? '已完成 ' + doneN + '/' + (dayTodos.length - dayTodos.filter(t => t.parentId).length) : ''}</span>
       </div>
       <div className="progress-track"><div className="progress-fill" style={{ width: (dayTodos.length ? doneN / dayTodos.length * 100 : 0) + '%' }} /></div>
 
@@ -178,7 +216,13 @@ export function SchedulePage({ active }: { active: boolean }) {
         ))}
       </div>
 
-      {schedView === 'list' && renderTodoList(dayTodos)}
+      {schedView === 'list' && renderTodoList(
+        dayTodos,
+        delId,
+        id => setDelId(id),
+        id => { deleteTodo(id); setDelId(null) },
+        () => setDelId(null),
+      )}
       {schedView === 'grid' && <DayGrid dayTodos={dayTodos} />}
       {schedView === 'habit' && habits.map(h => <HabitCard key={h.id} h={h} />)}
 

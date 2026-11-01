@@ -1,15 +1,37 @@
 import type { Folder, Habit, Session, Todo, Tx } from './types'
 
-/* 日程数据锚点：2026-10-31 是周六，本周一 = 10-26（原型阶段固定演示锚点） */
-export const TODAY = '2026-10-31'
-export const WEEK = Array.from({ length: 7 }, (_, i) => {
-  const d = new Date(2026, 9, 26 + i)
-  return {
-    iso: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
-    wd: '一二三四五六日'[i],
-    n: d.getDate(),
-  }
-})
+/* ---- 日期锚点：真实「今天」（M2a 起日程接真实数据，不再是固定演示锚点 2026-10-31） ---- */
+
+export const isoOf = (d: Date): string =>
+  d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+
+/** 今天 ±n 天的 ISO 日期 */
+export function dayIso(offset = 0): string {
+  const d = new Date()
+  d.setDate(d.getDate() + offset)
+  return isoOf(d)
+}
+
+/** 某日的「M月D日」展示（种子数据用） */
+const mdOf = (offset = 0): string => {
+  const d = new Date()
+  d.setDate(d.getDate() + offset)
+  return (d.getMonth() + 1) + '月' + d.getDate() + '日'
+}
+
+export const TODAY = dayIso(0)
+
+/** 本周条：周一起的 7 天（与桌面周日程口径一致） */
+export const WEEK = (() => {
+  const now = new Date()
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - (now.getDay() === 0 ? 7 : now.getDay()) + 1)
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + i)
+    return { iso: isoOf(d), wd: '一二三四五六日'[i], n: d.getDate() }
+  })
+})()
 
 export const CAT_COLORS: Record<string, string> = {
   餐饮: '#e2a336', 交通: '#3794ff', 购物: '#b180d7', 娱乐: '#f14c4c',
@@ -28,15 +50,15 @@ export const VOICE_PHRASES = ['帮我记一笔午饭三十块', '把跑步改到
 export const TODO_TYPE_LABEL: Record<string, string> = { deadline: '截止', plan: '计划', daily: '日常' }
 
 export const seedTodos: Todo[] = [
-  { id: 't1', date: '2026-10-31', title: '交周报', type: 'deadline', time: '09:30', tag: '工作', done: true, sched: { s: 570, e: 610 } },
-  { id: 't2', date: '2026-10-31', title: 'Phrontis 手机版原型讨论', type: 'plan', time: '14:00', tag: '项目', done: false, sched: { s: 840, e: 930 }, subDone: 1, subTotal: 3 },
-  { id: 't3', date: '2026-10-31', title: '跑步 30 分钟', type: 'daily', time: '19:00', tag: '健康', done: false, sched: { s: 1140, e: 1170 } },
-  { id: 't4', date: '2026-10-31', title: '回复合作邮件', type: 'plan', time: '', tag: '工作', done: false },
-  { id: 't5', date: '2026-10-31', title: '回顾与明日规划', type: 'daily', time: '21:30', tag: '成长', done: false, sched: { s: 1290, e: 1320 } },
-  { id: 't6', date: '2026-11-01', title: '准备周一的周报框架', type: 'plan', time: '10:00', tag: '工作', done: false, sched: { s: 600, e: 660 } },
-  { id: 't7', date: '2026-11-01', title: '给妈妈打电话', type: 'daily', time: '20:00', tag: '家庭', done: false },
-  { id: 't8', date: '2026-10-30', title: '项目周会', type: 'plan', time: '16:00', tag: '项目', done: true, sched: { s: 960, e: 1005 } },
-  { id: 't9', date: '2026-10-30', title: '买生日礼物', type: 'deadline', time: '18:00', tag: '生活', done: true },
+  { id: 't1', date: TODAY, title: '交周报', type: 'deadline', time: '09:30', tag: '工作', done: true, sched: { s: 570, e: 610 } },
+  { id: 't2', date: TODAY, title: 'Phrontis 手机版原型讨论', type: 'plan', time: '14:00', tag: '项目', done: false, sched: { s: 840, e: 930 }, subDone: 1, subTotal: 3 },
+  { id: 't3', date: TODAY, title: '跑步 30 分钟', type: 'daily', time: '19:00', tag: '健康', done: false, sched: { s: 1140, e: 1170 } },
+  { id: 't4', date: TODAY, title: '回复合作邮件', type: 'plan', time: '', tag: '工作', done: false },
+  { id: 't5', date: TODAY, title: '回顾与明日规划', type: 'daily', time: '21:30', tag: '成长', done: false, sched: { s: 1290, e: 1320 } },
+  { id: 't6', date: dayIso(1), title: '准备周一的周报框架', type: 'plan', time: '10:00', tag: '工作', done: false, sched: { s: 600, e: 660 } },
+  { id: 't7', date: dayIso(1), title: '给妈妈打电话', type: 'daily', time: '20:00', tag: '家庭', done: false },
+  { id: 't8', date: dayIso(-1), title: '项目周会', type: 'plan', time: '16:00', tag: '项目', done: true, sched: { s: 960, e: 1005 } },
+  { id: 't9', date: dayIso(-1), title: '买生日礼物', type: 'deadline', time: '18:00', tag: '生活', done: true },
 ]
 
 export const seedHabits: Habit[] = [
@@ -46,11 +68,11 @@ export const seedHabits: Habit[] = [
 ]
 
 export const seedTxs: Tx[] = [
-  { id: 'x1', date: '今天', sub: '10月31日 · 12:02', name: '午餐 · 公司食堂', cat: '餐饮', amt: -28, acc: '微信' },
-  { id: 'x2', date: '今天', sub: '10月31日 · 09:05', name: '地铁', cat: '交通', amt: -4, acc: '交通卡' },
-  { id: 'x3', date: '昨天', sub: '10月30日 · 15:40', name: '瑞幸咖啡', cat: '餐饮', amt: -15, acc: '微信' },
-  { id: 'x4', date: '昨天', sub: '10月30日 · 19:22', name: '超市日用品', cat: '日用', amt: -56, acc: '支付宝' },
-  { id: 'x5', date: '10月28日', sub: '10月28日', name: '十月稿费', cat: '稿费', amt: 800, acc: '银行卡' },
+  { id: 'x1', date: '今天', sub: mdOf(0) + ' · 12:02', name: '午餐 · 公司食堂', cat: '餐饮', amt: -28, acc: '微信' },
+  { id: 'x2', date: '今天', sub: mdOf(0) + ' · 09:05', name: '地铁', cat: '交通', amt: -4, acc: '交通卡' },
+  { id: 'x3', date: '昨天', sub: mdOf(-1) + ' · 15:40', name: '瑞幸咖啡', cat: '餐饮', amt: -15, acc: '微信' },
+  { id: 'x4', date: '昨天', sub: mdOf(-1) + ' · 19:22', name: '超市日用品', cat: '日用', amt: -56, acc: '支付宝' },
+  { id: 'x5', date: mdOf(-3), sub: mdOf(-3), name: '十月稿费', cat: '稿费', amt: 800, acc: '银行卡' },
 ]
 
 export const seedFolders: Folder[] = [

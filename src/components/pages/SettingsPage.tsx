@@ -18,8 +18,8 @@ export function SettingsPage({ active }: { active: boolean }) {
   const [confirmUnpair, setConfirmUnpair] = useState(false)
 
   const scopeRows: Array<{ k: string; label: string; why?: string }> = [
-    { k: '记账', label: '记账 · 双向按条目合并' },
-    { k: '日程', label: '日程 · 双向按条目合并', why: 'M2 接入' },
+    { k: '记账', label: '记账 · 双向按条目合并（含删除）' },
+    { k: '日程', label: '日程 · 双向按条目合并（含删除）' },
     { k: '笔记', label: '笔记 · 缓存 + 手机笔记上行', why: 'M3 接入' },
     { k: 'AI 会话记录', label: 'AI 会话记录', why: '二期' },
   ]
@@ -89,7 +89,7 @@ export function SettingsPage({ active }: { active: boolean }) {
                 )}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 10 }}>
-                {paired.baseUrl.replace('http://', '')} · M1 同步范围：记账（日程 M2 / 笔记 M3 陆续接入）
+                {paired.baseUrl.replace('http://', '')} · 同步范围：记账 + 日程（含删除；笔记 M3 接入）
               </div>
             </>
           )}

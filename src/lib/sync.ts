@@ -1,14 +1,17 @@
 /**
- * 手机伴侣同步引擎（M1）。
+ * 手机伴侣同步引擎（M1 配对/队列，v1.1 双域 + 墓碑）。
  *
  * 协议冻结口径：docs/design.md §2.1（与桌面端
  * E:\Projects\KnowledgeRecorder\electron\lib\phoneCompanion\protocol.ts 同源，
  * 两仓独立持有一份，各自契约脚本锁行为：scripts/verify-sync.mjs）。
  *
- * M1 存储用 localStorage（等价 Preferences 形态），M2 评估 SQLite 迁移；
+ * v1.1（M2a）：schedule 域上线；删除走墓碑（data:{deleted:true}）；
+ * 游标只在 pull 完成后推进（M1 在 push 时推进，会漏拉电脑侧早于本次 push 的变更——已修正）。
+ *
+ * M1 存储用 localStorage（等价 Preferences 形态），M2b 评估 SQLite 迁移；
  * 所有键带 pm. 前缀，迁移时整体搬运。
  */
-import type { LedgerSyncData, PairedDevice, QueueOp } from './types'
+import type { LedgerSyncData, PairedDevice, QueueOp, ScheduleSyncData, Todo } from './types'
 
 const K_DEVICE_ID = 'pm.deviceId'
 const K_PAIRED = 'pm.companion'
@@ -24,6 +27,15 @@ function lsGet<T>(key: string, fallback: T): T {
 
 function lsSet(key: string, value: unknown): void {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* 隐私模式等，静默 */ }
+}
+
+/** 通用本地持久化（pm. 前缀随键走）：store 用它落 todos/txs；SQLite 评估（M2b）时整体搬运 */
+export function loadJson<T>(key: string, fallback: T): T {
+  return lsGet<T>(key, fallback)
+}
+
+export function saveJson(key: string, value: unknown): void {
+  lsSet(key, value)
 }
 
 /** UUID：http 局域网地址下 crypto.randomUUID 不可用（非安全上下文），自备 v4 兜底 */
@@ -128,12 +140,33 @@ export function removeFromQueue(ids: string[]): void {
   lsSet(K_QUEUE, getQueue().filter(op => !drop.has(op.id)))
 }
 
-export function getLastSync(): { ledger: number } {
-  return lsGet<{ ledger: number }>(K_LAST_SYNC, { ledger: 0 })
+export interface LastSyncCursor { ledger: number; schedule: number }
+
+export function getLastSync(): LastSyncCursor {
+  const raw = lsGet<Partial<LastSyncCursor>>(K_LAST_SYNC, {})
+  return { ledger: Number(raw.ledger) || 0, schedule: Number(raw.schedule) || 0 }
 }
 
-function setLastSync(domain: 'ledger', ms: number): void {
+function setLastSync(domain: 'ledger' | 'schedule', ms: number): void {
   lsSet(K_LAST_SYNC, { ...getLastSync(), [domain]: ms })
+}
+
+/* ================= schedule 域负载构建（纯函数，契约脚本直测） ================= */
+
+/** 手机 Todo → schedule 域负载。done 由调用方先改好对象；time 非 HH:MM 形态视为无 */
+export function buildScheduleData(
+  t: Pick<Todo, 'date' | 'title' | 'type' | 'time' | 'done' | 'parentId' | 'sched'>,
+): ScheduleSyncData {
+  return {
+    date: t.date,
+    title: t.title,
+    type: t.type,
+    time: /^\d{1,2}:\d{2}/.test(t.time) ? t.time.slice(0, 5) : '',
+    done: t.done,
+    parentId: t.parentId ?? null,
+    schedStart: t.sched ? t.sched.s : null,
+    schedEnd: t.sched ? t.sched.e : null,
+  }
 }
 
 /* ================= 连接探测与同步 ================= */
@@ -163,6 +196,19 @@ export interface RemoteLedgerItem {
   data: LedgerSyncData
 }
 
+export interface RemoteScheduleItem {
+  id: string
+  updatedAt: string
+  data: ScheduleSyncData
+}
+
+/** 服务端下行的墓碑（deletedAt > min(各域游标)；手机按 id 幂等应用） */
+export interface RemoteTombstone {
+  domain: string
+  id: string
+  deletedAt: string
+}
+
 export interface SyncOutcome {
   /** 出队的条目数（applied + conflict） */
   handled: number
@@ -172,15 +218,19 @@ export interface SyncOutcome {
   applied: number
   /** 服务端更新的条数（本地以服务端版本为准） */
   conflicts: number
-  /** 从电脑拉回的条数 */
+  /** 从电脑拉回的条数（两域合计） */
   pulled: number
   /** 拉回的记账条目（调用方按 id 幂等合并进本地列表） */
-  remote: RemoteLedgerItem[]
+  remoteLedger: RemoteLedgerItem[]
+  /** 拉回的日程条目（含子任务行，调用方聚合计数展示） */
+  remoteSchedule: RemoteScheduleItem[]
+  /** 墓碑下行的条目 id（调用方从本地删除，并丢弃这些 id 的在途队列操作） */
+  removedIds: string[]
 }
 
 /**
- * 对账一轮：push 待同步队列 → pull 记账增量。
- * 有冲突时本轮游标回退为 0 全量对一次（记账条目量级小，收敛优先）；
+ * 对账一轮：push 待同步队列（两域混批，服务端按 change.domain 分派）→ pull 双域增量 + 墓碑。
+ * 游标只在 pull 响应后推进（v1.1）；有冲突时该轮游标回 0 全量对一次（收敛优先）；
  * 自己推上去的条目会被 pull 原样带回，按 id 幂等合并。
  */
 export async function syncNow(onPhase?: (pct: number) => void): Promise<SyncOutcome> {
@@ -214,7 +264,7 @@ export async function syncNow(onPhase?: (pct: number) => void): Promise<SyncOutc
 
   onPhase?.(15)
 
-  // ---- push ----
+  // ---- push（游标不动：见文件头 v1.1 说明） ----
   let applied = 0, conflicts = 0
   const queue = getQueue()
   const changes = queue.map(op => ({ domain: op.domain, id: op.id, updatedAt: op.updatedAt, data: op.data }))
@@ -229,23 +279,39 @@ export async function syncNow(onPhase?: (pct: number) => void): Promise<SyncOutc
       if (r.applied) applied++
       else if (r.conflict) conflicts++
       const op = queue.find(x => x.id === r.id)
-      // unsupported-domain 的留在队列（M2 加域后自然消化），其余出队
+      // unsupported-domain 的留在队列（M3 notes 加域后自然消化），其余出队
       if (op && r.reason !== 'unsupported-domain') doneIds.push(r.id)
     }
     removeFromQueue(doneIds)
-    if (typeof pushRes.serverTime === 'number') setLastSync('ledger', pushRes.serverTime)
   }
   onPhase?.(60)
 
-  // ---- pull（有冲突 → 全量对一次，保证收敛）----
-  const since = conflicts > 0 ? 0 : getLastSync().ledger
-  const pullRes = await req('/api/sync/pull', { since: { ledger: since } }) as {
-    changes?: { ledger?: RemoteLedgerItem[] }
-    cursor?: { ledger?: number }
+  // ---- pull（有冲突 → 全量对一次，保证收敛；游标以 pull 响应 cursor 为准） ----
+  const cursors = getLastSync()
+  const since = {
+    ledger: conflicts > 0 ? 0 : cursors.ledger,
+    schedule: conflicts > 0 ? 0 : cursors.schedule,
   }
-  const remote = Array.isArray(pullRes.changes?.ledger) ? pullRes.changes!.ledger! : []
+  const pullRes = await req('/api/sync/pull', { since }) as {
+    changes?: { ledger?: RemoteLedgerItem[]; schedule?: RemoteScheduleItem[] }
+    tombstones?: RemoteTombstone[]
+    cursor?: { ledger?: number; schedule?: number }
+  }
+  const remoteLedger = Array.isArray(pullRes.changes?.ledger) ? pullRes.changes!.ledger! : []
+  const remoteSchedule = Array.isArray(pullRes.changes?.schedule) ? pullRes.changes!.schedule! : []
+  const removedIds = Array.isArray(pullRes.tombstones) ? pullRes.tombstones.map(t => String(t.id)).filter(Boolean) : []
   if (typeof pullRes.cursor?.ledger === 'number') setLastSync('ledger', pullRes.cursor.ledger)
+  if (typeof pullRes.cursor?.schedule === 'number') setLastSync('schedule', pullRes.cursor.schedule)
   onPhase?.(100)
 
-  return { handled: doneIds.length, handledIds: doneIds, applied, conflicts, pulled: remote.length, remote }
+  return {
+    handled: doneIds.length,
+    handledIds: doneIds,
+    applied,
+    conflicts,
+    pulled: remoteLedger.length + remoteSchedule.length,
+    remoteLedger,
+    remoteSchedule,
+    removedIds,
+  }
 }

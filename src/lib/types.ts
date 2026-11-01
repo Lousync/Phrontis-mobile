@@ -11,6 +11,8 @@ export interface Todo {
   sched?: { s: number; e: number }
   subDone?: number
   subTotal?: number
+  /** 父条目 UUID（子任务行；手机侧只读：仅用于聚合计数，不独立展示/编辑） */
+  parentId?: string | null
 }
 
 export interface Habit {
@@ -98,13 +100,34 @@ export interface LedgerSyncData {
   note: string
 }
 
-/** 待同步队列条目（M1 只进 ledger 域） */
+/** 日程域负载（协议 v1.1，与桌面 protocol.ScheduleItemData 同源；口径见 docs/design.md §2.1） */
+export interface ScheduleSyncData {
+  date: string
+  title: string
+  type: TodoType
+  /** 'HH:MM'，'' = 无 */
+  time: string
+  done: boolean
+  parentId: string | null
+  /** 当天分钟数；null = 未排期 */
+  schedStart: number | null
+  schedEnd: number | null
+}
+
+/** 删除同步（墓碑 v1.1）上行负载 */
+export interface TombstoneData {
+  deleted: true
+}
+
+export type SyncPayload = LedgerSyncData | ScheduleSyncData | TombstoneData
+
+/** 待同步队列条目（v1.1 起 ledger + schedule 两域，删除为墓碑负载） */
 export interface QueueOp {
-  /** 与条目 UUID 相同，服务端据此保 id upsert */
+  /** 与条目 UUID 相同，服务端据此保 id upsert；删除时亦为该条目 UUID */
   id: string
-  domain: 'ledger'
+  domain: 'ledger' | 'schedule'
   updatedAt: string
-  data: LedgerSyncData
+  data: SyncPayload
   /** UI 展示用（待同步徽标文案） */
   label: string
 }

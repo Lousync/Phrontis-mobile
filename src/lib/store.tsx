@@ -2,13 +2,26 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { ReactNode } from 'react'
 import type { AiMode, Folder, Habit, LedgerSyncData, Msg, PairedDevice, PhoneNote, Session, SheetId, SchedView, ThemeName, Todo, Tx, VoicePhase } from './types'
 import { seedFolders, seedHabits, seedSessions, seedTodos, seedTxs, TODAY, VOICE_PHRASES, WELCOME, fmtMoney, txDisplay } from './data'
-import { enqueueOp, getPaired, getQueue, pairWith as pairRequest, probeOnline, syncNow, unpair as unpairDevice, uuid, type RemoteLedgerItem } from './sync'
+import {
+  buildScheduleData, enqueueOp, getPaired, getQueue, loadJson, pairWith as pairRequest,
+  probeOnline, removeFromQueue, saveJson, syncNow, unpair as unpairDevice, uuid,
+  type RemoteLedgerItem, type RemoteScheduleItem,
+} from './sync'
 
 export interface ToastItem { id: number; msg: string; type: 'ok' | 'warn' | 'info' }
 export type Card = { kind: 'tx' | 'move'; confirmed?: boolean }
 
 let seq = 100
 const nextId = (p: string) => p + (++seq)
+
+/** 本地持久化键（pm. 前缀，SQLite 评估时整体搬运） */
+const K_TODOS = 'pm.todos'
+const K_TXS = 'pm.txs'
+
+/** 在途删除操作的条目 id：远端回流时跳过这些 id（本地已删，等队列 push 落墓碑） */
+function queuedDeleteIds(): Set<string> {
+  return new Set(getQueue().filter(op => (op.data as { deleted?: boolean }).deleted === true).map(op => op.id))
+}
 
 interface Store {
   /* 全局 */
@@ -48,6 +61,7 @@ interface Store {
   todos: Todo[]
   toggleTodo: (id: string) => void
   addTodo: (input: { title: string; type: Todo['type']; time: string }) => void
+  deleteTodo: (id: string) => void
   habits: Habit[]
   toggleHabit: (id: string) => void
 
@@ -109,10 +123,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const [schedView, setSchedView] = useState<SchedView>('list')
   const [selDate, setSelDate] = useState(TODAY)
-  const [todos, setTodos] = useState<Todo[]>(seedTodos)
+  /* 日程/流水落本地存储（M2a）：重启不丢；首次启动播种子（真实「今天」锚点），之后以存量为准 */
+  const [todos, setTodos] = useState<Todo[]>(() => loadJson<Todo[]>(K_TODOS, seedTodos))
   const [habits, setHabits] = useState<Habit[]>(seedHabits)
 
-  const [txs, setTxs] = useState<Tx[]>(seedTxs)
+  const [txs, setTxs] = useState<Tx[]>(() => loadJson<Tx[]>(K_TXS, seedTxs))
+
+  useEffect(() => { saveJson(K_TODOS, todos) }, [todos])
+  useEffect(() => { saveJson(K_TXS, txs) }, [txs])
 
   const [folders, setFolders] = useState<Folder[]>(seedFolders)
   const [phoneNotes, setPhoneNotes] = useState<PhoneNote[]>([
@@ -203,13 +221,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPending(p => [...p, opId ? { label, opId } : { label }])
   }, [])
 
-  /* 电脑下行的记账条目按 id 幂等并入本地流水（自己的上行被原样带回时 = 无操作） */
+  /* 电脑下行的记账条目按 id 幂等并入本地流水（自己的上行被原样带回时 = 无操作；
+     在途删除的 id 跳过——本地已删，等队列 push 落墓碑） */
   const applyRemoteLedger = useCallback((remote: RemoteLedgerItem[]) => {
     if (!remote.length) return
+    const delIds = queuedDeleteIds()
     setTxs(list => {
       const byId = new Map(list.map(t => [t.id, t]))
       const known = new Set(list.map(t => t.id))
       for (const r of remote) {
+        if (delIds.has(r.id)) continue
         const d = r.data
         const disp = txDisplay(d.date, d.time)
         byId.set(r.id, {
@@ -223,6 +244,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
       for (const t of byId.values()) (known.has(t.id) ? kept : fresh).push(t)
       return [...fresh.reverse(), ...kept]
     })
+  }, [])
+
+  /* 电脑下行的日程条目幂等并入本地（含子任务行：只用于聚合计数，不独立展示） */
+  const applyRemoteSchedule = useCallback((remote: RemoteScheduleItem[]) => {
+    if (!remote.length) return
+    const delIds = queuedDeleteIds()
+    setTodos(list => {
+      let next = [...list]
+      for (const r of remote) {
+        if (delIds.has(r.id)) continue
+        const d = r.data
+        const prev = next.find(t => t.id === r.id)
+        const item: Todo = {
+          id: r.id, date: d.date, title: d.title, type: d.type,
+          time: d.time, tag: prev?.tag || '电脑', done: d.done,
+          sched: d.schedStart != null ? { s: d.schedStart, e: d.schedEnd ?? d.schedStart } : undefined,
+          parentId: d.parentId,
+        }
+        next = next.filter(t => t.id !== r.id)
+        next.push(item)
+      }
+      /* 子任务聚合计数：有实际子行的父条目刷新 subDone/subTotal（种子演示计数没有实际子行，保留） */
+      const agg = new Map<string, { total: number; done: number }>()
+      for (const t of next) {
+        if (!t.parentId) continue
+        const c = agg.get(t.parentId) || { total: 0, done: 0 }
+        c.total++
+        if (t.done) c.done++
+        agg.set(t.parentId, c)
+      }
+      return next.map(t => {
+        const c = agg.get(t.id)
+        return c ? { ...t, subTotal: c.total, subDone: c.done } : t
+      })
+    })
+  }, [])
+
+  /* 墓碑下行：本地删除 + 丢弃这些 id 的在途队列操作（幂等） */
+  const applyTombstones = useCallback((removedIds: string[]) => {
+    if (!removedIds.length) return
+    const gone = new Set(removedIds)
+    setTodos(list => list.filter(t => !gone.has(t.id)))
+    setTxs(list => list.filter(t => !gone.has(t.id)))
+    removeFromQueue(removedIds)
   }, [])
 
   const runSync = useCallback(() => {
@@ -253,13 +318,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }, 200)
         return
       }
-      /* 已配对 → 真实对账（push 队列 + pull 记账增量） */
+      /* 已配对 → 真实对账（push 队列 + pull 双域增量 + 墓碑） */
       if (getQueue().length === 0 && pendingRef.current.length === 0) { toast('没有待同步的变更', 'info'); return }
       setSyncing(true)
       setSyncPct(8)
       try {
         const out = await syncNow(pct => setSyncPct(pct))
-        applyRemoteLedger(out.remote)
+        applyRemoteLedger(out.remoteLedger)
+        applyRemoteSchedule(out.remoteSchedule)
+        applyTombstones(out.removedIds)
         const handled = new Set(out.handledIds)
         setPending(list => list.filter(x => !x.opId || !handled.has(x.opId)))
         setSyncing(false)
@@ -270,16 +337,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (out.applied) parts.push('上行 ' + out.applied + ' 条')
         if (out.conflicts) parts.push(out.conflicts + ' 条以电脑为准')
         if (out.pulled) parts.push('下行 ' + out.pulled + ' 条')
-        const remain = getQueue().length
-        const remainNote = remain ? '（' + remain + ' 条日程变更待 M2 接入）' : ''
-        toast(parts.length ? '已同步：' + parts.join(' · ') + remainNote : '与电脑已是对账状态' + remainNote, 'ok')
+        if (out.removedIds.length) parts.push('删除 ' + out.removedIds.length + ' 条')
+        toast(parts.length ? '已同步：' + parts.join(' · ') : '与电脑已是对账状态', 'ok')
       } catch (e) {
         setSyncing(false)
         setSyncPct(0)
         toast(e instanceof Error ? e.message : '同步失败', 'warn')
       }
     })()
-  }, [toast, applyRemoteLedger])
+  }, [toast, applyRemoteLedger, applyRemoteSchedule, applyTombstones])
 
   const toggleOnline = useCallback(() => {
     void (async () => {
@@ -345,22 +411,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
   runSyncRef.current = runSync
 
-  /* ---------- 日程 ---------- */
+  /* ---------- 日程（v1.1：真实条目 + schedule 域上行） ---------- */
 
   const toggleTodo = useCallback((id: string) => {
-    setTodos(list => list.map(t => {
-      if (t.id !== id) return t
-      return { ...t, done: !t.done }
-    }))
     const t = todos.find(x => x.id === id)
-    if (t) markPending((t.done ? '撤销' : '完成') + '：' + t.title)
+    if (!t) return
+    const next: Todo = { ...t, done: !t.done }
+    setTodos(list => list.map(x => x.id === id ? next : x))
+    // 上行最新状态；enqueueOp 按条目 id 去重 → 同一条目的连续切换只留最新一条
+    enqueueOp({
+      id, domain: 'schedule', updatedAt: new Date().toISOString(),
+      data: buildScheduleData(next),
+      label: (next.done ? '完成' : '撤销') + '：' + t.title,
+    })
+    markPending((next.done ? '完成' : '撤销') + '：' + t.title, id)
   }, [todos, markPending])
 
   const addTodo = useCallback((input: { title: string; type: Todo['type']; time: string }) => {
-    setTodos(list => [...list, { id: nextId('t'), date: selDate, title: input.title, type: input.type, time: input.time, tag: '手机', done: false }])
-    markPending('待办「' + input.title + '」' + (selDate === TODAY ? '' : '（11月1日）'))
+    const id = uuid()
+    const item: Todo = { id, date: selDate, title: input.title, type: input.type, time: input.time, tag: '手机', done: false, parentId: null }
+    const label = '待办「' + input.title + '」' + (selDate === TODAY ? '' : '（' + selDate + '）')
+    enqueueOp({ id, domain: 'schedule', updatedAt: new Date().toISOString(), data: buildScheduleData(item), label })
+    setTodos(list => [...list, item])
+    markPending(label, id)
     toast('已加待办 · 待同步', 'ok')
   }, [selDate, markPending, toast])
+
+  const deleteTodo = useCallback((id: string) => {
+    const t = todos.find(x => x.id === id)
+    if (!t) return
+    setTodos(list => list.filter(x => x.id !== id))
+    // 墓碑上行（v1.1）：data {deleted:true}；若该条目还有在途 upsert，按 id 去重后被删除取代
+    enqueueOp({ id, domain: 'schedule', updatedAt: new Date().toISOString(), data: { deleted: true }, label: '删除：' + t.title })
+    markPending('删除：' + t.title, id)
+    toast('已删除 · 待同步进电脑', 'ok')
+  }, [todos, markPending, toast])
 
   const toggleHabit = useCallback((id: string) => {
     const h = habits.find(x => x.id === id)
@@ -561,7 +646,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value: Store = {
     theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
     online, syncing, syncPct, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, unpair,
-    schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, habits, toggleHabit,
+    schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, deleteTodo, habits, toggleHabit,
     txs, saveTx,
     folders, toggleFolder, markCached, phoneNotes, addPhoneNote,
     aiMode, setAiMode, sessions, curSession, newSession, switchSession, deleteSession, renameSession, togglePin,
