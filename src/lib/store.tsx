@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import type { AiMode, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, PairedDevice, PhoneNote, Session, SheetId, SchedView, ThemeName, Todo, Tx, VoicePhase } from './types'
 import { seedFolders, seedHabits, seedSessions, seedTodos, seedEntries, TODAY, VOICE_PHRASES, WELCOME, fmtMoney, txToDisplay } from './data'
 import {
-  buildScheduleData, enqueueOp, getPaired, getQueue, loadJson, pairWith as pairRequest,
+  buildNoteData, buildScheduleData, enqueueOp, getPaired, getQueue, loadJson, pairWith as pairRequest,
   probeOnline, removeFromQueue, saveJson, syncNow, unpair as unpairDevice, uuid,
   type RemoteLedgerItem, type RemoteScheduleItem,
 } from './sync'
@@ -18,6 +18,12 @@ const nextId = (p: string) => p + (++seq)
 const K_TODOS = 'pm.todos'
 /** v0.3 起账本存同步形态（pm.txs 是旧版展示形态键，弃用不迁移——当时只有演示数据） */
 const K_LEDGER = 'pm.ledger'
+const K_NOTES = 'pm.notes'
+
+/** 手机笔记种子（首次启动；上行走 notes 域进电脑收件箱） */
+const seedPhoneNotes: PhoneNote[] = [
+  { id: 'p1', title: '咖啡馆随想', body: '手机版的记账要不要支持语音快速记？先想想。', synced: false },
+]
 
 /** 在途删除操作的条目 id：远端回流时跳过这些 id（本地已删，等队列 push 落墓碑） */
 function queuedDeleteIds(): Set<string> {
@@ -144,9 +150,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => { saveJson(K_LEDGER, entries) }, [entries])
 
   const [folders, setFolders] = useState<Folder[]>(seedFolders)
-  const [phoneNotes, setPhoneNotes] = useState<PhoneNote[]>([
-    { id: 'p1', title: '咖啡馆随想', body: '手机版的记账要不要支持语音快速记？先想想。', synced: false },
-  ])
+  const [phoneNotes, setPhoneNotes] = useState<PhoneNote[]>(() => loadJson<PhoneNote[]>(K_NOTES, seedPhoneNotes))
+  useEffect(() => { saveJson(K_NOTES, phoneNotes) }, [phoneNotes])
 
   const [aiMode, setAiMode] = useState<AiMode>('direct')
   const [sessions, setSessions] = useState<Session[]>(seedSessions)
@@ -334,6 +339,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         applyTombstones(out.removedIds)
         const handled = new Set(out.handledIds)
         setPending(list => list.filter(x => !x.opId || !handled.has(x.opId)))
+        // notes 域出队 → 对应手机笔记标记已同步（op.id = 笔记 id）
+        if (out.handledIds.length) {
+          setPhoneNotes(list => list.map(x => handled.has(x.id) ? { ...x, synced: true } : x))
+        }
         setSyncing(false)
         setSyncPct(0)
         const now = new Date()
@@ -520,9 +529,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setFolders(list => list.map(f => ({ ...f, files: f.files.map(x => x.title === title ? { ...x, cached: true } : x) })))
   }, [])
 
+  /* 手机笔记上行（v1.2 notes 域）：id 即条目 UUID，桌面按它落 md（收件箱 + tags「手机」） */
   const addPhoneNote = useCallback((title: string, body: string) => {
-    setPhoneNotes(list => [{ id: nextId('p'), title, body, synced: false }, ...list])
-  }, [])
+    const id = uuid()
+    const label = '笔记「' + title.slice(0, 20) + '」'
+    enqueueOp({ id, domain: 'notes', updatedAt: new Date().toISOString(), data: buildNoteData(title, body), label })
+    setPhoneNotes(list => [{ id, title, body, synced: false }, ...list])
+    markPending(label, id)
+  }, [markPending])
 
   /* ---------- AI ---------- */
 

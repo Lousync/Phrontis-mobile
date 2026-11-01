@@ -212,6 +212,8 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .dc-yes { background: var(--red); color: #fff; }
 .dc-no { background: var(--bg-tertiary); color: var(--text-secondary); }
 
+.folder-head .count { margin-left: auto; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
 .day-grid { position: relative; background: var(--bg-primary); border: 1px solid var(--border-soft); border-radius: 14px; overflow: hidden; }
 .hour-row { position: absolute; left: 0; right: 0; height: 1px; background: var(--border-soft); }
 .hour-label { position: absolute; left: 9px; font-size: 10px; color: var(--text-muted); transform: translateY(-50%); font-variant-numeric: tabular-nums; }

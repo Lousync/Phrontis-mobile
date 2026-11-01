@@ -22,6 +22,7 @@
 | 2026-11-01 | **应用内自动更新**仿桌面机制：发布复用公开仓 `Lousync/Phrontis` 的**第三个平台 tag** `v<ver>-mobile`（APK + `mobile-latest.json` 两件套门禁，扩展主仓 `scripts/publish-release.py --platform mobile`）；手机端 检查 → 镜像链下载 → sha256 校验 → 拉起系统安装器（Android 侧载无静默安装，最后一步必须用户点「安装」）。随 M6 落地，详见 §7.1。 |
 | 2026-11-01 | **M2a 拍板**：同步域加 `schedule`（日程，子任务按条目同步、手机只读计数不编辑）；v1.1 **墓碑删除同步**双向打通（墓碑存 vault 随仓走，上限 5000 条）；游标**只在 pull 完成后推进**（修正 M1 在 push 时推游标、漏拉电脑侧早于 push 变更的缺陷）；手机端日程/流水落 localStorage 持久化（SQLite 评估挪到 M2b）；打卡（habit）暂不同步，保持本地演示。 |
 | 2026-11-01 | **M2b 拍板**：账本本地真相改为**同步形态** `LedgerEntry { id, updatedAt, data }`（展示形态渲染时派生）——编辑/删除必须能还原完整同步负载，旧展示形态（日期是「今天」标签、金额带符号）还原不了；记账补全：点流水进「改一笔」抽屉、长按删除（行内确认 → 墓碑上行）、月份切换 + 月度统计；**SQLite 评估结论 = 维持 localStorage**（Capacitor 脚手架虽已在位，但账本+日程条目量级远低于 5MB 上限、切换要把全 store 改异步且浏览器 dev/smoke 回路复杂化，收益为负；`loadJson/saveJson` 已单点收口，迁移是机械活）——压力点在 M3 笔记正文缓存引入时再评。 |
+| 2026-11-01 | **M3 拍板**：笔记双机制——「手机笔记上行」= sync 域 `notes`（负载 `{title,body}`，**无条件应用**、落 `.knowbase/_inbox` 收件箱 + frontmatter tags 恒加 `手机`，手机是闪念的真相源，v1 不做 LWW/墓碑）；「电脑笔记只读」= 内容 API（`GET /api/notes/tree` 平表 + `GET /api/notes/content?id=`，**按 id 服务端解析路径**，客户端永不传路径）；手机正文缓存 localStorage + 总量 1.5MB LRU 上限（SQLite/IndexedDB 评估继续推迟到真实触顶）；v1 笔记不 pull、不墓碑，手机删已上行笔记只删本地副本，附件/图片内链不解析（纯 md 渲染）。 |
 
 ---
 
@@ -75,7 +76,14 @@
   - `done` ↔ 桌面 `status`（pending/done）；`schedStart`/`schedEnd` 为当天分钟数 ↔ `scheduled_start`/`scheduled_end`（null = 未排期）；
   - `parentId` 使**子任务行也按条目同步**（手机侧只读：聚合计数展示，不编辑子任务）；
   - 桌面侧 `description`/`quadrant`/`tag_id`/`sort_order`/`recurring*`/`snooze_until`/`estimate_min`/`created_at` 不参与同步负载，upsert 时原样保留。
-- 笔记仍随 M3 加域，端点结构不变。
+**v1.2 笔记（2026-11-01，M3 落地）：上行域 + 内容 API 双机制。**
+
+笔记是 vault 里的 md 文件而非 JSON 条目，同步模型与条目域不同，拆成两条：
+
+- **上行域 `notes`（手机闪念 → 仓库）**：负载 `{ title, body }`，走既有 `/api/sync/push`（id = 手机 UUID）。桌面应用语义：**手机是该笔记的真相源，无条件应用（v1 不做 LWW/墓碑）**——按 id 查知识库索引：已存在 → 原路径覆写（更新 title/body/updated，created/tags/starred 保留）；不存在 → 落 `.knowbase/_inbox/`（未分类收件箱），frontmatter tags 恒加 `手机`。电脑端把闪念整理成正式笔记后，手机端再推旧版会覆写整理结果——v1 已知边界，上行前在手机列表看一眼即可规避。
+- **内容 API（电脑笔记 → 手机，只读缓存）**：`GET /api/notes/tree`（doc 类页面平表 `{ id, title, path, categoryId, mtimeMs, sizeBytes }`，排除欢迎页与非 md 的 file 条目）+ `GET /api/notes/content?id=<uuid>`（`{ title, updatedAt, body, truncated? }`，body 上限 30 万字符截断）。均带设备令牌；**按 id 由服务端解析路径**（客户端永不传路径，无目录穿越面）。
+- **手机缓存策略**：正文缓存进 localStorage（`pm.noteCache`），总量 1.5MB、LRU 逐出（纯函数 `pruneNoteCache`，契约直测）；绿点 = 已缓存且 tree 的 mtimeMs 一致，空心 = 未缓存/已过期。SQLite/IndexedDB 评估继续推迟到真实触顶（M2b 结论的延续）。
+- **v1 边界**：笔记不 pull、不墓碑；手机删除已上行笔记只删本地副本（仓库副本保留）；附件/图片内链手机端不解析（v1 阅读器纯 md 渲染，编辑回电脑进行）。
 
 **删除同步（墓碑，v1.1）：**
 

@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { parsePairInput, uuid, buildScheduleData, getLastSync } from '../src/lib/sync.ts'
+import { parsePairInput, uuid, buildScheduleData, buildNoteData, pruneNoteCache, getLastSync } from '../src/lib/sync.ts'
 import { txToDisplay, monthOf, monthShift, monthStats, groupEntriesByDay } from '../src/lib/data.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -84,6 +84,21 @@ console.log('\n§2c 账本派生与月视图（同步形态 → 展示/统计，
   check('空月返回空组', groupEntriesByDay(list, '2025-01').length === 0)
 }
 
+console.log('\n§2d 笔记负载与缓存（v1.2：上行 + LRU 缓存）')
+{
+  check('notes 负载：标题去空白，正文原样', eq(buildNoteData('  标题  ', '想到什么记什么'), { title: '标题', body: '想到什么记什么' }))
+  check('notes 负载：标题截 120', buildNoteData('x'.repeat(200), '').title.length === 120)
+  check('notes 负载：正文截 10 万', buildNoteData('', 'y'.repeat(200000)).body.length === 100000)
+
+  const mk = (id, bodyLen, at) => [id, { title: 't', body: 'x'.repeat(bodyLen), mtimeMs: 1, at }]
+  const small = Object.fromEntries([mk('a', 10, 1), mk('b', 10, 2)])
+  check('缓存未超限原样返回', Object.keys(pruneNoteCache(small, 1000)).length === 2)
+  const big = Object.fromEntries([mk('old', 60, 1), mk('mid', 60, 2), mk('new', 60, 3)])
+  const pruned = pruneNoteCache(big, 130)
+  check('缓存超限按 at 最旧先逐出', pruned.old === undefined && !!pruned.mid && !!pruned.new)
+  check('缓存逐出后不超限', Object.values(pruned).reduce((s, v) => s + v.title.length + v.body.length, 0) <= 130)
+}
+
 console.log('\n§3 协议文档契约（docs/design.md §2.1 与手机实现一致）')
 {
   const design = readFileSync(join(HERE, '..', 'docs', 'design.md'), 'utf-8')
@@ -97,6 +112,10 @@ console.log('\n§3 协议文档契约（docs/design.md §2.1 与手机实现一�
   check('§2.1 记录墓碑上行负载 { deleted: true }', design.includes('{ deleted: true }'))
   check('§2.1 记录游标只在 pull 后推进（v1.1 修正）', design.includes('只在 pull 完成后推进'))
   check('§2.1 记录墓碑下行 tombstones', design.includes('tombstones'))
+  // v1.2 契约
+  check('§2.1 v1.2 记录 notes 上行域与无条件应用', design.includes('v1.2 笔记') && design.includes('无条件应用'))
+  check('§2.1 记录内容 API 端点', design.includes('/api/notes/tree') && design.includes('/api/notes/content'))
+  check('§2.1 记录缓存上限与按 id 解析路径', design.includes('1.5MB') && design.includes('按 id 服务端解析路径'))
 }
 
 console.log('\n' + (failures === 0 ? 'PASS (' + checks + ' checks)' : 'FAIL (' + failures + '/' + checks + ')'))

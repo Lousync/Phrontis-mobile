@@ -1,17 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { NoteCache, NoteTreePage } from '../../lib/types'
 import { mdRender } from '../../lib/data'
 import { useApp } from '../../lib/store'
+import {
+  fetchNoteContent, fetchNoteTree, loadNoteCache, loadNoteTree, saveNoteCache, saveNoteTree,
+} from '../../lib/sync'
 import { IBack, IChevR, IFolder, IPen, ISearch } from '../../components/icons'
 import { Grip, Sheet } from '../../components/Sheet'
 
 function NoteSheet() {
-  const { closeSheet, addPhoneNote, markPending, toast } = useApp()
+  const { closeSheet, addPhoneNote, toast } = useApp()
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const save = () => {
     if (!title.trim()) { toast('先起个标题', 'warn'); return }
     addPhoneNote(title.trim(), body.trim() || '（无正文）')
-    markPending('笔记「' + title.trim() + '」')
     toast('已存入手机笔记 · 待上行', 'ok')
     closeSheet()
   }
@@ -22,43 +25,93 @@ function NoteSheet() {
       <div className="field"><label>标题</label><input autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder="想到什么记什么" onKeyDown={e => { if (e.key === 'Enter') save() }} /></div>
       <div className="field"><textarea rows={6} value={body} onChange={e => setBody(e.target.value)} placeholder="正文支持 Markdown…" /></div>
       <button className="btn-primary" onClick={save}>保存到手机</button>
-      <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', marginTop: 10 }}>将作为普通 .md 笔记上行并入仓库</div>
+      <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', marginTop: 10 }}>将作为普通 .md 笔记上行并入电脑收件箱</div>
     </Sheet>
   )
 }
 
-export function NotesPage({ active }: { active: boolean }) {
-  const { folders, toggleFolder, phoneNotes, openSheet, markCached, toast } = useApp()
-  const [kw, setKw] = useState('')
-  const [reader, setReader] = useState<{ title: string; kind: 'vault' | 'phone' } | null>(null)
-
-  /* 未缓存笔记打开 700ms 后转为已缓存（模拟按需下载） */
-  useEffect(() => {
-    if (!reader || reader.kind !== 'vault') return
-    const file = folders.flatMap(f => f.files).find(x => x.title === reader.title)
-    if (file && !file.cached) {
-      const t = setTimeout(() => markCached(reader.title), 700)
-      return () => clearTimeout(t)
-    }
-  }, [reader, folders, markCached])
-
-  const kwTrim = kw.trim()
-  const openFile = (title: string, kind: 'vault' | 'phone') => setReader({ title, kind })
-
-  let readerMd = ''
-  let readerPath = ''
-  let readerCached = true
-  if (reader) {
-    if (reader.kind === 'vault') {
-      for (const f of folders) {
-        const hit = f.files.find(x => x.title === reader.title)
-        if (hit) { readerMd = hit.md; readerPath = hit.path; readerCached = hit.cached; break }
-      }
-    } else {
-      const hit = phoneNotes.find(x => x.title === reader.title)
-      if (hit) { readerMd = '# ' + hit.title + '\n\n' + hit.body; readerPath = '手机笔记 / ' + hit.title }
-    }
+/** 电脑笔记目录树：按 path 顶层目录分组（.knowbase/ 内 → 收件箱），根级散页归「根目录」 */
+function buildFolders(pages: NoteTreePage[]): Array<{ name: string; pages: NoteTreePage[] }> {
+  const groups = new Map<string, NoteTreePage[]>()
+  for (const p of pages) {
+    const seg = p.path.split('/')
+    const top = seg.length > 1 ? (seg[0].startsWith('.') ? '收件箱' : seg[0]) : '根目录'
+    const list = groups.get(top)
+    if (list) list.push(p)
+    else groups.set(top, [p])
   }
+  return [...groups.entries()]
+    .map(([name, ps]) => ({ name, pages: ps.slice().sort((a, b) => a.title.localeCompare(b.title)) }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'))
+}
+
+export function NotesPage({ active }: { active: boolean }) {
+  const { phoneNotes, openSheet, toast, paired } = useApp()
+  const [kw, setKw] = useState('')
+  const [tree, setTree] = useState(() => loadNoteTree())
+  const [loadingTree, setLoadingTree] = useState(false)
+  const [openMap, setOpenMap] = useState<Record<string, boolean>>({})
+  const [cache, setCache] = useState<NoteCache>(() => loadNoteCache())
+  const [reader, setReader] = useState<{ title: string; path: string; kind: 'vault' | 'phone' } | null>(null)
+  const [readerBody, setReaderBody] = useState('')
+  const [readerState, setReaderState] = useState<'cached' | 'loading' | 'error'>('cached')
+
+  /* 进入本页且已配对 → 自动拉目录树（失败退回本地缓存树 + toast） */
+  useEffect(() => {
+    if (!active || !paired) return
+    let cancelled = false
+    setLoadingTree(true)
+    fetchNoteTree()
+      .then(pages => {
+        if (cancelled) return
+        saveNoteTree(pages)
+        setTree({ fetchedAt: Date.now(), pages })
+      })
+      .catch((e: Error) => { if (!cancelled) toast(e.message, 'warn') })
+      .finally(() => { if (!cancelled) setLoadingTree(false) })
+    return () => { cancelled = true }
+  }, [active, paired, toast])
+
+  const folders = useMemo(() => buildFolders(tree.pages), [tree])
+  const kwTrim = kw.trim()
+
+  /** 打开电脑笔记：缓存且与 tree 版本一致（mtimeMs 对账）→ 直接读；否则在线拉取并落缓存 */
+  const openVaultNote = (page: NoteTreePage) => {
+    const hit = cache[page.id]
+    const fresh = hit && hit.mtimeMs === page.mtimeMs
+    setReader({ title: page.title, path: page.path, kind: 'vault' })
+    if (fresh) {
+      setReaderBody(hit.body)
+      setReaderState('cached')
+      return
+    }
+    setReaderBody('')
+    setReaderState('loading')
+    fetchNoteContent(page.id)
+      .then(c => {
+        setReaderBody(c.body)
+        setReaderState('cached')
+        setCache(prev => {
+          const next = { ...prev, [page.id]: { title: page.title, body: c.body, mtimeMs: page.mtimeMs, at: Date.now() } }
+          saveNoteCache(next)
+          return next
+        })
+      })
+      .catch((e: Error) => {
+        setReaderState('error')
+        toast(e.message, 'warn')
+      })
+  }
+
+  const openPhoneNote = (id: string) => {
+    const hit = phoneNotes.find(x => x.id === id)
+    if (!hit) return
+    setReader({ title: hit.title, path: '手机笔记 / ' + hit.title, kind: 'phone' })
+    setReaderBody('# ' + hit.title + '\n\n' + hit.body)
+    setReaderState('cached')
+  }
+
+  const isFresh = (page: NoteTreePage) => !!cache[page.id] && cache[page.id].mtimeMs === page.mtimeMs
 
   return (
     <section className={'page' + (active ? ' active' : '')}>
@@ -66,22 +119,29 @@ export function NotesPage({ active }: { active: boolean }) {
         <ISearch />
         <input value={kw} onChange={e => setKw(e.target.value)} placeholder="搜索笔记标题" />
       </div>
-      <div className="vault-line"><span className="ldot" />已连接仓库「Phrontis」 · 增量缓存</div>
+      <div className="vault-line">
+        <span className="ldot" />
+        {paired
+          ? (loadingTree ? '正在拉取目录…' : '已连接 ' + paired.pcName + ' · ' + tree.pages.length + ' 篇 · 增量缓存')
+          : '未配对电脑 · 配对后可看仓库笔记'}
+      </div>
 
-      {folders.map((f, i) => {
-        const files = f.files.filter(x => !kwTrim || x.title.includes(kwTrim))
+      {folders.map(f => {
+        const files = f.pages.filter(x => !kwTrim || x.title.includes(kwTrim))
         if (kwTrim && files.length === 0) return null
+        const open = !!openMap[f.name] || !!kwTrim
         return (
-          <div key={f.name} className={'folder' + (f.open || kwTrim ? ' open' : '')}>
-            <div className="folder-head" onClick={() => toggleFolder(i)}>
+          <div key={f.name} className={'folder' + (open ? ' open' : '')}>
+            <div className="folder-head" onClick={() => setOpenMap(m => ({ ...m, [f.name]: !m[f.name] }))}>
               <IFolder style={{ color: 'var(--accent-hover)' }} />
               {f.name}
+              <span className="count">{f.pages.length}</span>
               <span className="chev"><IChevR /></span>
             </div>
             <div className="folder-files">
               {files.map(x => (
-                <div key={x.title} className="file-row" onClick={() => openFile(x.title, 'vault')}>
-                  <span className={'c ' + (x.cached ? 'cached' : 'uncached')} />
+                <div key={x.id} className="file-row" onClick={() => openVaultNote(x)}>
+                  <span className={'c ' + (isFresh(x) ? 'cached' : 'uncached')} />
                   {x.title}
                   <span className="arrow"><IChevR /></span>
                 </div>
@@ -91,8 +151,9 @@ export function NotesPage({ active }: { active: boolean }) {
           </div>
         )
       })}
+      {paired && !loadingTree && !folders.length && <div className="empty" style={{ padding: '20px 0' }}>仓库没有可读的 md 笔记（或目录还没拉到）</div>}
 
-      <div className="sec-title" style={{ marginTop: 6 }}>手机笔记 <span className="more">上行同步进仓库</span></div>
+      <div className="sec-title" style={{ marginTop: 6 }}>手机笔记 <span className="more">上行同步进电脑收件箱</span></div>
       <div className="folder phone-notes">
         <div className="folder-head" style={{ pointerEvents: 'none' }}>
           <IPen size={15} style={{ color: 'var(--amber)' }} />
@@ -102,7 +163,7 @@ export function NotesPage({ active }: { active: boolean }) {
           {phoneNotes
             .filter(x => !kwTrim || x.title.includes(kwTrim))
             .map(x => (
-              <div key={x.id} className="file-row" onClick={() => openFile(x.title, 'phone')}>
+              <div key={x.id} className="file-row" onClick={() => openPhoneNote(x.id)}>
                 <span className={'c ' + (x.synced ? 'cached' : 'pending')} />
                 {x.title}
                 <span className={'badge-sync ' + (x.synced ? 'synced' : 'pending')}>{x.synced ? '已同步' : '待同步'}</span>
@@ -117,15 +178,14 @@ export function NotesPage({ active }: { active: boolean }) {
       <div className={'reader' + (reader ? ' open' : '')}>
         <div className="reader-top">
           <button className="icon-btn" onClick={() => setReader(null)}><IBack /></button>
-          <span className="path">{readerPath}</span>
-          <span className={'badge-sync ' + (readerCached ? 'synced' : 'pending')} style={{ marginLeft: 'auto' }}>
-            {readerCached ? '已缓存' : '未缓存 · 下载中…'}
+          <span className="path">{reader?.path}</span>
+          <span className={'badge-sync ' + (readerState === 'cached' ? 'synced' : 'pending')} style={{ marginLeft: 'auto' }}>
+            {readerState === 'cached' ? '已缓存' : readerState === 'loading' ? '下载中…' : '加载失败'}
           </span>
         </div>
-        <div className="reader-body"><div className="md" dangerouslySetInnerHTML={{ __html: mdRender(readerMd) }} /></div>
+        <div className="reader-body"><div className="md" dangerouslySetInnerHTML={{ __html: mdRender(readerBody) }} /></div>
         <div className="reader-foot">
-          <span className="note">手机端 v1 只读已有笔记，编辑回电脑进行</span>
-          <button className="btn-ghost" onClick={() => toast('v1 范围：已有笔记在手机只读，编辑回电脑', 'info')}>编辑</button>
+          <span className="note">{reader?.kind === 'phone' ? '手机笔记上行后在电脑收件箱继续整理' : '手机端 v1 只读电脑笔记，编辑回电脑进行'}</span>
         </div>
       </div>
     </section>

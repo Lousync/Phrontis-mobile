@@ -123,23 +123,53 @@ export interface ScheduleSyncData {
   schedEnd: number | null
 }
 
+/** 笔记域负载（协议 v1.2：手机闪念上行，无条件应用；title 可空） */
+export interface NoteSyncData {
+  title: string
+  body: string
+}
+
 /** 删除同步（墓碑 v1.1）上行负载 */
 export interface TombstoneData {
   deleted: true
 }
 
-export type SyncPayload = LedgerSyncData | ScheduleSyncData | TombstoneData
+export type SyncPayload = LedgerSyncData | ScheduleSyncData | NoteSyncData | TombstoneData
 
-/** 待同步队列条目（v1.1 起 ledger + schedule 两域，删除为墓碑负载） */
+/** 待同步队列条目（v1.2 起 ledger + schedule + notes 三域，删除为墓碑负载） */
 export interface QueueOp {
   /** 与条目 UUID 相同，服务端据此保 id upsert；删除时亦为该条目 UUID */
   id: string
-  domain: 'ledger' | 'schedule'
+  domain: 'ledger' | 'schedule' | 'notes'
   updatedAt: string
   data: SyncPayload
   /** UI 展示用（待同步徽标文案） */
   label: string
 }
+
+/* ---------- 电脑笔记只读缓存（v1.2 内容 API） ---------- */
+
+/** 目录树平表条目（GET /api/notes/tree 的 page） */
+export interface NoteTreePage {
+  id: string
+  title: string
+  /** 仓库内相对路径（服务端保证只含 doc 类 md） */
+  path: string
+  categoryId: string | null
+  mtimeMs: number
+  sizeBytes: number
+}
+
+/** 正文缓存条目（pm.noteCache；mtimeMs 与 tree 对账判定绿点/空心点） */
+export interface NoteCacheEntry {
+  title: string
+  body: string
+  mtimeMs: number
+  /** 缓存时间（LRU 逐出依据） */
+  at: number
+}
+
+export type NoteCache = Record<string, NoteCacheEntry>
 export type AiMode = 'direct' | 'pc'
 export type VoicePhase = 'idle' | 'recording' | 'transcribing'
 export type SchedView = 'list' | 'grid' | 'habit'

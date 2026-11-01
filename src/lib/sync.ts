@@ -11,12 +11,14 @@
  * M1 存储用 localStorage（等价 Preferences 形态），M2b 评估 SQLite 迁移；
  * 所有键带 pm. 前缀，迁移时整体搬运。
  */
-import type { LedgerSyncData, PairedDevice, QueueOp, ScheduleSyncData, Todo } from './types'
+import type { LedgerSyncData, NoteCache, NoteSyncData, NoteTreePage, PairedDevice, QueueOp, ScheduleSyncData, Todo } from './types'
 
 const K_DEVICE_ID = 'pm.deviceId'
 const K_PAIRED = 'pm.companion'
 const K_QUEUE = 'pm.queue'
 const K_LAST_SYNC = 'pm.lastSync'
+const K_NOTE_TREE = 'pm.noteTree'
+const K_NOTE_CACHE = 'pm.noteCache'
 
 function lsGet<T>(key: string, fallback: T): T {
   try {
@@ -149,6 +151,91 @@ export function getLastSync(): LastSyncCursor {
 
 function setLastSync(domain: 'ledger' | 'schedule', ms: number): void {
   lsSet(K_LAST_SYNC, { ...getLastSync(), [domain]: ms })
+}
+
+/* ================= notes 域负载构建（纯函数，契约脚本直测） ================= */
+
+/** 手机闪念 → notes 域负载（v1.2）。标题截 120、正文截 10 万，与桌面 normalizeNoteData 同口径 */
+export function buildNoteData(title: string, body: string): NoteSyncData {
+  return { title: title.trim().slice(0, 120), body: String(body || '').slice(0, 100_000) }
+}
+
+/* ================= 电脑笔记内容缓存（v1.2 内容 API） ================= */
+
+/** 缓存总量上限（字符近似字节数）：SQLite/IndexedDB 评估推迟到真实触顶（design.md M3 拍板） */
+const NOTE_CACHE_MAX_CHARS = 1_500_000
+
+export function loadNoteTree(): { fetchedAt: number; pages: NoteTreePage[] } {
+  return loadJson<{ fetchedAt: number; pages: NoteTreePage[] }>(K_NOTE_TREE, { fetchedAt: 0, pages: [] })
+}
+
+export function saveNoteTree(pages: NoteTreePage[]): void {
+  saveJson(K_NOTE_TREE, { fetchedAt: Date.now(), pages })
+}
+
+export function loadNoteCache(): NoteCache {
+  return loadJson<NoteCache>(K_NOTE_CACHE, {})
+}
+
+export function saveNoteCache(cache: NoteCache): void {
+  saveJson(K_NOTE_CACHE, pruneNoteCache(cache))
+}
+
+/** 缓存超限 LRU 逐出（纯函数，契约直测）：按缓存时间最旧先丢，直到总量 ≤ maxChars */
+export function pruneNoteCache(cache: NoteCache, maxChars = NOTE_CACHE_MAX_CHARS): NoteCache {
+  const items = Object.entries(cache)
+  const sizeOf = (v: { title: string; body: string }) => v.title.length + v.body.length
+  let total = items.reduce((s, [, v]) => s + sizeOf(v), 0)
+  if (total <= maxChars) return cache
+  const keep = new Map(items)
+  for (const [k, v] of items.slice().sort((a, b) => a[1].at - b[1].at)) {
+    if (total <= maxChars) break
+    total -= sizeOf(v)
+    keep.delete(k)
+  }
+  return Object.fromEntries(keep)
+}
+
+/** 拉目录树（GET /api/notes/tree，带令牌）。失败抛 Error（文案可 toast） */
+export async function fetchNoteTree(timeoutMs = 8000): Promise<NoteTreePage[]> {
+  const p = getPaired()
+  if (!p) throw new Error('尚未配对电脑')
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(p.baseUrl + '/api/notes/tree', { headers: { authorization: 'Bearer ' + p.token }, signal: ctrl.signal })
+    const json = await res.json().catch(() => ({})) as { ok?: boolean; pages?: NoteTreePage[]; error?: string }
+    if (!res.ok || !json.ok || !Array.isArray(json.pages)) throw new Error(json.error || '目录拉取失败（' + res.status + '）')
+    return json.pages.filter(x => x && typeof x.id === 'string')
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') throw new Error('目录拉取超时：确认电脑在线且服务已开启')
+    throw e instanceof Error ? e : new Error('目录拉取失败')
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** 按 id 拉正文（GET /api/notes/content?id=，服务端解析路径）。404 → 明确文案 */
+export async function fetchNoteContent(id: string, timeoutMs = 8000): Promise<{ title: string; updatedAt: string; body: string }> {
+  const p = getPaired()
+  if (!p) throw new Error('尚未配对电脑')
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(p.baseUrl + '/api/notes/content?id=' + encodeURIComponent(id), {
+      headers: { authorization: 'Bearer ' + p.token },
+      signal: ctrl.signal,
+    })
+    const json = await res.json().catch(() => ({})) as { ok?: boolean; title?: string; updatedAt?: string; body?: string; error?: string }
+    if (res.status === 404) throw new Error('笔记在电脑端不存在（可能已被删除或归档）')
+    if (!res.ok || !json.ok || typeof json.body !== 'string') throw new Error(json.error || '正文拉取失败（' + res.status + '）')
+    return { title: json.title || '', updatedAt: json.updatedAt || '', body: json.body }
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') throw new Error('正文拉取超时：确认电脑在线且服务已开启')
+    throw e instanceof Error ? e : new Error('正文拉取失败')
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /* ================= schedule 域负载构建（纯函数，契约脚本直测） ================= */
