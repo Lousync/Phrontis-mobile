@@ -19,6 +19,7 @@
 | 2026-10-31 | **用量**：独立导航 Tab（AI·日程·记账·笔记·用量·设置 六栏），不做 AI 页内嵌细条。 |
 | 2026-10-31 | **语音输入**：做，云端直连优先（详见 §6）；不做本地离线 ASR。 |
 | 2026-10-31 | **M1 拍板**：配对 = 「8 位数字配对码（面板打开时生成、10 分钟有效、**一次配对即作废**）→ 换长期设备令牌」；服务默认端口 **8770**（lanShare 8765 不动）；手机端存储 M1 用 localStorage（等价 Preferences 形态），M2 评估 SQLite；v1 同步域**只做记账 `ledger`**（原「记账+日程双向」收窄，日程随 M2 加域，端点结构不变）；冲突裁决从「各留副本」简化为「同刻桌面赢 + `conflict` 标记回传」，删除同步（墓碑）挂 v1.1。 |
+| 2026-11-01 | **应用内自动更新**仿桌面机制：发布复用公开仓 `Lousync/Phrontis` 的**第三个平台 tag** `v<ver>-mobile`（APK + `mobile-latest.json` 两件套门禁，扩展主仓 `scripts/publish-release.py --platform mobile`）；手机端 检查 → 镜像链下载 → sha256 校验 → 拉起系统安装器（Android 侧载无静默安装，最后一步必须用户点「安装」）。随 M6 落地，详见 §7.1。 |
 
 ---
 
@@ -128,11 +129,31 @@ mDNS 自动发现是锦上添花，二维码方案第一版就够。
 | M3 | 笔记缓存 + 手机笔记上行 | 看笔记+闪念 |
 | M4 | AI 两档（直连轻工具 + 电脑代理） | 完整 AI |
 | M5 | 语音输入（云端直连） | 语音记一笔/记想法 |
-| M6 | 本地通知（日程提醒）+ 打包发布 | 可分发的 APK |
+| M6 | 本地通知（日程提醒）+ 打包发布 + 应用内自动更新（§7.1） | 可分发 APK + 应用内自更新闭环 |
+
+### 7.1 应用内自动更新（随 M6 落地，2026-11-01 拍板仿桌面机制）
+
+桌面版更新链路（主仓 `electron/lib/updateService.ts` + `scripts/publish-release.py`）：GitHub Releases 发布（三件套门禁：安装包 + blockmap + latest.yml，sha512/size 与本地产物实测一致才准上传）→ 客户端 `releases/latest` 对比版本号 → 镜像链（gh-proxy 前缀 → 备用节点 → 直连）流式下载 + 断点续传 + 坏字节换通道 → sha512 校验 → 拉起安装包。手机版照此骨架落地；Android 侧载（不进商店）的形态差异决定以下四点不同。
+
+**发布侧（复用公开仓 `Lousync/Phrontis`，第三个平台 tag）**
+
+- 桌面已是「Windows `v<ver>` / Linux `v<ver>-linux`」独立 tag 并行，手机作为第三个平台沿用同一模式：tag **`v<ver>-mobile`**（版本号用手机仓自己的 `0.x` 独立版本线，`-mobile` 后缀保证与桌面 tag 永不撞名）。资产**两件套** = `Phrontis-mobile-<ver>.apk` + `mobile-latest.json`（字段：`version` / `apk` 文件名 / `sha256` / `size` / `notes` / `mobileCommit` 溯源 / `publishedAt`）。
+- 门禁哲学照搬发布脚本：APK 与 manifest 必须同时存在、manifest 的 sha256/size/version 与本地 APK 实测一致才准发布；扩展主仓 `scripts/publish-release.py` 加 `--platform mobile`（`--dir` 指向手机仓产物目录，手机仓采用同样的 `packs/<ver>[-N]` 产物约定）。与桌面双 tag 的「同 commit」交叉校验（决策 #10）不同：手机代码在另一个仓库，tag 钉在主仓 HEAD（发版事件 commit），手机仓代码 commit 记在 manifest 的 `mobileCommit` 字段。
+- 已核实 `Lousync/Phrontis` 为公开仓（无鉴权 API 可达），桌面更新本就依赖这一点；APK 作为 Release 资产天然可被任何人下载（源码仓 Phrontis-mobile 保持私有不受影响）。若日后不想公开 APK，备选通道 = 手机伴侣 LAN 分发（见下）。
+
+**手机端（检查 → 下载 → 校验 → 拉起安装）**
+
+- **检查**：`GET api.github.com/repos/Lousync/Phrontis/releases?per_page=30` 过滤 `tag_name` 以 `-mobile` 结尾的最新一个（不能用 `releases/latest`——它与桌面 release 混排），semver 对比当前版本（Capacitor App 插件取 versionName）。触发时机对齐桌面：启动静默检查（≥24h 节流）+ 设置页手动「检查更新」；发现新版本出更新卡（版本号 + notes + 下载按钮），下载进度实时可见。
+- **下载**：镜像链沿用桌面经验（`https://gh-proxy.com/https://github.com/...` 前缀拼接 → 备用节点 → 直连，坏通道自动换下一候选），流式进度 + 断点续传，APK 落应用缓存目录；落码时若 WebView 内 fetch 流式写文件不顺手，允许自写小型 Capacitor 插件（下载属原生职责，等价桌面「主进程 fetch」的架构位置）。
+- **校验**：先 size 后 sha256（manifest 提供期望值），不符即弃包换下一通道——镜像坏字节防线与桌面一致。
+- **安装**：FileProvider + `ACTION_VIEW`（`application/vnd.android.package-archive`）拉起系统安装器；需声明 `REQUEST_INSTALL_PACKAGES`，首次跳系统「允许安装未知应用」授权（一次性，之后不再问）。**Android 侧载没有静默安装，最后一步必须用户点「安装」**——应用内能做满的是「检查到、下完好、验过整、送到安装器面前」，这一点与桌面（NSIS 也弹确认）体验对齐。
+
+**可选增强（不承诺）**：电脑在线时经手机伴侣拿 APK（电脑侧有完整镜像链与重试逻辑，局域网速度快于手机走代理），作为镜像链之外的加速兜底。
 
 ## 8. 与桌面端的契约
 
 - 桌面端需新增「手机伴侣」：lanShare 演化（§2.2），同步端点走 kbStore，二维码配对 UI 进设置。
+- 发布侧契约：主仓 `scripts/publish-release.py` 扩展 `--platform mobile`（tag `v<ver>-mobile`，APK + manifest 两件套门禁，§7.1）；手机仓产物目录同样落 `packs/<ver>[-N]`。
 - 同步协议按资源版本号设计，为将来「全量镜像/更深同步」预留升级空间，不推翻重来。
 - 桌面 `resources/help/*.md` 在「手机伴侣」上线时需同步补篇（AGENTS.md 铁律）。
 
