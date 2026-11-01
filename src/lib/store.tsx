@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { flushSync } from 'react-dom'
 import type { ReactNode } from 'react'
 import type { AiChatMsg, AiConfig, AiMode, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteProposal, PairedDevice, PhoneNote, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
+import { THEME_IDS } from './types'
 import { seedFolders, seedHabits, seedSessions, seedTodos, seedEntries, TODAY, VOICE_PHRASES, welcomeText, dayIso, fmtMoney, monthOf, monthStats, txToDisplay } from './data'
 import {
   AiStopped, buildNoteData, buildScheduleData, enqueueOp, getPaired, getQueue, loadJson, pairWith as pairRequest,
@@ -21,6 +22,7 @@ const K_TODOS = 'pm.todos'
 /** v0.3 起账本存同步形态（pm.txs 是旧版展示形态键，弃用不迁移——当时只有演示数据） */
 const K_LEDGER = 'pm.ledger'
 const K_NOTES = 'pm.notes'
+const K_THEME = 'pm.theme'
 
 /** 手机笔记种子（首次启动；上行走 notes 域进电脑收件箱） */
 const seedPhoneNotes: PhoneNote[] = [
@@ -132,7 +134,10 @@ export function useApp(): Store {
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeName>('dark')
+  const [theme, setThemeState] = useState<ThemeName>(() => {
+    const saved = loadJson<ThemeName>(K_THEME, 'dark')
+    return THEME_IDS.includes(saved) ? saved : 'dark'
+  })
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [sheet, setSheet] = useState<SheetId>(null)
   const [sheetOrigin, setSheetOrigin] = useState<HTMLElement | null>(null)
@@ -198,7 +203,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const pairedRef = useRef(paired); pairedRef.current = paired
   const runSyncRef = useRef<() => void>(() => {})
 
-  useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
+  useEffect(() => { document.documentElement.dataset.theme = theme; saveJson(K_THEME, theme) }, [theme])
 
   const toast = useCallback((msg: string, type: ToastItem['type'] = 'info') => {
     const id = Date.now() + Math.random()

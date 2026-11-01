@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { AiConfig, AiProvider } from '../../lib/types'
+import type { AiConfig, AiProvider, ThemeName } from '../../lib/types'
 import { AI_PRESETS, aiConfigReady, testAiConfig } from '../../lib/ai'
 import { useApp } from '../../lib/store'
 import { IBars, ICheck, IChevR, IKeyboard, IMonitor } from '../../components/icons'
@@ -10,6 +10,17 @@ const PROVIDERS: Array<{ key: AiProvider; label: string }> = [
   { key: 'glm', label: '智谱 GLM' },
   { key: 'custom', label: 'OpenAI 兼容' },
   { key: 'ollama', label: '本地 Ollama' },
+]
+
+/** 主题选择器清单（色板预览用固定色值——色板必须展示目标主题自己的颜色，不能随当前主题变） */
+const THEME_PICKS: Array<{ id: ThemeName; name: string; bg: string; line: string; dot: string }> = [
+  { id: 'dark', name: '深色', bg: '#1e1e1e', line: '#cccccc', dot: '#007acc' },
+  { id: 'light', name: '浅色', bg: '#ffffff', line: '#333333', dot: '#0078d4' },
+  { id: 'opencode', name: 'OpenCode 灰', bg: '#f1ecec', line: '#211e1e', dot: '#211e1e' },
+  { id: 'spring', name: '春 · 嫩芽', bg: '#f2f6ea', line: '#2f3d2a', dot: '#418431' },
+  { id: 'summer', name: '夏 · 骄阳', bg: '#f7f7e0', line: '#333d23', dot: '#178343' },
+  { id: 'autumn', name: '秋 · 金秋', bg: '#f8f2df', line: '#4a3f24', dot: '#9c6c0c' },
+  { id: 'winter', name: '冬 · 初雪', bg: '#f1f6fb', line: '#2b3a47', dot: '#2f74b5' },
 ]
 
 /**
@@ -196,9 +207,19 @@ export function SettingsPage({ active }: { active: boolean }) {
       <div>
         <div className="set-label">外观</div>
         <div className="card">
-          <div className="seg">
-            <button className={theme === 'dark' ? 'on' : ''} onClick={() => setTheme('dark')}>深色</button>
-            <button className={theme === 'light' ? 'on' : ''} onClick={() => setTheme('light')}>浅色</button>
+          {/* 主题网格：一点即换，色板预览即所见 */}
+          <div className="theme-grid">
+            {THEME_PICKS.map(t => (
+              <button key={t.id} className={'theme-chip' + (theme === t.id ? ' on' : '')} onClick={() => setTheme(t.id)}>
+                <span className="sw" style={{ background: t.bg }}>
+                  <span className="dot" style={{ background: t.dot }} />
+                  <i className="l1" style={{ background: t.line }} />
+                  <i className="l2" style={{ background: t.line }} />
+                </span>
+                <span className="nm">{t.name}</span>
+                {theme === t.id && <span className="tick"><ICheck size={10} /></span>}
+              </button>
+            ))}
           </div>
           {/* 桌面 letterbox 专用（触屏经 CSS 隐藏）：验证键盘弹出时贴底控件上提 */}
           <div className="check-row kb-sim-row" onClick={toggleKbSim}>
@@ -206,11 +227,11 @@ export function SettingsPage({ active }: { active: boolean }) {
             模拟输入法 <IKeyboard size={13} style={{ color: 'var(--text-muted)' }} />
             <span className="why">桌面调试</span>
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6 }}>正式版提供「跟随桌面端主题」选项，主题配置随同步走。</div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6 }}>四季包暂未带氛围粒子特效（桌面可开）。正式版提供「跟随桌面端主题」选项，主题配置随同步走。</div>
         </div>
       </div>
 
-      <div className="ver">Phrontis Mobile 0.4.0 · 与桌面 3.15.1 配套</div>
+      <div className="ver">Phrontis Mobile 0.5.0 · 与桌面 3.15.1 配套</div>
     </section>
   )
 }

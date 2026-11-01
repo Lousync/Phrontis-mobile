@@ -42,6 +42,115 @@
   --glass: rgba(255, 255, 255, .82);
 }
 
+/* ===== 移植桌面「主题合集」插件（resources/builtin-plugins/themes-collection）的 5 套浅色主题 =====
+ * 色值逐项取自插件 plugin.json 的 colors 映射：success/danger/warning/border-color 等直接对号入座；
+ * --blue（日程「计划」芯片 / 时间轴块）、--outside、--glass、--accent-soft 为手机端派生色，按各主题色系调配；
+ * 四季包带 --bg-gradient（桌面同款季节背景渐变），手机端落在 .pages 上（--app-bg）。 */
+:root[data-theme="opencode"] {
+  --bg-primary: #f1ecec;
+  --bg-secondary: #e9e4e4;
+  --bg-tertiary: #ded8d8;
+  --bg-hover: #e2dcdc;
+  --text-primary: #211e1e;
+  --text-secondary: #605e5e;
+  --text-muted: #696666;
+  --accent: #211e1e;
+  --accent-hover: #3b3737;
+  --accent-soft: rgba(33, 30, 30, .10);
+  --border: #d9d3d3;
+  --border-soft: rgba(217, 211, 211, .7);
+  --green: #4e7a46;
+  --red: #c4423f;
+  --blue: #4a6e8a;
+  --amber: #b07c24;
+  --outside: #211e1e;
+  --glass: rgba(233, 228, 228, .86);
+}
+:root[data-theme="spring"] {
+  --bg-primary: #fbfcf7;
+  --bg-secondary: #f2f6ea;
+  --bg-tertiary: #e9f0dd;
+  --bg-hover: #edf3e0;
+  --text-primary: #2f3d2a;
+  --text-secondary: #5f7056;
+  --text-muted: #67785d;
+  --accent: #418431;
+  --accent-hover: #357026;
+  --accent-soft: rgba(65, 132, 49, .12);
+  --border: #dfe7d2;
+  --border-soft: rgba(223, 231, 210, .75);
+  --green: #3e8e5a;
+  --red: #c9503f;
+  --blue: #3a8bb5;
+  --amber: #9a6d0b;
+  --outside: #dbe6c8;
+  --glass: rgba(242, 246, 234, .86);
+  --app-bg: linear-gradient(178deg, rgba(252, 253, 248, .92), rgba(245, 248, 236, .92) 52%, rgba(236, 243, 220, .92));
+}
+:root[data-theme="summer"] {
+  --bg-primary: #fefdf3;
+  --bg-secondary: #f7f7e0;
+  --bg-tertiary: #f0f0cd;
+  --bg-hover: #f4f4d6;
+  --text-primary: #333d23;
+  --text-secondary: #65704a;
+  --text-muted: #6f7755;
+  --accent: #178343;
+  --accent-hover: #106e37;
+  --accent-soft: rgba(23, 131, 67, .12);
+  --border: #e3e6c8;
+  --border-soft: rgba(227, 230, 200, .75);
+  --green: #158a62;
+  --red: #c74a33;
+  --blue: #2b9ec7;
+  --amber: #b58a10;
+  --outside: #e6ebbc;
+  --glass: rgba(247, 247, 224, .86);
+  --app-bg: linear-gradient(178deg, rgba(255, 254, 242, .92), rgba(251, 250, 224, .92) 55%, rgba(233, 240, 196, .92));
+}
+:root[data-theme="autumn"] {
+  --bg-primary: #fdfaf1;
+  --bg-secondary: #f8f2df;
+  --bg-tertiary: #f1e8cc;
+  --bg-hover: #f6efdb;
+  --text-primary: #4a3f24;
+  --text-secondary: #746746;
+  --text-muted: #7b6f4e;
+  --accent: #9c6c0c;
+  --accent-hover: #855b0a;
+  --accent-soft: rgba(156, 108, 12, .12);
+  --border: #e7dfc2;
+  --border-soft: rgba(231, 223, 194, .75);
+  --green: #578a3a;
+  --red: #c04a34;
+  --blue: #6f8fa8;
+  --amber: #ad6b10;
+  --outside: #ecdfb6;
+  --glass: rgba(248, 242, 223, .86);
+  --app-bg: linear-gradient(178deg, rgba(254, 252, 244, .92), rgba(248, 242, 221, .92) 52%, rgba(241, 231, 195, .92));
+}
+:root[data-theme="winter"] {
+  --bg-primary: #fbfdff;
+  --bg-secondary: #f1f6fb;
+  --bg-tertiary: #e7eef6;
+  --bg-hover: #ecf2f8;
+  --text-primary: #2b3a47;
+  --text-secondary: #596d7f;
+  --text-muted: #5f758b;
+  --accent: #2f74b5;
+  --accent-hover: #27639c;
+  --accent-soft: rgba(47, 116, 181, .12);
+  --border: #dbe5ee;
+  --border-soft: rgba(219, 229, 238, .75);
+  --green: #2f9077;
+  --red: #c2505c;
+  --blue: #2f74b5;
+  --amber: #977718;
+  --outside: #d9e7f3;
+  --glass: rgba(241, 246, 251, .86);
+  --app-bg: linear-gradient(178deg, rgba(253, 254, 255, .92), rgba(244, 249, 253, .92) 52%, rgba(233, 242, 249, .92));
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body, #root { height: 100%; }
 body {
@@ -120,7 +229,7 @@ button.c-meta:active { opacity: .7; }
 .c-bar .c-t { font-size: 15px; font-weight: 700; }
 
 /* ============ 页面容器 ============ */
-.pages { flex: 1; position: relative; overflow: hidden; background: var(--bg-secondary); }
+.pages { flex: 1; position: relative; overflow: hidden; background: var(--app-bg, var(--bg-secondary)); }
 .page {
   position: absolute; inset: 0; overflow-y: auto; padding: 12px 16px calc(96px + env(safe-area-inset-bottom));
   display: none; flex-direction: column; gap: 14px; overscroll-behavior: contain;
@@ -544,6 +653,30 @@ button.vault-line:disabled { cursor: default; }
 
 /* 设置 */
 .set-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); letter-spacing: 1px; margin-bottom: 8px; }
+
+/* 主题选择器（外观卡）：3 列色板网格，一点即换 */
+.theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+.theme-chip { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 0; border-radius: 12px; }
+.theme-chip .sw {
+  position: relative;
+  height: 52px; border-radius: 10px; border: 1.5px solid var(--border-soft);
+  padding: 7px 8px; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; overflow: hidden;
+  transition: border-color .16s, transform .12s;
+}
+.theme-chip:active .sw { transform: scale(.94); }
+.theme-chip .sw i { display: block; height: 4px; border-radius: 2px; }
+.theme-chip .sw i.l1 { width: 72%; opacity: .75; }
+.theme-chip .sw i.l2 { width: 46%; opacity: .4; }
+.theme-chip .sw .dot { position: absolute; top: 7px; right: 7px; width: 10px; height: 10px; border-radius: 50%; }
+.theme-chip .nm { font-size: 11px; color: var(--text-secondary); text-align: center; line-height: 1.3; transition: color .16s; }
+.theme-chip.on .sw { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.theme-chip.on .nm { color: var(--accent); font-weight: 600; }
+.theme-chip .tick {
+  position: absolute; top: -5px; right: -5px; z-index: 1; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center;
+  animation: tickIn .22s cubic-bezier(.34, 1.56, .64, 1) both;
+}
+@keyframes tickIn { from { transform: scale(0); } }
 .device-card { display: flex; align-items: center; gap: 12px; }
 .device-ico { width: 42px; height: 42px; border-radius: 12px; background: var(--accent-soft); color: var(--accent-hover); display: flex; align-items: center; justify-content: center; flex: none; }
 .device-card .info { flex: 1; }

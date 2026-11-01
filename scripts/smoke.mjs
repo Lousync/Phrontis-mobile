@@ -122,11 +122,22 @@ await page.locator('.mic-btn').click()
 await page.waitForTimeout(2800)
 ok('转写自动发送（AI 回复出现）', (await page.locator('#root .chat .msg.ai').count()) >= 2)
 
-/* 设置：主题切换 */
+/* 设置：主题网格（7 主题一点即换 + 持久化） */
 await page.locator('#root .dock button', { hasText: '设置' }).click()
-await page.locator('#root .page.active .seg button', { hasText: '浅色' }).click()
+await page.locator('#root .page.active .theme-chip', { hasText: '嫩芽' }).click()
 await page.waitForTimeout(200)
-ok('浅色主题生效', (await page.locator('html[data-theme="light"]').count()) === 1)
+ok('春 · 嫩芽生效', (await page.locator('html[data-theme="spring"]').count()) === 1)
+await page.locator('#root .page.active .theme-chip', { hasText: 'OpenCode' }).click()
+await page.waitForTimeout(200)
+ok('OpenCode 终端灰生效', (await page.locator('html[data-theme="opencode"]').count()) === 1)
+await page.locator('#root .page.active .theme-chip', { hasText: '初雪' }).click()
+await page.waitForTimeout(200)
+ok('冬 · 初雪生效（勾选态在位）', (await page.locator('html[data-theme="winter"]').count()) === 1
+  && (await page.locator('#root .theme-chip.on .tick').count()) === 1)
+ok('主题选中数唯一', (await page.locator('#root .theme-chip.on').count()) === 1)
+await page.reload()
+await page.waitForTimeout(600)
+ok('主题选择重启保留（pm.theme 落盘）', (await page.locator('html[data-theme="winter"]').count()) === 1)
 
 ok('零运行时错误', errors.length === 0)
 if (errors.length) console.log(errors.slice(0, 10).join('\n'))
