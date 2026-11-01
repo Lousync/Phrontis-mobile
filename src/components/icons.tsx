@@ -39,3 +39,6 @@ export const IMonitor = make(<><rect x="2" y="3" width="20" height="13" rx="2" /
 export const IBackspace = make(<><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z" /><path d="M18 9l-6 6M12 9l6 6" /></>)
 export const IKeyboard = make(<><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M18 13h.01M9 13h6M6 16.5h12" /></>)
 export const IStop = make(<rect x="7" y="7" width="10" height="10" rx="2" />, { filled: true })
+export const IX = make(<path d="M18 6L6 18M6 6l12 12" />, { sw: 2 })
+export const IEye = make(<><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></>)
+export const IRefresh = make(<><path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" /></>)

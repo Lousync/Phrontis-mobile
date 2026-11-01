@@ -139,6 +139,43 @@ await page.reload()
 await page.waitForTimeout(600)
 ok('主题选择重启保留（pm.theme 落盘）', (await page.locator('html[data-theme="winter"]').count()) === 1)
 
+/* 设置：AI 配置抽屉（预设卡 + 表单 + 保存摘要）——放在最后，保存的假 Key 不得影响前面的演示通路 */
+await page.locator('#root .dock button', { hasText: '设置' }).click()
+await page.waitForTimeout(300)
+ok('AI 摘要卡（供应商 + 模型 + 未配置态）', (await page.locator('#root .page.active .device-card .pdot').count()) === 1
+  && (await page.locator('#root .page.active .device-card:has(.pdot) .st').innerText()).includes('未配置'))
+await page.locator('#root .page.active .btn-ghost', { hasText: '更换供应商' }).click()
+await page.waitForTimeout(400)
+ok('供应商选择网格（8 张预设卡）', (await page.locator('#root .sheet .prov-card').count()) === 8)
+await page.locator('#root .sheet .prov-card', { hasText: 'opencode' }).click()
+await page.waitForTimeout(300)
+ok('opencode 表单列出预设自带的会话头 + 官方文档徽章', (await page.locator('#root .sheet .filled-box', { hasText: 'x-opencode-session' }).count()) === 1
+  && (await page.locator('#root .sheet .badge-doc').count()) === 1)
+ok('模型手填框预填默认模型', (await page.locator('#root .sheet .model-row input').inputValue()) === 'qwen3-coder')
+/* 拉取清单走路由拦截（确定性，不碰外网）：先真实载荷 → 下拉；再空清单 → 优雅降级手填 */
+let modelsBody = JSON.stringify({ data: [{ id: 'qwen3-coder' }, { id: 'claude-sonnet-4-5' }] })
+await page.route('**/models', route => route.fulfill({ status: 200, contentType: 'application/json', body: modelsBody }))
+await page.locator('#root .sheet .model-fetch').click()
+await page.waitForTimeout(700)
+ok('拉取清单出下拉（2 个模型）', (await page.locator('#root .sheet .model-row select').count()) === 1
+  && (await page.locator('#root .sheet .model-row select option').count()) === 2)
+modelsBody = JSON.stringify({ data: [] })
+await page.locator('#root .sheet .model-fetch').click()
+await page.waitForTimeout(700)
+ok('空清单优雅降级手填', (await page.locator('#root .sheet .model-row input').count()) === 1
+  && (await page.locator('#root .sheet .model-cnt').innerText()).includes('可直接手填'))
+await page.locator('#root .sheet .aic-foot .btn-ghost').click()
+await page.waitForTimeout(300)
+ok('空 Key 测试被拦（错误卡）', (await page.locator('#root .sheet .test-out.bad').count()) === 1)
+await page.locator('#root .sheet .key-wrap input').fill('sk-smoke-fake')
+await page.locator('#root .sheet .aic-foot .btn-primary').click()
+await page.waitForTimeout(500)
+ok('保存后回摘要（opencode · 未测试）', (await page.locator('#root .sheet').count()) === 0
+  && (await page.locator('#root .page.active .device-card:has(.pdot) .n').innerText()).includes('opencode'))
+ok('摘要状态变「未测试」', (await page.locator('#root .page.active .device-card:has(.pdot) .st').innerText()).includes('未测试'))
+/* 收尾：清掉假配置，恢复未配置默认（保持设备状态干净） */
+await page.evaluate(() => localStorage.removeItem('pm.aiConfig'))
+
 ok('零运行时错误', errors.length === 0)
 if (errors.length) console.log(errors.slice(0, 10).join('\n'))
 

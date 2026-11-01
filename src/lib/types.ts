@@ -92,7 +92,7 @@ export interface Session {
 /** 主题：内置深浅两套 + 移植桌面「主题合集」插件的 5 套（OpenCode 终端灰 / 四季包，色值出自该插件 plugin.json） */
 export const THEME_IDS = ['dark', 'light', 'opencode', 'spring', 'summer', 'autumn', 'winter'] as const
 export type ThemeName = (typeof THEME_IDS)[number]
-export type SheetId = 'tx' | 'tx-edit' | 'todo' | 'note' | 'sessions' | null
+export type SheetId = 'tx' | 'tx-edit' | 'todo' | 'note' | 'sessions' | 'ai-config' | null
 
 /* ---------- 同步（M1，协议 docs/design.md §2.1） ---------- */
 
@@ -190,7 +190,7 @@ export type NoteCache = Record<string, NoteCacheEntry>
 
 /* ---------- AI 直连档（M4a，OpenAI 兼容） ---------- */
 
-export type AiProvider = 'deepseek' | 'glm' | 'custom' | 'ollama'
+export type AiProvider = 'deepseek' | 'qwen' | 'doubao' | 'kimi' | 'glm' | 'opencode' | 'ollama' | 'custom'
 
 /** AI 配置（pm.aiConfig；Key 只在手机本地，不上行） */
 export interface AiConfig {
@@ -199,6 +199,8 @@ export interface AiConfig {
   baseUrl: string
   apiKey: string
   model: string
+  /** 用户自定义请求头（高级项，JSON 解析后落盘；与预设自带头合并，用户优先） */
+  headers?: Record<string, string>
 }
 
 /** OpenAI 兼容 tool_calls 元素 */

@@ -772,7 +772,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         let finalText = ''
         while (rounds < AI_MAX_ROUNDS) {
           rounds++
-          const reply = await chatOnce(cfg, history, AI_TOOLS, 60_000, ctrl.signal)
+          const reply = await chatOnce(cfg, history, AI_TOOLS, 60_000, ctrl.signal, sid)
           if (!reply.toolCalls.length) { finalText = reply.content; break }
           history.push({ role: 'assistant', content: reply.content, tool_calls: reply.toolCalls })
           let proposed = false
