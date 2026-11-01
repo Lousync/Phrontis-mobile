@@ -156,14 +156,44 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const toggleKbSim = useCallback(() => setKbSim(s => !s), [])
 
   /* 系统键盘探测：文本输入聚焦 ≈ 键盘弹出（自定义数字键盘是 button，不触发，符合预期）。
-     真机上配合 viewport 的 resizes-content：键盘收缩布局视口 + kb-open 隐藏底栏 = 原生键盘模型。 */
+     真机上配合 viewport 的 resizes-content：键盘收缩布局视口 + kb-open 隐藏底栏 = 原生键盘模型。
+     抽屉内的聚焦输入框还要「停靠」：抽屉 bottom 下沉（纯布局属性，动画走 bottom 通道），
+     让键盘上沿正好贴住输入框下沿——输入框以下的部分滑进键盘底下被盖住。
+     offsetTop 是布局距离，不受抽屉滑入动画的 transform 影响。 */
   useEffect(() => {
     const isText = (t: EventTarget | null) => t instanceof HTMLElement && t.matches('input, textarea')
-    const onIn = (e: FocusEvent) => { if (isText(e.target)) setKbOpen(true) }
-    const onOut = (e: FocusEvent) => { if (isText(e.target)) setKbOpen(false) }
+    const dock = (el: HTMLElement) => {
+      const sheet = el.closest('.sheet')
+      if (!(sheet instanceof HTMLElement)) return
+      const gap = 12
+      const dist = sheet.offsetHeight - (el.offsetTop + el.offsetHeight)
+      sheet.style.bottom = -Math.max(0, dist - gap) + 'px'
+    }
+    const undock = (el: HTMLElement) => {
+      const sheet = el.closest('.sheet')
+      if (sheet instanceof HTMLElement) sheet.style.bottom = ''
+    }
+    const onIn = (e: FocusEvent) => {
+      if (!isText(e.target)) return
+      setKbOpen(true)
+      const el = e.target as HTMLElement
+      requestAnimationFrame(() => dock(el))
+    }
+    const onOut = (e: FocusEvent) => {
+      if (!isText(e.target)) return
+      setKbOpen(false)
+      undock(e.target as HTMLElement)
+    }
+    /* 真机键盘弹出/收起会改布局视口：重算当前聚焦输入框的停靠量 */
+    const recompute = () => {
+      const ae = document.activeElement
+      if (ae instanceof HTMLElement && isText(ae)) dock(ae)
+    }
+    window.visualViewport?.addEventListener('resize', recompute)
     document.addEventListener('focusin', onIn)
     document.addEventListener('focusout', onOut)
     return () => {
+      window.visualViewport?.removeEventListener('resize', recompute)
       document.removeEventListener('focusin', onIn)
       document.removeEventListener('focusout', onOut)
     }

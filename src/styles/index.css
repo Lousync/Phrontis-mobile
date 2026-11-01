@@ -427,12 +427,15 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .5); z-index: 40; opacity: 0; pointer-events: none; transition: opacity .22s; }
 .backdrop.open { opacity: 1; pointer-events: auto; }
 .sheet {
-  position: absolute; left: 0; right: 0; bottom: 0; z-index: 41;
+  position: absolute; left: 0; right: 0; bottom: -100%; z-index: 41;
   background: var(--bg-primary); border-radius: 22px 22px 0 0; border-top: 1px solid var(--border);
-  padding: 10px 20px calc(28px + env(safe-area-inset-bottom)); transform: translateY(105%); transition: transform .28s cubic-bezier(.32, .72, .28, 1);
+  padding: 10px 20px calc(28px + env(safe-area-inset-bottom));
+  /* 进出（-100% ↔ 0）与「键盘停靠」（store 聚焦输入框时内联负值下沉）共用 bottom 通道。
+   * 勿改回 transform 滑入：transform 在元素上会使其后的 bottom 布局停靠渲染失灵（实测踩坑）。 */
+  transition: bottom .28s cubic-bezier(.32, .72, .28, 1);
   max-height: 86dvh; overflow-y: auto;
 }
-.sheet.open { transform: none; }
+.sheet.open { bottom: 0; }
 .sheet-grip { width: 38px; height: 4px; border-radius: 2px; background: var(--border); margin: 4px auto 14px; }
 .sheet h3 { font-size: 16px; margin-bottom: 14px; }
 
@@ -487,6 +490,7 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
     transform: translateY(110%); visibility: hidden;
     transition: transform .22s ease, visibility .22s;
   }
+  /* 抽屉停靠（聚焦输入框下沿 = 键盘上沿）由 store 写内联 transform，此处无需规则 */
 }
 
 /* ============ Toast ============ */
@@ -522,11 +526,13 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
     transform: translateY(110%); visibility: hidden;
     transition: transform .22s ease, visibility .22s;
   }
+  /* 与真机同款：抽屉内聚焦输入框停靠到「键盘」上沿（store 写内联 transform） */
   .kb-sim-band {
     position: fixed; bottom: 0; z-index: 60;
     top: calc(55dvh + 12px); /* 手机壳底缘（12px 上边距 + 55dvh），紧贴模拟键盘 */
     left: 50%; width: min(420px, 100%); transform: translateX(-50%); /* 与手机壳同列，真机键盘即屏幕宽 */
     display: flex; align-items: center; justify-content: center;
+    background: var(--outside); /* 不透明：滑到键盘底下的抽屉内容在此被盖住 */
     border-top: 1px dashed var(--border);
     color: var(--text-muted); font-size: 12px; letter-spacing: 2px;
     pointer-events: none;
