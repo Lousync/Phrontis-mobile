@@ -17,6 +17,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { parsePairInput, uuid, buildScheduleData, getLastSync } from '../src/lib/sync.ts'
+import { txToDisplay, monthOf, monthShift, monthStats, groupEntriesByDay } from '../src/lib/data.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -55,6 +56,32 @@ console.log('\n§2b schedule 负载构建（与桌面 TodoRow 映射口径一致
   check('子任务行携带 parentId', buildScheduleData({ ...t, parentId: 'p-1' }).parentId === 'p-1')
   check('done 原样透传（翻转由调用方先改对象）', buildScheduleData({ ...t, done: true }).done === true)
   check('游标结构含双域（Node 无 localStorage 走兜底 0）', eq(getLastSync(), { ledger: 0, schedule: 0 }))
+}
+
+console.log('\n§2c 账本派生与月视图（同步形态 → 展示/统计，M2b）')
+{
+  const e = (id, date, time, type, amount, category, payment, merchant, updatedAt) =>
+    ({ id, updatedAt, data: { date, time, type, amount, category, payment, merchant, note: '' } })
+  const a = e('a', '2026-11-02', '09:30', 'expense', 28, '餐饮', '微信', '午餐', '2026-11-02T01:30:00.000Z')
+  const d = txToDisplay(a)
+  check('展示派生：支出负号 + 名目/分类/账户', d.amt === -28 && d.name === '午餐' && d.cat === '餐饮' && d.acc === '微信')
+  check('展示派生：merchant 缺省回落分类', txToDisplay(e('b', '2026-11-02', '10:00', 'expense', 5, '交通', '地铁', '', '2026-11-02T02:00:00.000Z')).name === '交通')
+  check('收入显示为正数', txToDisplay(e('c', '2026-11-03', '10:00', 'income', 100, '工资', '银行卡', '工资', '2026-11-03T02:00:00.000Z')).amt === 100)
+  check('月归属（异常日期不属任何月）', monthOf('2026-11-02') === '2026-11' && monthOf('垃圾') === '')
+  check('月份平移跨年', monthShift('2026-01', -1) === '2025-12' && monthShift('2026-12', 1) === '2027-01' && monthShift('2026-06', 0) === '2026-06')
+  const list = [
+    a,
+    e('c', '2026-11-01', '20:00', 'income', 800, '稿费', '银行卡', '稿费', '2026-11-01T12:00:00.000Z'),
+    e('d2', '2026-10-31', '09:00', 'expense', 4, '交通', '现金', '地铁', '2026-10-31T01:00:00.000Z'),
+  ]
+  const st = monthStats(list, '2026-11')
+  check('月统计：支出/收入/结余', st.expense === 28 && st.income === 800 && st.balance === 772)
+  check('月统计：跨月条目不计入', monthStats(list, '2026-10').expense === 4 && monthStats(list, '2026-12').expense === 0)
+  const g = groupEntriesByDay(list, '2026-11')
+  check('按日分组：新日在前', g.length === 2 && g[0].date === '2026-11-02' && g[1].date === '2026-11-01')
+  check('组内 updatedAt 倒序（后记的在上）', groupEntriesByDay([a, e('a2', '2026-11-02', '08:00', 'expense', 6, '交通', '现金', '早地铁', '2026-11-02T00:00:00.000Z')], '2026-11')[0].entries[0].id === 'a')
+  check('分组排除其他月份', groupEntriesByDay(list, '2026-10').length === 1)
+  check('空月返回空组', groupEntriesByDay(list, '2025-01').length === 0)
 }
 
 console.log('\n§3 协议文档契约（docs/design.md §2.1 与手机实现一致）')

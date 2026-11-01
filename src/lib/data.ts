@@ -1,4 +1,4 @@
-import type { Folder, Habit, Session, Todo, Tx } from './types'
+import type { Folder, Habit, LedgerEntry, Session, Todo, Tx } from './types'
 
 /* ---- 日期锚点：真实「今天」（M2a 起日程接真实数据，不再是固定演示锚点 2026-10-31） ---- */
 
@@ -12,10 +12,9 @@ export function dayIso(offset = 0): string {
   return isoOf(d)
 }
 
-/** 某日的「M月D日」展示（种子数据用） */
-const mdOf = (offset = 0): string => {
-  const d = new Date()
-  d.setDate(d.getDate() + offset)
+/** 某日的「M月D日」展示 */
+export const mdOf = (iso: string): string => {
+  const d = new Date(iso + 'T00:00:00')
   return (d.getMonth() + 1) + '月' + d.getDate() + '日'
 }
 
@@ -67,12 +66,16 @@ export const seedHabits: Habit[] = [
   { id: 'h3', name: '背单词 50 个', char: '词', color: '#cca700', weekDone: 2, target: 5, streak: 2, hist: [1, 0, 1, 0, 0, 0] },
 ]
 
-export const seedTxs: Tx[] = [
-  { id: 'x1', date: '今天', sub: mdOf(0) + ' · 12:02', name: '午餐 · 公司食堂', cat: '餐饮', amt: -28, acc: '微信' },
-  { id: 'x2', date: '今天', sub: mdOf(0) + ' · 09:05', name: '地铁', cat: '交通', amt: -4, acc: '交通卡' },
-  { id: 'x3', date: '昨天', sub: mdOf(-1) + ' · 15:40', name: '瑞幸咖啡', cat: '餐饮', amt: -15, acc: '微信' },
-  { id: 'x4', date: '昨天', sub: mdOf(-1) + ' · 19:22', name: '超市日用品', cat: '日用', amt: -56, acc: '支付宝' },
-  { id: 'x5', date: mdOf(-3), sub: mdOf(-3), name: '十月稿费', cat: '稿费', amt: 800, acc: '银行卡' },
+/** 种子时刻：本地日期 + HH:MM → UTC ISO（与真实条目同一格式，LWW 字典序比较才同一线） */
+const isoAt = (offDays: number, hm: string): string => new Date(dayIso(offDays) + 'T' + hm + ':00').toISOString()
+
+/** 种子账本（同步形态，M2b）：演示数据只在首次启动落库，之后以持久化存量为准 */
+export const seedEntries: LedgerEntry[] = [
+  { id: 'x1', updatedAt: isoAt(0, '12:02'), data: { date: dayIso(0), time: '12:02', type: 'expense', amount: 28, category: '餐饮', payment: '微信', merchant: '午餐 · 公司食堂', note: '' } },
+  { id: 'x2', updatedAt: isoAt(0, '09:05'), data: { date: dayIso(0), time: '09:05', type: 'expense', amount: 4, category: '交通', payment: '交通卡', merchant: '地铁', note: '' } },
+  { id: 'x3', updatedAt: isoAt(-1, '15:40'), data: { date: dayIso(-1), time: '15:40', type: 'expense', amount: 15, category: '餐饮', payment: '微信', merchant: '瑞幸咖啡', note: '' } },
+  { id: 'x4', updatedAt: isoAt(-1, '19:22'), data: { date: dayIso(-1), time: '19:22', type: 'expense', amount: 56, category: '日用', payment: '支付宝', merchant: '超市日用品', note: '' } },
+  { id: 'x5', updatedAt: isoAt(-3, '10:00'), data: { date: dayIso(-3), time: '10:00', type: 'income', amount: 800, category: '稿费', payment: '银行卡', merchant: '十月稿费', note: '' } },
 ]
 
 export const seedFolders: Folder[] = [
@@ -199,6 +202,67 @@ export function txDisplay(dateIso: string, time: string): { date: string; sub: s
   const y = new Date(now); y.setDate(now.getDate() - 1)
   const date = dateIso === iso(now) ? '今天' : dateIso === iso(y) ? '昨天' : md
   return { date, sub: time ? md + ' · ' + time : md }
+}
+
+/* ---- 账本派生与月视图（M2b，纯函数；契约脚本直测） ---- */
+
+/** 同步形态条目 → 流水展示行（唯一派生出口，编辑/删除后的重画都走这里） */
+export function txToDisplay(e: LedgerEntry): Tx {
+  const disp = txDisplay(e.data.date, e.data.time)
+  return {
+    id: e.id,
+    date: disp.date,
+    sub: disp.sub,
+    name: e.data.merchant || e.data.category,
+    cat: e.data.category,
+    amt: e.data.type === 'expense' ? -e.data.amount : e.data.amount,
+    acc: e.data.payment || '其他',
+  }
+}
+
+/** 'YYYY-MM-DD' → 'YYYY-MM'（异常日期返回 ''，调用方按不属于任何月处理） */
+export function monthOf(dateIso: string): string {
+  return /^\d{4}-\d{2}/.test(dateIso) ? dateIso.slice(0, 7) : ''
+}
+
+/** 月份平移：'2026-11' ± n（跨年自动进退位） */
+export function monthShift(ym: string, delta: number): string {
+  const [y, m] = ym.split('-').map(Number)
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return ym
+  const d = new Date(y, m - 1 + delta, 1)
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+}
+
+export function monthLabel(ym: string): string {
+  const [y, m] = ym.split('-').map(Number)
+  return y + '年' + m + '月'
+}
+
+export interface MonthStats { expense: number; income: number; balance: number }
+
+/** 某月收支统计（transfer 类手机端不产生；统计只认 expense/income） */
+export function monthStats(entries: LedgerEntry[], ym: string): MonthStats {
+  let expense = 0, income = 0
+  for (const e of entries) {
+    if (monthOf(e.data.date) !== ym) continue
+    if (e.data.type === 'expense') expense += e.data.amount
+    else income += e.data.amount
+  }
+  return { expense, income, balance: income - expense }
+}
+
+/** 某月条目按日分组：新日在前，组内按 updatedAt 倒序（同日内后记的在上） */
+export function groupEntriesByDay(entries: LedgerEntry[], ym: string): Array<{ date: string; entries: LedgerEntry[] }> {
+  const inMonth = entries
+    .filter(e => monthOf(e.data.date) === ym)
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+  const groups: Array<{ date: string; entries: LedgerEntry[] }> = []
+  for (const e of inMonth) {
+    let g = groups.find(x => x.date === e.data.date)
+    if (!g) { g = { date: e.data.date, entries: [] }; groups.push(g) }
+    g.entries.push(e)
+  }
+  return groups
 }
 
 export function fmtK(n: number): string {

@@ -1,7 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { AiMode, Folder, Habit, LedgerSyncData, Msg, PairedDevice, PhoneNote, Session, SheetId, SchedView, ThemeName, Todo, Tx, VoicePhase } from './types'
-import { seedFolders, seedHabits, seedSessions, seedTodos, seedTxs, TODAY, VOICE_PHRASES, WELCOME, fmtMoney, txDisplay } from './data'
+import type { AiMode, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, PairedDevice, PhoneNote, Session, SheetId, SchedView, ThemeName, Todo, Tx, VoicePhase } from './types'
+import { seedFolders, seedHabits, seedSessions, seedTodos, seedEntries, TODAY, VOICE_PHRASES, WELCOME, fmtMoney, txToDisplay } from './data'
 import {
   buildScheduleData, enqueueOp, getPaired, getQueue, loadJson, pairWith as pairRequest,
   probeOnline, removeFromQueue, saveJson, syncNow, unpair as unpairDevice, uuid,
@@ -16,7 +16,8 @@ const nextId = (p: string) => p + (++seq)
 
 /** 本地持久化键（pm. 前缀，SQLite 评估时整体搬运） */
 const K_TODOS = 'pm.todos'
-const K_TXS = 'pm.txs'
+/** v0.3 起账本存同步形态（pm.txs 是旧版展示形态键，弃用不迁移——当时只有演示数据） */
+const K_LEDGER = 'pm.ledger'
 
 /** 在途删除操作的条目 id：远端回流时跳过这些 id（本地已删，等队列 push 落墓碑） */
 function queuedDeleteIds(): Set<string> {
@@ -66,8 +67,16 @@ interface Store {
   toggleHabit: (id: string) => void
 
   /* 记账 */
+  /** 账本本地真相（同步形态；编辑/删除/对账都基于它） */
+  entries: LedgerEntry[]
+  /** 展示形态派生（LedgerPage 渲染用） */
   txs: Tx[]
-  saveTx: (input: { type: 'expense' | 'income'; amount: number; cat: string; acc: string }) => void
+  saveTx: (input: { type: 'expense' | 'income'; amount: number; cat: string; acc: string; merchant?: string }) => void
+  updateTx: (id: string, input: { type: 'expense' | 'income'; amount: number; cat: string; acc: string; merchant?: string }) => void
+  deleteTx: (id: string) => void
+  /** 「改一笔」抽屉的目标条目 */
+  editTxId: string | null
+  openTxEdit: (id: string) => void
 
   /* 笔记 */
   folders: Folder[]
@@ -123,14 +132,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const [schedView, setSchedView] = useState<SchedView>('list')
   const [selDate, setSelDate] = useState(TODAY)
-  /* 日程/流水落本地存储（M2a）：重启不丢；首次启动播种子（真实「今天」锚点），之后以存量为准 */
+  /* 日程/待办落本地存储（M2a）：重启不丢；首次启动播种子（真实「今天」锚点），之后以存量为准 */
   const [todos, setTodos] = useState<Todo[]>(() => loadJson<Todo[]>(K_TODOS, seedTodos))
   const [habits, setHabits] = useState<Habit[]>(seedHabits)
 
-  const [txs, setTxs] = useState<Tx[]>(() => loadJson<Tx[]>(K_TXS, seedTxs))
+  /* 账本本地真相 = 同步形态（M2b）；展示形态派生 */
+  const [entries, setEntries] = useState<LedgerEntry[]>(() => loadJson<LedgerEntry[]>(K_LEDGER, seedEntries))
+  const txs = useMemo(() => entries.map(txToDisplay), [entries])
 
   useEffect(() => { saveJson(K_TODOS, todos) }, [todos])
-  useEffect(() => { saveJson(K_TXS, txs) }, [txs])
+  useEffect(() => { saveJson(K_LEDGER, entries) }, [entries])
 
   const [folders, setFolders] = useState<Folder[]>(seedFolders)
   const [phoneNotes, setPhoneNotes] = useState<PhoneNote[]>([
@@ -172,6 +183,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const openSheet = useCallback((id: Exclude<SheetId, null>) => setSheet(id), [])
   const closeSheet = useCallback(() => setSheet(null), [])
   const toggleKbSim = useCallback(() => setKbSim(s => !s), [])
+
+  /* 「改一笔」抽屉：打开前先钉住目标条目（TxSheet 挂载时读取） */
+  const [editTxId, setEditTxId] = useState<string | null>(null)
+  const openTxEdit = useCallback((id: string) => { setEditTxId(id); setSheet('tx-edit') }, [])
 
   /* 系统键盘探测：文本输入聚焦 ≈ 键盘弹出（自定义数字键盘是 button，不触发，符合预期）。
      真机上配合 viewport 的 resizes-content：键盘收缩布局视口 + kb-open 隐藏底栏 = 原生键盘模型。
@@ -221,28 +236,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPending(p => [...p, opId ? { label, opId } : { label }])
   }, [])
 
-  /* 电脑下行的记账条目按 id 幂等并入本地流水（自己的上行被原样带回时 = 无操作；
-     在途删除的 id 跳过——本地已删，等队列 push 落墓碑） */
+  /* 电脑下行的记账条目按 id 幂等并入本地账本（自己的上行被原样带回时 = 无操作；
+     在途删除的 id 跳过——本地已删，等队列 push 落墓碑）；展示顺序 = updatedAt 倒序 */
   const applyRemoteLedger = useCallback((remote: RemoteLedgerItem[]) => {
     if (!remote.length) return
     const delIds = queuedDeleteIds()
-    setTxs(list => {
-      const byId = new Map(list.map(t => [t.id, t]))
-      const known = new Set(list.map(t => t.id))
+    setEntries(list => {
+      const byId = new Map(list.map(e => [e.id, e]))
       for (const r of remote) {
         if (delIds.has(r.id)) continue
-        const d = r.data
-        const disp = txDisplay(d.date, d.time)
-        byId.set(r.id, {
-          id: r.id, date: disp.date, sub: disp.sub,
-          name: d.merchant || d.category, cat: d.category,
-          amt: d.type === 'expense' ? -d.amount : d.amount, acc: d.payment || '其他',
-        })
+        byId.set(r.id, { id: r.id, updatedAt: r.updatedAt, data: r.data })
       }
-      const fresh: Tx[] = []
-      const kept: Tx[] = []
-      for (const t of byId.values()) (known.has(t.id) ? kept : fresh).push(t)
-      return [...fresh.reverse(), ...kept]
+      return [...byId.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
     })
   }, [])
 
@@ -286,7 +291,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!removedIds.length) return
     const gone = new Set(removedIds)
     setTodos(list => list.filter(t => !gone.has(t.id)))
-    setTxs(list => list.filter(t => !gone.has(t.id)))
+    setEntries(list => list.filter(e => !gone.has(e.id)))
     removeFromQueue(removedIds)
   }, [])
 
@@ -456,27 +461,54 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!wasDone) { markPending('打卡：' + h.name); toast('打卡成功 · 待同步', 'ok') }
   }, [habits, markPending, toast])
 
-  /* ---------- 记账 ---------- */
+  /* ---------- 记账（M2b：本地真相 = 同步形态，增改删都走同一条上行路径） ---------- */
 
-  const saveTx = useCallback((input: { type: 'expense' | 'income'; amount: number; cat: string; acc: string }) => {
+  const saveTx = useCallback((input: { type: 'expense' | 'income'; amount: number; cat: string; acc: string; merchant?: string }) => {
     const isExp = input.type === 'expense'
     /* 条目 UUID 在生成时定死并终身不变：本地展示与上行同步共用同一 id */
     const id = uuid()
     const nowD = new Date()
+    const nowIso = nowD.toISOString()
     const pad2 = (n: number) => String(n).padStart(2, '0')
     const dateIso = nowD.getFullYear() + '-' + pad2(nowD.getMonth() + 1) + '-' + pad2(nowD.getDate())
     const time = pad2(nowD.getHours()) + ':' + pad2(nowD.getMinutes())
     const data: LedgerSyncData = {
       date: dateIso, time, type: input.type, amount: input.amount,
-      category: input.cat, payment: input.acc, merchant: input.cat, note: '',
+      category: input.cat, payment: input.acc, merchant: input.merchant || input.cat, note: '',
     }
     const label = (isExp ? '支出' : '收入') + ' ¥' + fmtMoney(input.amount) + ' · ' + input.cat
-    enqueueOp({ id, domain: 'ledger', updatedAt: nowD.toISOString(), data, label })
-    const disp = txDisplay(dateIso, time)
-    setTxs(list => [{ id, date: disp.date, sub: disp.sub, name: input.cat, cat: input.cat, amt: isExp ? -input.amount : input.amount, acc: input.acc }, ...list])
+    enqueueOp({ id, domain: 'ledger', updatedAt: nowIso, data, label })
+    setEntries(list => [{ id, updatedAt: nowIso, data }, ...list])
     markPending(label, id)
     toast('已记一笔 · 待同步进电脑', 'ok')
   }, [markPending, toast])
+
+  /** 改账：保留原日期/时间，只改负载可变字段；updatedAt 推进走同一条 LWW 时线 */
+  const updateTx = useCallback((id: string, input: { type: 'expense' | 'income'; amount: number; cat: string; acc: string; merchant?: string }) => {
+    const prev = entries.find(x => x.id === id)
+    if (!prev) return
+    const nowIso = new Date().toISOString()
+    const data: LedgerSyncData = {
+      ...prev.data,
+      type: input.type, amount: input.amount,
+      category: input.cat, payment: input.acc, merchant: input.merchant || input.cat,
+    }
+    const label = '改账：' + (data.merchant || data.category) + ' ¥' + fmtMoney(input.amount)
+    enqueueOp({ id, domain: 'ledger', updatedAt: nowIso, data, label })
+    setEntries(list => list.map(x => x.id === id ? { id, updatedAt: nowIso, data } : x))
+    markPending(label, id)
+    toast('已改账 · 待同步', 'ok')
+  }, [entries, markPending, toast])
+
+  /** 删账：墓碑上行（v1.1）；若该条目还有在途 upsert，按 id 去重后被删除取代 */
+  const deleteTx = useCallback((id: string) => {
+    const e = entries.find(x => x.id === id)
+    if (!e) return
+    setEntries(list => list.filter(x => x.id !== id))
+    enqueueOp({ id, domain: 'ledger', updatedAt: new Date().toISOString(), data: { deleted: true }, label: '删除：' + (e.data.merchant || e.data.category) })
+    markPending('删除：' + (e.data.merchant || e.data.category), id)
+    toast('已删除 · 待同步进电脑', 'ok')
+  }, [entries, markPending, toast])
 
   /* ---------- 笔记 ---------- */
 
@@ -597,8 +629,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const confirmCard = useCallback((msgId: string, kind: 'tx' | 'move') => {
     if (kind === 'tx') {
-      setTxs(list => [{ id: nextId('x'), date: '今天', sub: '10月31日 · 刚刚', name: '午饭 · AI 代记', cat: '餐饮', amt: -30, acc: '微信' }, ...list])
-      markPending('AI 代记 · 支出 ¥30.00')
+      /* AI 代记走同一条真实写入路径（铁律：AI 说记好了就是真的记了） */
+      const id = uuid()
+      const nowD = new Date()
+      const nowIso = nowD.toISOString()
+      const pad2 = (n: number) => String(n).padStart(2, '0')
+      const dateIso = nowD.getFullYear() + '-' + pad2(nowD.getMonth() + 1) + '-' + pad2(nowD.getDate())
+      const time = pad2(nowD.getHours()) + ':' + pad2(nowD.getMinutes())
+      const data: LedgerSyncData = { date: dateIso, time, type: 'expense', amount: 30, category: '餐饮', payment: '微信', merchant: '午饭 · AI 代记', note: '' }
+      enqueueOp({ id, domain: 'ledger', updatedAt: nowIso, data, label: 'AI 代记 · 支出 ¥30.00' })
+      setEntries(list => [{ id, updatedAt: nowIso, data }, ...list])
+      markPending('AI 代记 · 支出 ¥30.00', id)
       toast('已入账 · 待同步', 'ok')
     } else {
       setTodos(list => list.filter(t => t.id !== 't3'))
@@ -647,7 +688,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
     online, syncing, syncPct, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, unpair,
     schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, deleteTodo, habits, toggleHabit,
-    txs, saveTx,
+    entries, txs, saveTx, updateTx, deleteTx, editTxId, openTxEdit,
     folders, toggleFolder, markCached, phoneNotes, addPhoneNote,
     aiMode, setAiMode, sessions, curSession, newSession, switchSession, deleteSession, renameSession, togglePin,
     streaming, streamText, sendChat, confirmCard, dismissCard,

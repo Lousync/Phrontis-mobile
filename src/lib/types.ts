@@ -75,7 +75,7 @@ export interface Session {
 }
 
 export type ThemeName = 'dark' | 'light'
-export type SheetId = 'tx' | 'todo' | 'note' | 'sessions' | null
+export type SheetId = 'tx' | 'tx-edit' | 'todo' | 'note' | 'sessions' | null
 
 /* ---------- 同步（M1，协议 docs/design.md §2.1） ---------- */
 
@@ -98,6 +98,15 @@ export interface LedgerSyncData {
   payment: string
   merchant: string
   note: string
+}
+
+/** 账本本地真相 = 同步形态条目（M2b）：编辑/删除需要完整负载可还原；
+ *  展示形态（Tx）渲染时由 txToDisplay 派生，不再单独持久化 */
+export interface LedgerEntry {
+  id: string
+  /** 本地最近一次变更时刻（ISO）；上行 LWW 与冲突收敛依据 */
+  updatedAt: string
+  data: LedgerSyncData
 }
 
 /** 日程域负载（协议 v1.1，与桌面 protocol.ScheduleItemData 同源；口径见 docs/design.md §2.1） */

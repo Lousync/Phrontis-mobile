@@ -24,7 +24,7 @@ function Shell() {
           <SettingsPage active={p('settings')} />
         </main>
         <TabBar />
-        {sheet === 'tx' && <TxSheet />}
+        {(sheet === 'tx' || sheet === 'tx-edit') && <TxSheet />}
         {sheet === 'todo' && <TodoSheet />}
         {sheet === 'note' && <NoteSheet />}
         {sheet === 'sessions' && <SessionSheet />}
