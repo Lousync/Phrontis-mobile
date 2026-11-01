@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 
 import { parsePairInput, uuid, buildScheduleData, buildNoteData, pruneNoteCache, getLastSync } from '../src/lib/sync.ts'
 import { txToDisplay, monthOf, monthShift, monthStats, groupEntriesByDay } from '../src/lib/data.ts'
+import { AI_TOOLS, validateLedgerAdd, validateTodoAdd, validateNoteCreate, buildSystemPrompt } from '../src/lib/aiTools.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -97,6 +98,38 @@ console.log('\n§2d 笔记负载与缓存（v1.2：上行 + LRU 缓存）')
   const pruned = pruneNoteCache(big, 130)
   check('缓存超限按 at 最旧先逐出', pruned.old === undefined && !!pruned.mid && !!pruned.new)
   check('缓存逐出后不超限', Object.values(pruned).reduce((s, v) => s + v.title.length + v.body.length, 0) <= 130)
+}
+
+console.log('\n§2e AI 直连档工具集（M4a：读直执行 / 写出确认卡）')
+{
+  check('工具集 7 个', AI_TOOLS.length === 7)
+  check('工具名唯一', new Set(AI_TOOLS.map(t => t.function.name)).size === AI_TOOLS.length)
+  const maxLen = Math.max(...AI_TOOLS.map(t => JSON.stringify(t).length))
+  check('单个工具 schema ≤ 400 字符（实际最大 ' + maxLen + '）', maxLen <= 400)
+  check('写工具 3 个齐备', ['ledger_add', 'todo_add', 'note_create'].every(n => AI_TOOLS.some(t => t.function.name === n)))
+  check('读工具 4 个齐备', ['now_time', 'ledger_query', 'todo_query', 'notes_list'].every(n => AI_TOOLS.some(t => t.function.name === n)))
+
+  check('记账提案：合法', typeof validateLedgerAdd({ type: 'expense', amount: 30.5, category: '餐饮', account: '微信', merchant: '午饭' }) === 'object')
+  check('记账提案：金额<=0 拒绝', typeof validateLedgerAdd({ type: 'expense', amount: 0 }) === 'string')
+  check('记账提案：坏 type 拒绝', typeof validateLedgerAdd({ type: 'transfer', amount: 5 }) === 'string')
+  check('记账提案：缺省回落（其他/微信/名目=分类）', (() => {
+    const p = validateLedgerAdd({ type: 'income', amount: 3 })
+    return typeof p !== 'string' && p.category === '其他' && p.account === '微信' && p.merchant === '其他'
+  })())
+
+  check('待办提案：缺省今天 + plan', (() => {
+    const p = validateTodoAdd({ title: '周报' }, '2026-11-01')
+    return typeof p !== 'string' && p.date === '2026-11-01' && p.type === 'plan'
+  })())
+  check('待办提案：空标题拒绝', typeof validateTodoAdd({ title: '  ' }, '2026-11-01') === 'string')
+  check('待办提案：坏日期拒绝', typeof validateTodoAdd({ title: 'x', date: '11-01' }, '2026-11-01') === 'string')
+
+  check('笔记提案：仅正文可过', typeof validateNoteCreate({ title: '', body: '想法' }) === 'object')
+  check('笔记提案：全空拒绝', typeof validateNoteCreate({ title: '', body: '  ' }) === 'string')
+
+  const sp = buildSystemPrompt('2026-11-01', 'TEST-PC')
+  check('系统提示含真实日期与写入纪律', sp.includes('2026-11-01') && sp.includes('不要说「已经记好了」'))
+  check('系统提示区分未配对', buildSystemPrompt('2026-11-01', null).includes('尚未配对'))
 }
 
 console.log('\n§3 协议文档契约（docs/design.md §2.1 与手机实现一致）')

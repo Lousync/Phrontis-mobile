@@ -1,26 +1,39 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import type { AiConfig, AiProvider } from '../../lib/types'
+import { AI_PRESETS, aiConfigReady, testAiConfig } from '../../lib/ai'
 import { useApp } from '../../lib/store'
 import { ICheck, IMonitor } from '../../components/icons'
+
+const PROVIDERS: Array<{ key: AiProvider; label: string }> = [
+  { key: 'deepseek', label: 'DeepSeek' },
+  { key: 'glm', label: '智谱 GLM' },
+  { key: 'custom', label: 'OpenAI 兼容' },
+  { key: 'ollama', label: '本地 Ollama' },
+]
 
 /**
  * 设置页。同步区 = M1 真实配对（协议 docs/design.md §2.1）：
  * 未配对时输入电脑地址 + 配对码（桌面端 工具箱 → 手机伴侣 出示），配对后长期互信。
  * 原型阶段手机浏览器没有相机可用，扫码（APK 相机）随 M6 打包阶段接入。
+ * AI 区 = M4a 直连档配置（pm.aiConfig，Key 只在本机）。
  */
 export function SettingsPage({ active }: { active: boolean }) {
-  const { paired, online, syncing, syncPct, lastSync, runSync, pairWith, unpair, theme, setTheme, toast } = useApp()
+  const { paired, online, syncing, syncPct, lastSync, runSync, pairWith, unpair, theme, setTheme, toast, aiConfig, updateAiConfig } = useApp()
   const [scope, setScope] = useState<Record<string, boolean>>({ 记账: true, 日程: true, 笔记: true, 'AI 会话记录': false })
-  const [provider, setProvider] = useState('DeepSeek')
-  const [model, setModel] = useState('deepseek-chat')
   const [pairInput, setPairInput] = useState('')
   const [pairCode, setPairCode] = useState('')
   const [pairing, setPairing] = useState(false)
   const [confirmUnpair, setConfirmUnpair] = useState(false)
 
+  /* AI 配置草稿（保存才生效）；换提供商自动带出预设模型 */
+  const [cfgDraft, setCfgDraft] = useState<AiConfig>(aiConfig)
+  const [testing, setTesting] = useState(false)
+  useEffect(() => { setCfgDraft(aiConfig) }, [aiConfig])
+
   const scopeRows: Array<{ k: string; label: string; why?: string }> = [
     { k: '记账', label: '记账 · 双向按条目合并（含删除）' },
     { k: '日程', label: '日程 · 双向按条目合并（含删除）' },
-    { k: '笔记', label: '笔记 · 缓存 + 手机笔记上行', why: 'M3 接入' },
+    { k: '笔记', label: '笔记 · 手机笔记上行 + 电脑笔记只读缓存' },
     { k: 'AI 会话记录', label: 'AI 会话记录', why: '二期' },
   ]
 
@@ -30,6 +43,25 @@ export function SettingsPage({ active }: { active: boolean }) {
       await pairWith(pairInput, pairCode)
     } finally {
       setPairing(false)
+    }
+  }
+
+  const saveAi = () => {
+    const preset = AI_PRESETS[cfgDraft.provider]
+    updateAiConfig({ ...cfgDraft, model: cfgDraft.model.trim() || preset.model })
+    toast('AI 配置已保存（只在本机）', 'ok')
+  }
+
+  const doTestAi = async () => {
+    setTesting(true)
+    try {
+      const preset = AI_PRESETS[cfgDraft.provider]
+      await testAiConfig({ ...cfgDraft, model: cfgDraft.model.trim() || preset.model })
+      toast('连接成功，模型可用', 'ok')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '连接失败', 'warn')
+    } finally {
+      setTesting(false)
     }
   }
 
@@ -114,14 +146,34 @@ export function SettingsPage({ active }: { active: boolean }) {
         <div className="card">
           <div className="field" style={{ marginTop: 2 }}>
             <label>提供商</label>
-            <select value={provider} onChange={e => setProvider(e.target.value)}
+            <select value={cfgDraft.provider} onChange={e => {
+              const key = e.target.value as AiProvider
+              setCfgDraft(d => ({ ...d, provider: key, model: AI_PRESETS[key].model }))
+            }}
               style={{ width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border-soft)', borderRadius: 11, padding: '11px 13px', fontSize: 14, outline: 'none' }}>
-              <option>DeepSeek</option><option>智谱 GLM</option><option>OpenAI 兼容</option><option>本地 Ollama</option>
+              {PROVIDERS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
             </select>
           </div>
-          <div className="field"><label>API Key</label><input type="password" defaultValue="sk-demo-prototype" placeholder="sk-..." /></div>
-          <div className="field"><label>模型</label><input value={model} onChange={e => setModel(e.target.value)} /></div>
-          <button className="btn-primary" onClick={() => toast('模型配置已保存（本地）', 'ok')}>保存</button>
+          {cfgDraft.provider === 'custom' && (
+            <div className="field">
+              <label>服务地址（OpenAI 兼容根路径）</label>
+              <input value={cfgDraft.baseUrl} onChange={e => setCfgDraft(d => ({ ...d, baseUrl: e.target.value }))}
+                placeholder="https://your-host/v1" />
+            </div>
+          )}
+          {cfgDraft.provider !== 'ollama' && (
+            <div className="field"><label>API Key</label><input type="password" value={cfgDraft.apiKey} onChange={e => setCfgDraft(d => ({ ...d, apiKey: e.target.value }))} placeholder="sk-..." /></div>
+          )}
+          <div className="field"><label>模型</label><input value={cfgDraft.model} onChange={e => setCfgDraft(d => ({ ...d, model: e.target.value }))} placeholder={AI_PRESETS[cfgDraft.provider].model} /></div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn-primary" style={{ flex: 1 }} onClick={saveAi}>保存</button>
+            <button className="btn-ghost" style={{ height: 44 }} disabled={testing} onClick={() => void doTestAi()}>{testing ? '测试中…' : '测试连接'}</button>
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 10 }}>
+            {aiConfigReady(aiConfig)
+              ? '已配置：' + PROVIDERS.find(p => p.key === aiConfig.provider)?.label + ' · ' + aiConfig.model + '。Key 只存手机本地，不上行不同步。'
+              : '还没配好——配好后 AI 才能真的帮你记账、查日程、记笔记（写操作都会先出确认卡）。'}
+          </div>
         </div>
       </div>
 
@@ -136,7 +188,7 @@ export function SettingsPage({ active }: { active: boolean }) {
         </div>
       </div>
 
-      <div className="ver">Phrontis Mobile 0.2.0 · M1 · 与桌面 3.15.1 配套</div>
+      <div className="ver">Phrontis Mobile 0.2.0 · M4a · 与桌面 3.15.1 配套</div>
     </section>
   )
 }

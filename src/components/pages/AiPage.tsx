@@ -1,38 +1,77 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Msg, Session } from '../../lib/types'
-import { mdRender, sessGroupKey } from '../../lib/data'
+import type { Msg, NoteProposal, Session, TodoProposal, TxProposal } from '../../lib/types'
+import { fmtMoney, mdRender, sessGroupKey, TODO_TYPE_LABEL } from '../../lib/data'
 import { useApp } from '../../lib/store'
 import { ICheck, IHistory, IMic, ISearch, ISend, ISparkle, IPlus, IDots } from '../icons'
 import { Grip, Sheet } from '../Sheet'
 
 const TODO_DOT: Record<string, string> = { deadline: 'var(--red)', plan: 'var(--blue)', daily: 'var(--green)' }
 
+/** AI 确认卡：tx/todo/note 用真实提案数据；move 是未配置 AI 时的演示卡 */
 function ActionCard({ m }: { m: Msg }) {
   const { confirmCard, dismissCard } = useApp()
-  if (!m.card) return null
-  const confirmed = !!m.card.confirmed
-  const isTx = m.card.kind === 'tx'
+  const c = m.card
+  if (!c) return null
+  const confirmed = !!c.confirmed
+  const d = c.data
+  const head = c.kind === 'tx' ? 'AI 操作 · 记账'
+    : c.kind === 'todo' ? 'AI 操作 · 加待办'
+    : c.kind === 'note' ? 'AI 操作 · 记笔记'
+    : 'AI 操作 · 改日程'
+  let okLabel = '确认'
+  let doneLabel = '已完成'
+  let body: React.ReactNode
+  if (c.kind === 'tx' && d && 'amount' in d) {
+    const p = d as TxProposal
+    okLabel = '确认入账'
+    doneLabel = '已入账'
+    body = (
+      <>
+        <div className="ac-row"><span className="ac-amt">¥{fmtMoney(p.amount)}</span><span className="ac-meta">{p.type === 'expense' ? '支出' : '收入'} · {p.category} · {p.merchant}</span></div>
+        <div className="ac-row" style={{ marginTop: 4 }}><span className="ac-meta">账户：{p.account} · 今天</span></div>
+      </>
+    )
+  } else if (c.kind === 'todo' && d && 'title' in d) {
+    const p = d as TodoProposal
+    okLabel = '确认添加'
+    doneLabel = '已添加'
+    body = (
+      <>
+        <div className="ac-row"><span className="ac-amt" style={{ fontSize: 17 }}>{p.title}</span><span className="ac-meta">{p.date}</span></div>
+        <div className="ac-row" style={{ marginTop: 4 }}><span className="ac-meta">类型：{TODO_TYPE_LABEL[p.type]}</span></div>
+      </>
+    )
+  } else if (c.kind === 'note' && d && 'body' in d) {
+    const p = d as NoteProposal
+    okLabel = '确认上行'
+    doneLabel = '已上行'
+    body = (
+      <>
+        <div className="ac-row"><span className="ac-amt" style={{ fontSize: 17 }}>{p.title || '（无标题闪念）'}</span></div>
+        <div className="ac-row" style={{ marginTop: 4 }}><span className="ac-meta" style={{ whiteSpace: 'pre-wrap' }}>{p.body.slice(0, 140)}</span></div>
+      </>
+    )
+  } else {
+    okLabel = '确认改期'
+    doneLabel = '已改期'
+    body = (
+      <>
+        <div className="ac-row"><span className="ac-amt" style={{ fontSize: 17 }}>跑步 30 分钟</span><span className="ac-meta">今天 19:00</span></div>
+        <div className="ac-row" style={{ marginTop: 4 }}><span className="ac-meta">改为</span><span className="ac-meta" style={{ color: 'var(--accent-hover)', fontWeight: 600 }}>明天 19:30</span></div>
+      </>
+    )
+  }
   return (
     <div className={'action-card' + (confirmed ? ' confirmed' : '')}>
-      <div className="ac-head"><ISparkle size={12} />AI 操作 · {isTx ? '记账' : '改日程'}</div>
-      {isTx ? (
-        <>
-          <div className="ac-row"><span className="ac-amt">¥30.00</span><span className="ac-meta">支出 · 餐饮 · 午饭</span></div>
-          <div className="ac-row" style={{ marginTop: 4 }}><span className="ac-meta">账户：微信 · 今天</span></div>
-        </>
-      ) : (
-        <>
-          <div className="ac-row"><span className="ac-amt" style={{ fontSize: 17 }}>跑步 30 分钟</span><span className="ac-meta">今天 19:00</span></div>
-          <div className="ac-row" style={{ marginTop: 4 }}><span className="ac-meta">改为</span><span className="ac-meta" style={{ color: 'var(--accent-hover)', fontWeight: 600 }}>明天 19:30</span></div>
-        </>
-      )}
+      <div className="ac-head"><ISparkle size={12} />{head}</div>
+      {body}
       {!confirmed && (
         <div className="ac-btns">
-          <button className="ok" onClick={() => confirmCard(m.id, m.card!.kind)}>{isTx ? '确认入账' : '确认改期'}</button>
+          <button className="ok" onClick={() => confirmCard(m.id, c.kind)}>{okLabel}</button>
           <button className="no" onClick={() => dismissCard(m.id)}>改一改</button>
         </div>
       )}
-      {confirmed && <div className="ac-state"><ICheck size={12} />{isTx ? '已入账' : '已改期'} · 待同步进电脑</div>}
+      {confirmed && <div className="ac-state"><ICheck size={12} />{doneLabel} · 待同步进电脑</div>}
     </div>
   )
 }

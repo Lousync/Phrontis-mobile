@@ -56,13 +56,26 @@ export interface PhoneNote {
   synced: boolean
 }
 
-export type CardKind = 'tx' | 'move'
+export type CardKind = 'tx' | 'todo' | 'note' | 'move'
+
+/* AI 确认卡提案（写工具不落库，确认后走与 UI 按钮同一条写入路径） */
+export interface TxProposal { type: 'expense' | 'income'; amount: number; category: string; account: string; merchant: string }
+export interface TodoProposal { title: string; type: TodoType; date: string }
+export interface NoteProposal { title: string; body: string }
+export type ProposalData = TxProposal | TodoProposal | NoteProposal
+
+export interface Card {
+  kind: CardKind
+  confirmed?: boolean
+  /** 提案数据（演示卡 move 可无 data） */
+  data?: ProposalData
+}
 
 export interface Msg {
   id: string
   role: 'user' | 'ai'
   text: string
-  card?: { kind: CardKind; confirmed?: boolean }
+  card?: Card
   list?: Todo[]
 }
 
@@ -170,6 +183,38 @@ export interface NoteCacheEntry {
 }
 
 export type NoteCache = Record<string, NoteCacheEntry>
+
+/* ---------- AI 直连档（M4a，OpenAI 兼容） ---------- */
+
+export type AiProvider = 'deepseek' | 'glm' | 'custom' | 'ollama'
+
+/** AI 配置（pm.aiConfig；Key 只在手机本地，不上行） */
+export interface AiConfig {
+  provider: AiProvider
+  /** 空串 = 用提供商预设地址（custom 必填） */
+  baseUrl: string
+  apiKey: string
+  model: string
+}
+
+/** OpenAI 兼容 tool_calls 元素 */
+export interface AiToolCall {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
+export interface AiToolDef {
+  type: 'function'
+  function: { name: string; description: string; parameters: Record<string, unknown> }
+}
+
+export interface AiChatMsg {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: string
+  tool_calls?: AiToolCall[]
+  tool_call_id?: string
+}
 export type AiMode = 'direct' | 'pc'
 export type VoicePhase = 'idle' | 'recording' | 'transcribing'
 export type SchedView = 'list' | 'grid' | 'habit'
