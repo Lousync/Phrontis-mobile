@@ -7,7 +7,7 @@
  * 工具循环上限 AI_MAX_ROUNDS 轮；写工具不落库（提案 → 确认卡 → 用户确认才写入）。
  */
 import type { AiChatMsg, AiConfig, AiToolCall, AiToolDef } from './types'
-import { loadJson, saveJson } from './sync'
+import { AiStopped, loadJson, saveJson } from './sync'
 
 export const AI_MAX_ROUNDS = 5
 
@@ -56,15 +56,18 @@ export interface AiReply {
   toolCalls: AiToolCall[]
 }
 
-/** 单轮 chat.completions（非流式）。失败抛 Error（文案可直接 toast） */
+/** 单轮 chat.completions（非流式）。失败抛 Error（文案可直接 toast）；external 中止抛 AiStopped */
 export async function chatOnce(
   cfg: AiConfig,
   messages: AiChatMsg[],
   tools: AiToolDef[],
   timeoutMs = 60_000,
+  external?: AbortSignal,
 ): Promise<AiReply> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  const onAbort = () => ctrl.abort()
+  external?.addEventListener('abort', onAbort)
   try {
     const res = await fetch(endpointOf(cfg), {
       method: 'POST',
@@ -94,11 +97,13 @@ export async function chatOnce(
       toolCalls: Array.isArray(msg.tool_calls) ? (msg.tool_calls as AiToolCall[]) : [],
     }
   } catch (e) {
+    if (external?.aborted) throw new AiStopped()
     if (e instanceof DOMException && e.name === 'AbortError') throw new Error('模型请求超时，稍后再试')
     if (e instanceof TypeError) throw new Error('连不上模型服务：检查地址与网络（本地 Ollama 需允许跨域）')
     throw e instanceof Error ? e : new Error('模型请求失败')
   } finally {
     clearTimeout(timer)
+    external?.removeEventListener('abort', onAbort)
   }
 }
 

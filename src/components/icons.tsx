@@ -38,3 +38,4 @@ export const ITrash = make(<><path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4
 export const IMonitor = make(<><rect x="2" y="3" width="20" height="13" rx="2" /><path d="M8 21h8M12 16v5" /></>)
 export const IBackspace = make(<><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z" /><path d="M18 9l-6 6M12 9l6 6" /></>)
 export const IKeyboard = make(<><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M18 13h.01M9 13h6M6 16.5h12" /></>)
+export const IStop = make(<rect x="7" y="7" width="10" height="10" rx="2" />, { filled: true })

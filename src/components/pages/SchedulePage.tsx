@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react'
 import type { Habit, Todo, TodoType } from '../../lib/types'
-import { TODO_TYPE_LABEL, TODAY, WEEK, dayIso, fmtMin } from '../../lib/data'
+import { TODO_TYPE_LABEL, TODAY, dayIso, fmtMin, weekOf } from '../../lib/data'
 import { useApp } from '../../lib/store'
-import { ICheck, IPlus } from '../../components/icons'
+import { ICheck, IChevL, IChevR, IPlus } from '../../components/icons'
 import { Grip, Sheet } from '../../components/Sheet'
 
 function TodoItem({ t, confirming, onAsk, onConfirm, onCancel }: {
@@ -17,7 +17,11 @@ function TodoItem({ t, confirming, onAsk, onConfirm, onCancel }: {
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const armPress = () => {
     cancelPress()
-    pressTimer.current = setTimeout(() => { pressTimer.current = null; onAsk(t.id) }, 550)
+    pressTimer.current = setTimeout(() => {
+      pressTimer.current = null
+      if (navigator.vibrate) navigator.vibrate(10)
+      onAsk(t.id)
+    }, 550)
   }
   const cancelPress = () => { if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null } }
   return (
@@ -152,14 +156,15 @@ function HabitCard({ h }: { h: Habit }) {
   )
 }
 
-function TodoSheet() {
+function TodoSheet({ selDate }: { selDate: string }) {
   const { closeSheet, addTodo } = useApp()
   const [title, setTitle] = useState('')
   const [type, setType] = useState<TodoType>('plan')
   const [time, setTime] = useState('')
+  const [date, setDate] = useState(selDate)
   const save = () => {
     if (!title.trim()) return
-    addTodo({ title: title.trim(), type, time })
+    addTodo({ title: title.trim(), type, time, date })
     closeSheet()
   }
   return (
@@ -172,6 +177,7 @@ function TodoSheet() {
           <button key={t} className={type === t ? 'on' : ''} onClick={() => setType(t)}>{TODO_TYPE_LABEL[t]}</button>
         ))}
       </div>
+      <div className="field"><label>日期</label><input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
       <div className="field"><label>时间（可选）</label><input type="time" value={time} onChange={e => setTime(e.target.value)} /></div>
       <button className="btn-primary" onClick={save}>保存到手机</button>
     </Sheet>
@@ -181,24 +187,27 @@ function TodoSheet() {
 export function SchedulePage({ active }: { active: boolean }) {
   const { todos, habits, selDate, setSelDate, schedView, setSchedView, openSheet, deleteTodo } = useApp()
   const [delId, setDelId] = useState<string | null>(null)
+  const [weekOff, setWeekOff] = useState(0)
   const dayTodos = todos.filter(t => t.date === selDate)
   const doneN = dayTodos.filter(t => t.done && !t.parentId).length
-  const w = WEEK.find(x => x.iso === selDate)!
-  /* 日期头按真实日期渲染（M2a 前是写死的 10月31日 / 11月1日） */
+  const week = weekOf(weekOff)
+  /* 日期头按真实日期渲染；星期从 selDate 自身算——翻周后选中日不在当前周条里 */
   const selD = new Date(selDate + 'T00:00:00')
+  const wd = '一二三四五六日'[(selD.getDay() + 6) % 7]
   const dn = (selD.getMonth() + 1) + '月' + selD.getDate() + '日'
   const rel = selDate === TODAY ? ' · 今天' : selDate === dayIso(1) ? ' · 明天' : ''
 
   return (
     <section className={'page' + (active ? ' active' : '')}>
       <div className="date-head">
-        <span className="d">{dn}</span><span className="w">周{w.wd}{rel}</span>
+        <span className="d">{dn}</span><span className="w">周{wd}{rel}</span>
         <span className="progress">{dayTodos.length ? '已完成 ' + doneN + '/' + (dayTodos.length - dayTodos.filter(t => t.parentId).length) : ''}</span>
       </div>
       <div className="progress-track"><div className="progress-fill" style={{ width: (dayTodos.length ? doneN / dayTodos.length * 100 : 0) + '%' }} /></div>
 
       <div className="week-strip">
-        {WEEK.map(x => {
+        <button className="month-arrow wk-arrow" title="上一周" onClick={() => setWeekOff(o => o - 1)}><IChevL size={13} /></button>
+        {week.map(x => {
           const cls = ['wday', x.iso === selDate ? 'sel' : '', x.iso < TODAY ? 'past' : '', x.iso === TODAY ? 'today-mark' : '', todos.some(t => t.date === x.iso) ? 'has' : ''].join(' ')
           return (
             <button key={x.iso} className={cls} onClick={() => setSelDate(x.iso)}>
@@ -206,7 +215,11 @@ export function SchedulePage({ active }: { active: boolean }) {
             </button>
           )
         })}
+        <button className="month-arrow wk-arrow" title="下一周" onClick={() => setWeekOff(o => o + 1)}><IChevR size={13} /></button>
       </div>
+      {weekOff !== 0 && (
+        <button className="today-jump" onClick={() => { setWeekOff(0); setSelDate(TODAY) }}>回到今天</button>
+      )}
 
       <div className="view-seg">
         {(['list', 'grid', 'habit'] as const).map(v => (

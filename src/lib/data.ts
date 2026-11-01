@@ -20,17 +20,20 @@ export const mdOf = (iso: string): string => {
 
 export const TODAY = dayIso(0)
 
-/** 本周条：周一起的 7 天（与桌面周日程口径一致） */
-export const WEEK = (() => {
+/** 任意一周的 7 天（offset=0 本周，1 下周，-1 上周；周一起，与桌面周日程口径一致） */
+export function weekOf(offset = 0): Array<{ iso: string; wd: string; n: number }> {
   const now = new Date()
   const monday = new Date(now)
-  monday.setDate(now.getDate() - (now.getDay() === 0 ? 7 : now.getDay()) + 1)
+  monday.setDate(now.getDate() - (now.getDay() === 0 ? 7 : now.getDay()) + 1 + offset * 7)
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday)
     d.setDate(monday.getDate() + i)
     return { iso: isoOf(d), wd: '一二三四五六日'[i], n: d.getDate() }
   })
-})()
+}
+
+/** 本周条（weekOf(0) 的别名，旧引用兼容） */
+export const WEEK = weekOf(0)
 
 export const CAT_COLORS: Record<string, string> = {
   餐饮: '#e2a336', 交通: '#3794ff', 购物: '#b180d7', 娱乐: '#f14c4c',
@@ -41,8 +44,12 @@ export const CATS_EXPENSE = ['餐饮', '交通', '购物', '娱乐', '学习', '
 export const CATS_INCOME = ['工资', '稿费', '理财', '红包', '其他']
 export const ACCOUNTS = ['微信', '支付宝', '现金', '银行卡']
 
-export const WELCOME =
-  '晚上好。手机端就我一个 AI，<b>记账、改日程、写笔记都找我</b> —— 点左下角麦克风说一句，或直接打字。连上电脑后切「电脑 AI」，升级成带全库工具的完整助手。'
+/** 新会话欢迎语：按时段问候（原先是写死的「晚上好」） */
+export function welcomeText(): string {
+  const h = new Date().getHours()
+  const g = h < 5 ? '夜深了' : h < 11 ? '早上好' : h < 13 ? '中午好' : h < 18 ? '下午好' : '晚上好'
+  return g + '。手机端就我一个 AI，<b>记账、改日程、写笔记都找我</b> —— 点左下角麦克风说一句，或直接打字。连上电脑后切「电脑 AI」，升级成带全库工具的完整助手。'
+}
 
 export const VOICE_PHRASES = ['帮我记一笔午饭三十块', '把跑步改到明晚七点半', '记个想法：语音输入手感不错']
 
@@ -60,11 +67,26 @@ export const seedTodos: Todo[] = [
   { id: 't9', date: dayIso(-1), title: '买生日礼物', type: 'deadline', time: '18:00', tag: '生活', done: true },
 ]
 
-export const seedHabits: Habit[] = [
-  { id: 'h1', name: '跑步 30 分钟', char: '跑', color: '#89d185', weekDone: 3, target: 5, streak: 6, hist: [1, 1, 0, 1, 1, 0] },
-  { id: 'h2', name: '阅读 30 分钟', char: '读', color: '#3794ff', weekDone: 4, target: 7, streak: 12, hist: [1, 1, 1, 0, 1, 0] },
-  { id: 'h3', name: '背单词 50 个', char: '词', color: '#cca700', weekDone: 2, target: 5, streak: 2, hist: [1, 0, 1, 0, 0, 0] },
-]
+/**
+ * 种子打卡（演示数据，不持久化、不参与同步）：hist 是周一..周日 7 槽，按真实「今天」生成。
+ * 原先写死「今天是周六」（hist[5]），在其它星期几上今天/未来的点会标错位置。
+ */
+export function seedHabits(): Habit[] {
+  const todayIdx = (new Date().getDay() + 6) % 7
+  const build = (tpl: number[], base: Pick<Habit, 'id' | 'name' | 'char' | 'color' | 'target'>): Habit => {
+    const hist = tpl.map((v, i) => (i <= todayIdx ? v : 0))
+    hist[todayIdx] = 0
+    const weekDone = hist.reduce((s, v) => s + v, 0)
+    let streak = 0
+    for (let i = todayIdx - 1; i >= 0 && hist[i]; i--) streak++
+    return { ...base, hist, weekDone, streak }
+  }
+  return [
+    build([1, 1, 1, 0, 1, 1, 0], { id: 'h1', name: '跑步 30 分钟', char: '跑', color: '#89d185', target: 5 }),
+    build([1, 1, 1, 1, 0, 1, 0], { id: 'h2', name: '阅读 30 分钟', char: '读', color: '#3794ff', target: 7 }),
+    build([0, 1, 0, 1, 0, 0, 0], { id: 'h3', name: '背单词 50 个', char: '词', color: '#cca700', target: 5 }),
+  ]
+}
 
 /** 种子时刻：本地日期 + HH:MM → UTC ISO（与真实条目同一格式，LWW 字典序比较才同一线） */
 const isoAt = (offDays: number, hm: string): string => new Date(dayIso(offDays) + 'T' + hm + ':00').toISOString()
@@ -98,7 +120,7 @@ export const seedFolders: Folder[] = [
 ]
 
 export const seedSessions: Session[] = [
-  { id: 's1', title: '新会话', ts: Date.now(), pinned: false, messages: [{ id: 'm1', role: 'ai', text: WELCOME }] },
+  { id: 's1', title: '新会话', ts: Date.now(), pinned: false, messages: [{ id: 'm1', role: 'ai', text: welcomeText() }] },
   {
     id: 's2', title: '语音输入方案讨论', ts: Date.now() - 86400000, pinned: true, messages: [
       { id: 'm2', role: 'user', text: '语音输入走云端还是本地？' },

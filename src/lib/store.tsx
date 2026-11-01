@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { AiChatMsg, AiConfig, AiMode, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteProposal, PairedDevice, PhoneNote, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
-import { seedFolders, seedHabits, seedSessions, seedTodos, seedEntries, TODAY, VOICE_PHRASES, WELCOME, dayIso, fmtMoney, monthOf, monthStats, txToDisplay } from './data'
+import { seedFolders, seedHabits, seedSessions, seedTodos, seedEntries, TODAY, VOICE_PHRASES, welcomeText, dayIso, fmtMoney, monthOf, monthStats, txToDisplay } from './data'
 import {
-  buildNoteData, buildScheduleData, enqueueOp, getPaired, getQueue, loadJson, pairWith as pairRequest,
+  AiStopped, buildNoteData, buildScheduleData, enqueueOp, getPaired, getQueue, loadJson, pairWith as pairRequest,
   pcChat, probeOnline, removeFromQueue, saveJson, syncNow, unpair as unpairDevice, uuid,
   type RemoteLedgerItem, type RemoteScheduleItem,
 } from './sync'
@@ -68,7 +68,7 @@ interface Store {
   setSelDate: (d: string) => void
   todos: Todo[]
   toggleTodo: (id: string) => void
-  addTodo: (input: { title: string; type: Todo['type']; time: string }) => void
+  addTodo: (input: { title: string; type: Todo['type']; time: string; date?: string }) => void
   deleteTodo: (id: string) => void
   habits: Habit[]
   toggleHabit: (id: string) => void
@@ -78,8 +78,8 @@ interface Store {
   entries: LedgerEntry[]
   /** 展示形态派生（LedgerPage 渲染用） */
   txs: Tx[]
-  saveTx: (input: { type: 'expense' | 'income'; amount: number; cat: string; acc: string; merchant?: string }) => void
-  updateTx: (id: string, input: { type: 'expense' | 'income'; amount: number; cat: string; acc: string; merchant?: string }) => void
+  saveTx: (input: { type: 'expense' | 'income'; amount: number; cat: string; acc: string; merchant?: string; date?: string }) => void
+  updateTx: (id: string, input: { type: 'expense' | 'income'; amount: number; cat: string; acc: string; merchant?: string; date?: string }) => void
   deleteTx: (id: string) => void
   /** 「改一笔」抽屉的目标条目 */
   editTxId: string | null
@@ -108,6 +108,8 @@ interface Store {
   streaming: boolean
   streamText: string
   sendChat: (text: string) => void
+  /** 用户停止当前生成：在途请求中断；打字机阶段立即落完整消息 */
+  stopStream: () => void
   confirmCard: (msgId: string, kind: CardKind) => void
   dismissCard: (msgId: string) => void
 
@@ -144,7 +146,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [selDate, setSelDate] = useState(TODAY)
   /* 日程/待办落本地存储（M2a）：重启不丢；首次启动播种子（真实「今天」锚点），之后以存量为准 */
   const [todos, setTodos] = useState<Todo[]>(() => loadJson<Todo[]>(K_TODOS, seedTodos))
-  const [habits, setHabits] = useState<Habit[]>(seedHabits)
+  const [habits, setHabits] = useState<Habit[]>(() => seedHabits())
 
   /* 账本本地真相 = 同步形态（M2b）；展示形态派生 */
   const [entries, setEntries] = useState<LedgerEntry[]>(() => loadJson<LedgerEntry[]>(K_LEDGER, seedEntries))
@@ -171,6 +173,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const voiceTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const voiceElapsedRef = useRef(0)
   const streamTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+  /* 停止生成：在途 fetch 的中断源 + 打字机阶段的完整消息（停止时立即落盘） */
+  const abortRef = useRef<AbortController | null>(null)
+  const revealRef = useRef<{ full: string; done: (finalText: string) => void } | null>(null)
 
   /* 最新状态镜像：供定时器/异步回调读取，避免陈旧闭包 */
   const onlineRef = useRef(online); onlineRef.current = online
@@ -314,32 +319,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const runSync = useCallback(() => {
     void (async () => {
       if (syncingRef.current) return
-      const device = getPaired()
-      if (!device || !onlineRef.current) {
-        /* 未配对 / 离线 → 原型演示通路（数据只动本地展示） */
-        if (!onlineRef.current) { toast('电脑不在线，同步搁置', 'warn'); return }
-        const n = pendingRef.current.length
-        if (n === 0) { toast('没有待同步的变更', 'info'); return }
-        setSyncing(true)
-        let pct = 0
-        const timer = setInterval(() => {
-          pct = Math.min(100, pct + 14 + Math.random() * 16)
-          setSyncPct(pct)
-          if (pct >= 100) {
-            clearInterval(timer)
-            setTimeout(() => {
-              setPending([])
-              setSyncing(false)
-              setSyncPct(0)
-              setLastSync('刚刚')
-              setPhoneNotes(list => list.map(x => ({ ...x, synced: true })))
-              toast('已同步 ' + n + ' 条变更到电脑', 'ok')
-            }, 250)
-          }
-        }, 200)
-        return
-      }
-      /* 已配对 → 真实对账（push 队列 + pull 双域增量 + 墓碑） */
+      if (!getPaired()) { toast('先到「设置」配对电脑，才能同步', 'warn'); return }
+      if (!onlineRef.current) { toast('电脑不在线，同步搁置', 'warn'); return }
+      /* 真实对账（push 队列 + pull 双域增量 + 墓碑） */
       if (getQueue().length === 0 && pendingRef.current.length === 0) { toast('没有待同步的变更', 'info'); return }
       setSyncing(true)
       setSyncPct(8)
@@ -375,18 +357,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const toggleOnline = useCallback(() => {
     void (async () => {
       const device = getPaired()
-      if (!device) {
-        /* 原型演示通路 */
-        const next = !onlineRef.current
-        setOnline(next)
-        if (next) {
-          toast('已连上 Phrontis-PC', 'ok')
-          if (pendingRef.current.length) setTimeout(() => void runSyncRef.current(), 900)
-        } else {
-          toast('已切到离线 · 数据照常记在手机', 'warn')
-        }
-        return
-      }
+      if (!device) { toast('先到「设置」配对电脑，才能连接', 'warn'); return }
       if (onlineRef.current) {
         setOnline(false)
         toast('已切到离线 · 数据照常记在手机', 'warn')
@@ -479,44 +450,52 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toast('已删除 · 待同步进电脑', 'ok')
   }, [todos, markPending, toast])
 
+  /* 打卡只记本地（打卡暂不参与同步，不入队列、不挂待同步徽标——挂了也永远等不到出队） */
   const toggleHabit = useCallback((id: string) => {
     const h = habits.find(x => x.id === id)
     if (!h) return
-    const wasDone = !!h.hist[5]
-    const hist = [...h.hist]; hist[5] = wasDone ? 0 : 1
-    setHabits(list => list.map(x => x.id === id ? { ...x, hist, weekDone: x.weekDone + (wasDone ? -1 : 1), streak: x.streak + (wasDone ? -1 : 1) } : x))
-    if (!wasDone) { markPending('打卡：' + h.name); toast('打卡成功 · 待同步', 'ok') }
-  }, [habits, markPending, toast])
+    const todayIdx = (new Date().getDay() + 6) % 7
+    const wasDone = !!h.hist[todayIdx]
+    const hist = [...h.hist]; hist[todayIdx] = wasDone ? 0 : 1
+    const weekDone = hist.slice(0, todayIdx + 1).reduce((s, v) => s + v, 0)
+    let streak = 0
+    for (let i = wasDone ? todayIdx : todayIdx - 1; i >= 0 && hist[i]; i--) streak++
+    setHabits(list => list.map(x => x.id === id ? { ...x, hist, weekDone, streak } : x))
+    if (!wasDone) toast('打卡成功', 'ok')
+  }, [habits, toast])
 
   /* ---------- 记账（M2b：本地真相 = 同步形态，增改删都走同一条上行路径） ---------- */
 
-  const saveTx = useCallback((input: { type: 'expense' | 'income'; amount: number; cat: string; acc: string; merchant?: string }) => {
+  const saveTx = useCallback((input: { type: 'expense' | 'income'; amount: number; cat: string; acc: string; merchant?: string; date?: string }) => {
     const isExp = input.type === 'expense'
     /* 条目 UUID 在生成时定死并终身不变：本地展示与上行同步共用同一 id */
     const id = uuid()
     const nowD = new Date()
     const nowIso = nowD.toISOString()
     const pad2 = (n: number) => String(n).padStart(2, '0')
-    const dateIso = nowD.getFullYear() + '-' + pad2(nowD.getMonth() + 1) + '-' + pad2(nowD.getDate())
+    const todayIso = nowD.getFullYear() + '-' + pad2(nowD.getMonth() + 1) + '-' + pad2(nowD.getDate())
+    /* 日期可选（补记昨天的饭钱）；time 恒为记录时刻 */
+    const dateIso = input.date && /^\d{4}-\d{2}-\d{2}$/.test(input.date) ? input.date : todayIso
     const time = pad2(nowD.getHours()) + ':' + pad2(nowD.getMinutes())
     const data: LedgerSyncData = {
       date: dateIso, time, type: input.type, amount: input.amount,
       category: input.cat, payment: input.acc, merchant: input.merchant || input.cat, note: '',
     }
-    const label = (isExp ? '支出' : '收入') + ' ¥' + fmtMoney(input.amount) + ' · ' + input.cat
+    const label = (isExp ? '支出' : '收入') + ' ¥' + fmtMoney(input.amount) + ' · ' + input.cat + (dateIso === todayIso ? '' : '（' + dateIso + '）')
     enqueueOp({ id, domain: 'ledger', updatedAt: nowIso, data, label })
     setEntries(list => [{ id, updatedAt: nowIso, data }, ...list])
     markPending(label, id)
     toast('已记一笔 · 待同步进电脑', 'ok')
   }, [markPending, toast])
 
-  /** 改账：保留原日期/时间，只改负载可变字段；updatedAt 推进走同一条 LWW 时线 */
-  const updateTx = useCallback((id: string, input: { type: 'expense' | 'income'; amount: number; cat: string; acc: string; merchant?: string }) => {
+  /** 改账：时间保留原值，日期/可变字段可改；updatedAt 推进走同一条 LWW 时线 */
+  const updateTx = useCallback((id: string, input: { type: 'expense' | 'income'; amount: number; cat: string; acc: string; merchant?: string; date?: string }) => {
     const prev = entries.find(x => x.id === id)
     if (!prev) return
     const nowIso = new Date().toISOString()
     const data: LedgerSyncData = {
       ...prev.data,
+      ...(input.date && /^\d{4}-\d{2}-\d{2}$/.test(input.date) ? { date: input.date } : {}),
       type: input.type, amount: input.amount,
       category: input.cat, payment: input.acc, merchant: input.merchant || input.cat,
     }
@@ -559,7 +538,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   /* ---------- AI ---------- */
 
   const newSession = useCallback(() => {
-    const s: Session = { id: nextId('s'), title: '新会话', ts: Date.now(), pinned: false, messages: [{ id: nextId('m'), role: 'ai', text: WELCOME }] }
+    const s: Session = { id: nextId('s'), title: '新会话', ts: Date.now(), pinned: false, messages: [{ id: nextId('m'), role: 'ai', text: welcomeText() }] }
     setSessions(list => [...list, s])
     setCurSession(s.id)
   }, [])
@@ -575,7 +554,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (next) {
         setCurSession(next.id)
       } else {
-        const s: Session = { id: nextId('s'), title: '新会话', ts: Date.now(), pinned: false, messages: [{ id: nextId('m'), role: 'ai', text: WELCOME }] }
+        const s: Session = { id: nextId('s'), title: '新会话', ts: Date.now(), pinned: false, messages: [{ id: nextId('m'), role: 'ai', text: welcomeText() }] }
         rest.push(s)
         setCurSession(s.id)
       }
@@ -603,7 +582,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const route = useCallback((text: string): { reply: string; card?: Card; list?: Todo[]; noteCapture?: string } => {
     if (/记一笔|午饭/.test(text)) {
-      return { reply: '好的，帮你整理成一笔支出，确认后保存到手机账本，下次同步进电脑：', card: { kind: 'tx' } }
+      /* 演示卡也带真实提案数据：确认后走同一条 saveTx 真写入（原先没带 data，确认按钮是空操作） */
+      return { reply: '好的，帮你整理成一笔支出，确认后保存到手机账本，下次同步进电脑：', card: { kind: 'tx', data: { type: 'expense', amount: 30, category: '餐饮', account: '微信', merchant: '午饭' } } }
     }
     if (/改到|明晚|改期/.test(text)) {
       return { reply: '找到这条日程了，时间帮你改好，确认后生效并进同步队列：', card: { kind: 'move' } }
@@ -692,9 +672,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  /* 打字机呈现（网络层非流式，观感流式）：完成后把最终消息挂进会话 */
+  /* 打字机呈现（网络层非流式，观感流式）：完成后把最终消息挂进会话。
+     revealRef 记着完整消息与落盘回调——用户点停止时立即落完整消息，不丢回复 */
   const startReveal = (full: string, done: (finalText: string) => void) => {
     setStreaming(true)
+    revealRef.current = { full, done }
     let i = 0
     streamTimer.current = setInterval(() => {
       i = Math.min(full.length, i + 2 + Math.floor(Math.random() * 3))
@@ -704,15 +686,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
         streamTimer.current = null
         setStreaming(false)
         setStreamText('')
+        revealRef.current = null
         done(full)
       }
     }, 24)
   }
 
+  /* 停止生成：在途请求中断（store 的 async catch 里静默收尾）；
+     已进入打字机阶段则立即落完整消息；两者都没有时只复位状态 */
+  const stopStream = useCallback(() => {
+    abortRef.current?.abort()
+    if (streamTimer.current) { clearInterval(streamTimer.current); streamTimer.current = null }
+    const rv = revealRef.current
+    if (rv) {
+      revealRef.current = null
+      setStreaming(false)
+      setStreamText('')
+      rv.done(rv.full)
+      return
+    }
+    if (streamingRef.current) { setStreaming(false); setStreamText('') }
+  }, [])
+
   /* 直连档真实工具循环（M4a）：上限 AI_MAX_ROUNDS 轮；写工具产出确认卡后停轮等确认 */
   const runDirectAgent = (userText: string) => {
     const cfg = aiConfigRef.current
     const sid = curSessionRef.current
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
     setStreaming(true)
     setStreamText('正在思考')
     void (async () => {
@@ -728,7 +729,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         let finalText = ''
         while (rounds < AI_MAX_ROUNDS) {
           rounds++
-          const reply = await chatOnce(cfg, history, AI_TOOLS)
+          const reply = await chatOnce(cfg, history, AI_TOOLS, 60_000, ctrl.signal)
           if (!reply.toolCalls.length) { finalText = reply.content; break }
           history.push({ role: 'assistant', content: reply.content, tool_calls: reply.toolCalls })
           let proposed = false
@@ -748,9 +749,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         if (!finalText) finalText = rounds >= AI_MAX_ROUNDS ? '工具轮次用尽了，先到这里——换个问法再试试。' : '（模型没有返回内容）'
         startReveal(finalText, f => { pushAiMsg({ role: 'ai', text: f, card }) })
+        abortRef.current = null
       } catch (e) {
+        abortRef.current = null
         setStreaming(false)
         setStreamText('')
+        if (e instanceof AiStopped) { toast('已停止生成', 'info'); return }
         const msg = e instanceof Error ? e.message : 'AI 请求失败'
         toast(msg, 'warn')
         pushAiMsg({ role: 'ai', text: '没连上模型：' + msg })
@@ -762,17 +766,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
      手机会话 ↔ 桌面会话映射由 pcChat 内部维护（桌面删了会话自动续新） */
   const runPcAgent = (userText: string) => {
     const sid = curSessionRef.current
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
     setStreaming(true)
     setStreamText('电脑处理中…')
     void (async () => {
       try {
-        const r = await pcChat(sid, userText)
+        const r = await pcChat(sid, userText, ctrl.signal)
         startReveal(r.reply || '（电脑没有返回内容）', f => {
           pushAiMsg({ role: 'ai', text: f, changes: r.changes.length ? r.changes : undefined })
         })
+        abortRef.current = null
       } catch (e) {
+        abortRef.current = null
         setStreaming(false)
         setStreamText('')
+        if (e instanceof AiStopped) { toast('已停止生成（电脑那一轮会继续跑完）', 'info'); return }
         const msg = e instanceof Error ? e.message : '电脑档请求失败'
         toast(msg, 'warn')
         pushAiMsg({ role: 'ai', text: '电脑档没跑成：' + msg })
@@ -843,13 +852,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const p = data as NoteProposal
       addPhoneNote(p.title || '闪念', p.body)
     } else if (kind === 'move') {
-      /* 演示卡（未配置 AI 时的脚本行为） */
-      setTodos(list => list.filter(t => t.id !== 't3'))
-      markPending('改期：跑步 30 分钟 → 明天 19:30')
-      toast('已改期 · 待同步', 'ok')
+      /* 演示卡（未配置 AI 时的脚本行为）：也走真实写入路径——原先只删本地不进队列，同步会把跑步条目原样带回来 */
+      deleteTodo('t3')
+      addTodo({ title: '跑步 30 分钟', type: 'daily', time: '19:30', date: dayIso(1) })
     }
     updateMsg(msgId, m => ({ ...m, card: m.card ? { ...m.card, confirmed: true } : m.card }))
-  }, [saveTx, addTodo, addPhoneNote, markPending, toast, updateMsg])
+  }, [saveTx, addTodo, deleteTodo, addPhoneNote, updateMsg])
 
   const dismissCard = useCallback((msgId: string) => {
     updateMsg(msgId, m => ({ ...m, card: undefined }))
@@ -893,7 +901,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     entries, txs, saveTx, updateTx, deleteTx, editTxId, openTxEdit,
     folders, toggleFolder, markCached, phoneNotes, addPhoneNote,
     aiMode, setAiMode, aiConfig, updateAiConfig, sessions, curSession, newSession, switchSession, deleteSession, renameSession, togglePin,
-    streaming, streamText, sendChat, confirmCard, dismissCard,
+    streaming, streamText, sendChat, stopStream, confirmCard, dismissCard,
     voicePhase, voiceElapsed, toggleVoice,
   }
 

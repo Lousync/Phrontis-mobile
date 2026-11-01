@@ -17,7 +17,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { parsePairInput, uuid, buildScheduleData, buildNoteData, pruneNoteCache, getLastSync } from '../src/lib/sync.ts'
-import { txToDisplay, monthOf, monthShift, monthStats, groupEntriesByDay } from '../src/lib/data.ts'
+import { txToDisplay, monthOf, monthShift, monthStats, groupEntriesByDay, weekOf, TODAY } from '../src/lib/data.ts'
 import { AI_TOOLS, validateLedgerAdd, validateTodoAdd, validateNoteCreate, buildSystemPrompt } from '../src/lib/aiTools.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -83,6 +83,17 @@ console.log('\n§2c 账本派生与月视图（同步形态 → 展示/统计，
   check('组内 updatedAt 倒序（后记的在上）', groupEntriesByDay([a, e('a2', '2026-11-02', '08:00', 'expense', 6, '交通', '现金', '早地铁', '2026-11-02T00:00:00.000Z')], '2026-11')[0].entries[0].id === 'a')
   check('分组排除其他月份', groupEntriesByDay(list, '2026-10').length === 1)
   check('空月返回空组', groupEntriesByDay(list, '2025-01').length === 0)
+}
+
+console.log('\n§2c-2 周导航（weekOf：日程页周条翻周的数据源）')
+{
+  const wk = weekOf(0)
+  check('本周 7 天、周一起', wk.length === 7 && wk[0].wd === '一' && wk[6].wd === '日')
+  const monday = new Date(wk[0].iso + 'T00:00:00')
+  check('周一不晚于今天且在同一周内', monday <= new Date(TODAY + 'T00:00:00') && (new Date(TODAY + 'T00:00:00').getTime() - monday.getTime()) / 86400000 < 7)
+  const gap = (new Date(weekOf(1)[0].iso + 'T00:00:00') - monday) / 86400000
+  check('offset=1 恰好平移一周（跨月/跨年由 Date 进退位保证）', gap === 7)
+  check('WEEK 常量 = weekOf(0)', weekOf(0)[0].iso === wk[0].iso && weekOf(0)[6].iso === wk[6].iso)
 }
 
 console.log('\n§2d 笔记负载与缓存（v1.2：上行 + LRU 缓存）')

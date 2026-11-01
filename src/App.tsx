@@ -8,7 +8,7 @@ import { UsagePage } from './components/pages/UsagePage'
 import { SettingsPage } from './components/pages/SettingsPage'
 
 function Shell() {
-  const { activeTab, sheet, kbSim, kbOpen } = useApp()
+  const { activeTab, sheet, kbSim, kbOpen, selDate } = useApp()
   const p = (id: string) => activeTab === id
   return (
     <>
@@ -25,7 +25,7 @@ function Shell() {
         </main>
         <TabBar />
         {(sheet === 'tx' || sheet === 'tx-edit') && <TxSheet />}
-        {sheet === 'todo' && <TodoSheet />}
+        {sheet === 'todo' && <TodoSheet selDate={selDate} />}
         {sheet === 'note' && <NoteSheet />}
         {sheet === 'sessions' && <SessionSheet />}
         <Toasts />

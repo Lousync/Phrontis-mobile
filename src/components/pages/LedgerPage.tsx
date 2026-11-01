@@ -17,19 +17,24 @@ function TxSheet() {
   const [cat, setCat] = useState(editing?.data.category ?? '餐饮')
   const [acc, setAcc] = useState(editing?.data.payment ?? '微信')
   const [name, setName] = useState(editing?.data.merchant ?? '')
+  const [date, setDate] = useState(editing?.data.date ?? TODAY)
   const cats = type === 'expense' ? CATS_EXPENSE : CATS_INCOME
   const activeCat = cats.includes(cat) ? cat : cats[0]
 
   const press = (k: string) => {
     if (k === 'del') setAmt(v => (v.length > 1 ? v.slice(0, -1) : '0'))
     else if (k === '.') setAmt(v => (v.includes('.') ? v : v + '.'))
-    else setAmt(v => (v === '0' ? k : (v.replace('.', '').length < 8 ? v + k : v)))
+    else setAmt(v => {
+      if (v === '0') return k
+      if (v.includes('.')) return v.split('.')[1].length < 2 ? v + k : v
+      return v.length < 8 ? v + k : v
+    })
   }
   const save = () => {
     const amount = parseFloat(amt) || 0
     if (amount <= 0) { toast('金额还没填', 'warn'); return }
-    if (editing) updateTx(editing.id, { type, amount, cat: activeCat, acc, merchant: name.trim() })
-    else saveTx({ type, amount, cat: activeCat, acc, merchant: name.trim() })
+    if (editing) updateTx(editing.id, { type, amount, cat: activeCat, acc, merchant: name.trim(), date })
+    else saveTx({ type, amount, cat: activeCat, acc, merchant: name.trim(), date })
     closeSheet()
   }
 
@@ -42,6 +47,7 @@ function TxSheet() {
         <button className={type === 'income' ? 'on' : ''} onClick={() => setType('income')}>收入</button>
       </div>
       <div className="amt-display"><span className="cur">¥</span><span className="num">{(parseFloat(amt) || 0).toFixed(2)}</span></div>
+      <div className="field"><label>日期（可补记）</label><input type="date" value={date} max={TODAY} onChange={e => setDate(e.target.value)} /></div>
       <div className="chip-row">
         {cats.map(c => <button key={c} className={'chip' + (c === activeCat ? ' on' : '')} onClick={() => setCat(c)}>{c}</button>)}
       </div>
@@ -81,7 +87,12 @@ function TxRow({ t, confirming, onAsk, onConfirm, onCancel, onEdit }: {
   const armPress = () => {
     cancelPress()
     consumed.current = false
-    pressTimer.current = setTimeout(() => { pressTimer.current = null; consumed.current = true; onAsk(t.id) }, 550)
+    pressTimer.current = setTimeout(() => {
+      pressTimer.current = null
+      consumed.current = true
+      if (navigator.vibrate) navigator.vibrate(10)
+      onAsk(t.id)
+    }, 550)
   }
   const color = CAT_COLORS[t.cat] || '#969696'
   return (

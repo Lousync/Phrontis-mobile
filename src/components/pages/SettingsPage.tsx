@@ -121,7 +121,7 @@ export function SettingsPage({ active }: { active: boolean }) {
                 )}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 10 }}>
-                {paired.baseUrl.replace('http://', '')} · 同步范围：记账 + 日程（含删除；笔记 M3 接入）
+                {paired.baseUrl.replace('http://', '')} · 同步范围：记账 + 日程 + 笔记（含删除）
               </div>
             </>
           )}
@@ -188,7 +188,7 @@ export function SettingsPage({ active }: { active: boolean }) {
         </div>
       </div>
 
-      <div className="ver">Phrontis Mobile 0.2.0 · M4a · 与桌面 3.15.1 配套</div>
+      <div className="ver">Phrontis Mobile 0.3.0 · 与桌面 3.15.1 配套</div>
     </section>
   )
 }

@@ -43,7 +43,7 @@ for (const [label, probe] of tabs) {
   ok(`Tab「${label}」切换渲染（${probe}）`, (await page.locator('#root .page.active ' + probe).count()) >= 1)
 }
 
-/* 日程：切到排期视图（时间轴）与打卡视图 */
+/* 日程：切到排期视图（时间轴）与打卡视图；周条翻周 */
 await page.locator('.tabbar button', { hasText: '日程' }).click()
 await page.locator('.view-seg button', { hasText: '排期' }).click()
 await page.waitForTimeout(200)
@@ -51,26 +51,33 @@ ok('日程排期视图（时间轴块）', (await page.locator('#root .gblock').
 await page.locator('.view-seg button', { hasText: '打卡' }).click()
 await page.waitForTimeout(200)
 ok('日程打卡视图（习惯卡）', (await page.locator('#root .habit-card').count()) === 3)
+const dn0 = await page.locator('#root .week-strip .wday .dn').first().innerText()
+await page.locator('.week-strip .wk-arrow').last().click()
+await page.waitForTimeout(200)
+ok('周条翻到下周 + 回到今天按钮出现', (await page.locator('#root .week-strip .wday .dn').first().innerText()) !== dn0 && (await page.locator('#root .today-jump').count()) === 1)
+await page.locator('#root .today-jump').click()
+await page.waitForTimeout(150)
+ok('回到今天（按钮消失）', (await page.locator('#root .today-jump').count()) === 0)
 
-/* 记账：打开记一笔键盘，输入并保存一条 */
+/* 记账：打开记一笔键盘，输入并保存一条（含两位小数） */
 await page.locator('.tabbar button', { hasText: '记账' }).click()
 await page.locator('#root .page.active .fab').click()
 await page.waitForTimeout(350)
 ok('记一笔抽屉（键盘）', (await page.locator('#root .keypad button').count()) === 12)
 await page.locator('.keypad button', { hasText: /^3$/ }).click()
 await page.locator('.keypad button', { hasText: /^8$/ }).click()
+await page.locator('.keypad button').nth(9).click()
+await page.locator('.keypad button', { hasText: /^5$/ }).click()
+ok('金额两位小数（¥38.50）', (await page.locator('#root .sheet .amt-display .num').innerText()) === '38.50')
 await page.locator('.sheet .btn-primary').click()
 await page.waitForTimeout(300)
-ok('记一笔落账（出现 ¥38.00）', (await page.locator('#root .tx-amt', { hasText: '¥38.00' }).count()) >= 1)
+ok('记一笔落账（出现 ¥38.50）', (await page.locator('#root .tx-amt', { hasText: '¥38.50' }).count()) >= 1)
 ok('待同步徽标出现', (await page.locator('#root .sync-pill .badge').count()) === 1)
 
-/* 同步胶囊 → 在线状态切换与自动同步 */
+/* 同步胶囊：未配对 → 引导去设置页配对（不再假装在线/离线切换） */
 await page.locator('.sync-pill').click()
 await page.waitForTimeout(250)
-ok('切到离线', (await page.locator('#root .sync-pill.offline').count()) === 1)
-await page.locator('.sync-pill').click()
-await page.waitForTimeout(2800)
-ok('回网自动同步（徽标清零）', (await page.locator('#root .sync-pill .badge').count()) === 0)
+ok('未配对点胶囊跳设置页', (await page.locator('#root .page.active .set-label').count()) >= 1)
 
 /* AI：会话抽屉 + 语音按钮状态机 */
 await page.locator('.tabbar button', { hasText: 'AI' }).click()

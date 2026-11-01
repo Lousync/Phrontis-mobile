@@ -279,12 +279,19 @@ export interface PcChatOutcome {
   changes: Array<{ tool: string; action: string; target: string }>
 }
 
+/** 用户主动停止生成（区别于超时/网络失败的 Error，store 里静默收尾不报错） */
+export class AiStopped extends Error {
+  constructor() { super('stopped') }
+}
+
 /** 电脑档对话（POST /api/ai/chat）。超时 120s 自弃（桌面那轮照常完成）；业务失败抛 error 文案 */
-export async function pcChat(phoneSessionId: string, message: string): Promise<PcChatOutcome> {
+export async function pcChat(phoneSessionId: string, message: string, external?: AbortSignal): Promise<PcChatOutcome> {
   const p = getPaired()
   if (!p) throw new Error('尚未配对电脑——电脑档需要先配对并连上电脑')
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 120_000)
+  const onAbort = () => ctrl.abort()
+  external?.addEventListener('abort', onAbort)
   try {
     const res = await fetch(p.baseUrl + '/api/ai/chat', {
       method: 'POST',
@@ -303,10 +310,12 @@ export async function pcChat(phoneSessionId: string, message: string): Promise<P
     if (!json.ok) throw new Error(json.error || '电脑侧 AI 没有完成这一轮')
     return { reply: String(json.reply || ''), desktopSessionId, changes: Array.isArray(json.changes) ? json.changes : [] }
   } catch (e) {
+    if (external?.aborted) throw new AiStopped()
     if (e instanceof DOMException && e.name === 'AbortError') throw new Error('电脑处理超时（120s）——桌面那一轮会继续跑完，稍后再问')
     throw e instanceof Error ? e : new Error('AI 中继失败')
   } finally {
     clearTimeout(timer)
+    external?.removeEventListener('abort', onAbort)
   }
 }
 

@@ -56,21 +56,24 @@ export function NotesPage({ active }: { active: boolean }) {
   const [readerBody, setReaderBody] = useState('')
   const [readerState, setReaderState] = useState<'cached' | 'loading' | 'error'>('cached')
 
-  /* 进入本页且已配对 → 自动拉目录树（失败退回本地缓存树 + toast） */
-  useEffect(() => {
-    if (!active || !paired) return
-    let cancelled = false
+  /* 拉目录树（进页自动一次；vault-line 点击可手动重拉，失败退回本地缓存树 + toast） */
+  const fetchTreeNow = () => {
     setLoadingTree(true)
     fetchNoteTree()
       .then(pages => {
-        if (cancelled) return
         saveNoteTree(pages)
         setTree({ fetchedAt: Date.now(), pages })
       })
-      .catch((e: Error) => { if (!cancelled) toast(e.message, 'warn') })
-      .finally(() => { if (!cancelled) setLoadingTree(false) })
-    return () => { cancelled = true }
-  }, [active, paired, toast])
+      .catch((e: Error) => toast(e.message, 'warn'))
+      .finally(() => setLoadingTree(false))
+  }
+
+  /* 进入本页且已配对 → 自动拉目录树 */
+  useEffect(() => {
+    if (!active || !paired) return
+    fetchTreeNow()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, paired])
 
   const folders = useMemo(() => buildFolders(tree.pages), [tree])
   const kwTrim = kw.trim()
@@ -119,12 +122,13 @@ export function NotesPage({ active }: { active: boolean }) {
         <ISearch />
         <input value={kw} onChange={e => setKw(e.target.value)} placeholder="搜索笔记标题" />
       </div>
-      <div className="vault-line">
+      <button className="vault-line" onClick={fetchTreeNow} disabled={!paired || loadingTree}
+        title={paired ? '重新拉取电脑笔记目录' : undefined}>
         <span className="ldot" />
         {paired
-          ? (loadingTree ? '正在拉取目录…' : '已连接 ' + paired.pcName + ' · ' + tree.pages.length + ' 篇 · 增量缓存')
+          ? (loadingTree ? '正在拉取目录…' : '已连接 ' + paired.pcName + ' · ' + tree.pages.length + ' 篇 · 增量缓存（点击刷新）')
           : '未配对电脑 · 配对后可看仓库笔记'}
-      </div>
+      </button>
 
       {folders.map(f => {
         const files = f.pages.filter(x => !kwTrim || x.title.includes(kwTrim))

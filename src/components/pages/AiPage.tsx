@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Msg, NoteProposal, Session, TodoProposal, TxProposal } from '../../lib/types'
 import { fmtMoney, mdRender, sessGroupKey, TODO_TYPE_LABEL } from '../../lib/data'
 import { useApp } from '../../lib/store'
-import { ICheck, IHistory, IMic, ISearch, ISend, ISparkle, IPlus, IDots } from '../icons'
+import { ICheck, IHistory, IMic, ISearch, ISend, ISparkle, IPlus, IDots, IStop } from '../icons'
 import { Grip, Sheet } from '../Sheet'
 
 const TODO_DOT: Record<string, string> = { deadline: 'var(--red)', plan: 'var(--blue)', daily: 'var(--green)' }
@@ -102,7 +102,6 @@ function MsgView({ m }: { m: Msg }) {
               <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: 11.5 }}>{t.time}</span>
             </div>
           ))}
-          <div style={{ fontSize: 13, marginTop: 6 }}>晚上 19:00 还有跑步，加油。</div>
         </div>
       )}
     </div>
@@ -229,14 +228,14 @@ export function SessionSheet() {
 }
 
 export function AiPage({ active }: { active: boolean }) {
-  const { sessions, curSession, streaming, streamText, sendChat, aiMode, setAiMode, voicePhase, voiceElapsed, toggleVoice, openSheet } = useApp()
+  const { sessions, curSession, streaming, streamText, sendChat, stopStream, aiMode, setAiMode, voicePhase, voiceElapsed, toggleVoice, openSheet } = useApp()
   const [input, setInput] = useState('')
   const sess = sessions.find(s => s.id === curSession) ?? sessions[0]
   const chatRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight })
-  }, [sess.messages.length, streamText])
+  }, [sess.messages.length, streamText, curSession])
 
   const doSend = () => { if (!streaming && input.trim()) { sendChat(input); setInput('') } }
 
@@ -274,7 +273,9 @@ export function AiPage({ active }: { active: boolean }) {
           <span className={'voice-bars' + (voicePhase === 'recording' ? ' on' : '')}><i /><i /><i /><i /></span>
           <input value={input} onChange={e => setInput(e.target.value)} disabled={voicePhase !== 'idle'}
             placeholder={placeholder} onKeyDown={e => { if (e.key === 'Enter') doSend() }} />
-          <button className="send-btn" onClick={doSend} disabled={streaming}><ISend /></button>
+          {streaming
+            ? <button className="send-btn stop" onClick={stopStream} title="停止生成"><IStop size={15} /></button>
+            : <button className="send-btn" onClick={doSend} disabled={!input.trim()}><ISend /></button>}
         </div>
       </div>
 
