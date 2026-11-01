@@ -82,6 +82,17 @@ function MsgView({ m }: { m: Msg }) {
     <div className="msg ai">
       <span dangerouslySetInnerHTML={{ __html: m.text }} />
       {m.card && <ActionCard m={m} />}
+      {m.changes && m.changes.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 4 }}>电脑端本次改动</div>
+          {m.changes.map((c, i) => (
+            <div className="mini-todo" key={i}>
+              <span className="mt-dot" style={{ background: 'var(--accent)' }} />
+              <span>{c.action} · {c.target}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {m.list && m.list.length > 0 && (
         <div style={{ marginTop: 8 }}>
           {m.list.map(t => (

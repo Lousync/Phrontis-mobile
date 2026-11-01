@@ -77,6 +77,8 @@ export interface Msg {
   text: string
   card?: Card
   list?: Todo[]
+  /** 电脑档：桌面端本轮真实写改动（changes 清单展示） */
+  changes?: Array<{ tool: string; action: string; target: string }>
 }
 
 export interface Session {

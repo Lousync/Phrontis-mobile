@@ -4,7 +4,7 @@ import type { AiChatMsg, AiConfig, AiMode, Card, CardKind, Folder, Habit, Ledger
 import { seedFolders, seedHabits, seedSessions, seedTodos, seedEntries, TODAY, VOICE_PHRASES, WELCOME, dayIso, fmtMoney, monthOf, monthStats, txToDisplay } from './data'
 import {
   buildNoteData, buildScheduleData, enqueueOp, getPaired, getQueue, loadJson, pairWith as pairRequest,
-  probeOnline, removeFromQueue, saveJson, syncNow, unpair as unpairDevice, uuid,
+  pcChat, probeOnline, removeFromQueue, saveJson, syncNow, unpair as unpairDevice, uuid,
   type RemoteLedgerItem, type RemoteScheduleItem,
 } from './sync'
 import { AI_MAX_ROUNDS, aiConfigReady, chatOnce, loadAiConfig, parseToolArgs, saveAiConfig } from './ai'
@@ -758,6 +758,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })()
   }
 
+  /* 电脑档（M4b）：对话中继到桌面完整 agentService，写入直接在电脑真相源执行。
+     手机会话 ↔ 桌面会话映射由 pcChat 内部维护（桌面删了会话自动续新） */
+  const runPcAgent = (userText: string) => {
+    const sid = curSessionRef.current
+    setStreaming(true)
+    setStreamText('电脑处理中…')
+    void (async () => {
+      try {
+        const r = await pcChat(sid, userText)
+        startReveal(r.reply || '（电脑没有返回内容）', f => {
+          pushAiMsg({ role: 'ai', text: f, changes: r.changes.length ? r.changes : undefined })
+        })
+      } catch (e) {
+        setStreaming(false)
+        setStreamText('')
+        const msg = e instanceof Error ? e.message : '电脑档请求失败'
+        toast(msg, 'warn')
+        pushAiMsg({ role: 'ai', text: '电脑档没跑成：' + msg })
+      }
+    })()
+  }
+
   const sendChat = useCallback((text: string) => {
     if (streamingRef.current) return
     const trimmed = text.trim()
@@ -769,11 +791,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return { ...s, title, ts: Date.now(), messages: [...s.messages, { id: nextId('m'), role: 'user', text: trimmed }] }
     }))
 
-    /* 电脑档：M4b 接桌面 agentService（局域网代理），先给明确预期 */
+    /* 电脑档：真实中继（桌面完整 agentService，同 Key / 全库工具） */
     if (aiModeRef.current === 'pc') {
-      startReveal('电脑档还没接通（M4b 接桌面 agentService）。先用手机直连档——到「设置 → AI 模型」配好 Key，我就能真的记账、查日程、记笔记。', final => {
-        pushAiMsg({ role: 'ai', text: final })
-      })
+      if (!pairedRef.current) {
+        startReveal('电脑档需要先配对电脑——到「设置」完成配对，或先用手机直连档。', final => {
+          pushAiMsg({ role: 'ai', text: final })
+        })
+        return
+      }
+      runPcAgent(trimmed)
       return
     }
 

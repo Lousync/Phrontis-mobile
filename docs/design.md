@@ -24,6 +24,7 @@
 | 2026-11-01 | **M2b 拍板**：账本本地真相改为**同步形态** `LedgerEntry { id, updatedAt, data }`（展示形态渲染时派生）——编辑/删除必须能还原完整同步负载，旧展示形态（日期是「今天」标签、金额带符号）还原不了；记账补全：点流水进「改一笔」抽屉、长按删除（行内确认 → 墓碑上行）、月份切换 + 月度统计；**SQLite 评估结论 = 维持 localStorage**（Capacitor 脚手架虽已在位，但账本+日程条目量级远低于 5MB 上限、切换要把全 store 改异步且浏览器 dev/smoke 回路复杂化，收益为负；`loadJson/saveJson` 已单点收口，迁移是机械活）——压力点在 M3 笔记正文缓存引入时再评。 |
 | 2026-11-01 | **M3 拍板**：笔记双机制——「手机笔记上行」= sync 域 `notes`（负载 `{title,body}`，**无条件应用**、落 `.knowbase/_inbox` 收件箱 + frontmatter tags 恒加 `手机`，手机是闪念的真相源，v1 不做 LWW/墓碑）；「电脑笔记只读」= 内容 API（`GET /api/notes/tree` 平表 + `GET /api/notes/content?id=`，**按 id 服务端解析路径**，客户端永不传路径）；手机正文缓存 localStorage + 总量 1.5MB LRU 上限（SQLite/IndexedDB 评估继续推迟到真实触顶）；v1 笔记不 pull、不墓碑，手机删已上行笔记只删本地副本，附件/图片内链不解析（纯 md 渲染）。 |
 | 2026-11-01 | **M4a 拍板（AI 直连档）**：OpenAI 兼容 `chat.completions`（预设 DeepSeek / 智谱 GLM / OpenAI 兼容 / 本地 Ollama），**非流式请求 + 前端打字机呈现**（网络层稳健优先，观感不牺牲）；工具循环上限 5 轮；轻量工具 7 个——读 4 直执行（now/ledger.query/todo.query/notes.list），**写 3 只出确认卡不落库**（ledger.add/todo.add/note.create，用户确认后走与 UI 按钮同一条写入路径进同步队列，未确认 = 什么都没发生）；工具 schema 各 ≤400 字符；系统提示注入真实今天日期 + 「不假装已写入」纪律。AI 配置存 `pm.aiConfig`（Key 只在手机本地）。**电脑档（桌面 agentService 局域网代理）挂 M4b**。 |
+| 2026-11-01 | **M4b 拍板（AI 电脑档）**：手机把对话中继给桌面**完整 agentService**（同一套 Key / 供应商 / 全库工具，轻问答通道），写入**直接在电脑真相源执行**（响应带 changes 清单供手机展示）。端点 `POST /api/ai/chat`：`{ sessionId?, message }` → `{ ok, reply?, sessionId, error?, code?, changes? }`；手机按「手机会话 ↔ 桌面会话」映射续聊（`pm.aiPcSessions`，桌面删了会话 → 桌面自动新建并回传新 id）。桌面侧无 UI 停止入口（手机超时 120s 自弃，桌面那一轮照常完成）；不走渲染层运行态广播，桌面界面无感；手机侧电脑档**不需要**确认卡——语义就是「在电脑上直接办」。 |
 
 ---
 
@@ -60,6 +61,7 @@
 | `GET /api/ping` | 存活探测（带令牌），手机端以此判断「电脑在线」 |
 | `POST /api/sync/push` | `{ deviceId, changes: [{ domain, id, updatedAt, data }] }` → `{ ok, results: [{ id, applied, conflict?, reason? }], serverTime }` |
 | `POST /api/sync/pull` | `{ since: { ledger: <ms> } }` → `{ ok, changes: { ledger: [{ id, updatedAt, data }] }, cursor: { ledger: <ms> } }` |
+| `POST /api/ai/chat` | **v1.3 电脑档**：对话中继到桌面完整 agentService。`{ sessionId?, message }` → `{ ok, reply?, sessionId, error?, code?, changes?: [{ tool, action, target }] }`；写入直接在桌面真相源执行（§3 电脑档语义）；手机超时 120s 自弃 |
 
 **合并规则（不需要 CRDT）：**
 

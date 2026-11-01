@@ -149,6 +149,8 @@ console.log('\n§3 协议文档契约（docs/design.md §2.1 与手机实现一�
   check('§2.1 v1.2 记录 notes 上行域与无条件应用', design.includes('v1.2 笔记') && design.includes('无条件应用'))
   check('§2.1 记录内容 API 端点', design.includes('/api/notes/tree') && design.includes('/api/notes/content'))
   check('§2.1 记录缓存上限与按 id 解析路径', design.includes('1.5MB') && design.includes('按 id 服务端解析路径'))
+  // v1.3 契约
+  check('§2.1 记录 AI 中继端点与电脑档语义', design.includes('/api/ai/chat') && design.includes('直接在桌面真相源执行'))
 }
 
 console.log('\n' + (failures === 0 ? 'PASS (' + checks + ' checks)' : 'FAIL (' + failures + '/' + checks + ')'))
