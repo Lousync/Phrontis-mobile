@@ -7,6 +7,14 @@
          整壳与贴底控件随之上提（对应桌面 letterbox 的「模拟输入法」开关）。user-scalable=no 禁放大是可访问性反模式，一并移除。 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="theme-color" content="#1e1e1e" />
+    <!-- iOS PWA：「添加到主屏幕」后以独立窗口运行（无 Safari 浏览器框）。
+         black-translucent 让状态栏透明叠加在内容上，需配合 safe-area-inset 让出顶部。 -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Phrontis" />
+    <!-- iOS 不认 SVG 图标，主屏图标须为 180×180 全出血方形 PNG（圆角由 iOS 自行裁切） -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <title>Phrontis</title>
