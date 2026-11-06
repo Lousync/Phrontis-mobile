@@ -56,13 +56,13 @@ export interface PhoneNote {
   synced: boolean
 }
 
-export type CardKind = 'tx' | 'todo' | 'note' | 'move'
+export type CardKind = 'tx' | 'todo' | 'note' | 'move' | 'quiz' | 'quiz-note' | 'quiz-del'
 
 /* AI 确认卡提案（写工具不落库，确认后走与 UI 按钮同一条写入路径） */
 export interface TxProposal { type: 'expense' | 'income'; amount: number; category: string; account: string; merchant: string }
 export interface TodoProposal { title: string; type: TodoType; date: string }
 export interface NoteProposal { title: string; body: string }
-export type ProposalData = TxProposal | TodoProposal | NoteProposal
+export type ProposalData = TxProposal | TodoProposal | NoteProposal | QuizAddProposal | QuizNoteProposal | QuizDelProposal
 
 export interface Card {
   kind: CardKind
@@ -223,3 +223,44 @@ export interface AiChatMsg {
 }
 export type VoicePhase = 'idle' | 'recording' | 'transcribing'
 export type SchedView = 'list' | 'grid' | 'habit'
+
+/* ---------- 刷题（桌面 .knowbase/modules/quiz 移植的移动子集，真相源暂为本地，协议 v1.3 接桌面） ---------- */
+export interface QuizOption { key: string; text: string }
+export interface QuizRecord {
+  id: string
+  pageId: string      // 来源笔记/试卷（桌面 page_id）
+  pageTitle: string   // 来源名：错题书架按它分「书」
+  no: number          // 卷内题号
+  type: 'choice' | 'short'
+  question: string
+  options: QuizOption[]
+  answer: string      // 选择题=选项 key；简答题=参考答案
+  explanation: string
+  wrongCount: number
+  correctCount: number
+  streakCorrect: number
+  lastResult: '' | 'correct' | 'wrong'
+  note?: string       // 备注/口诀（AI 或用户补充）
+  updatedAt: number
+}
+
+export interface QuizAddProposal {
+  pageTitle: string    // 归入哪本「书」（来源笔记/试卷名）
+  type: 'choice' | 'short'
+  question: string
+  options: QuizOption[]
+  answer: string
+  explanation: string
+}
+export interface QuizNoteProposal { pageTitle: string; no: number; note: string }
+export interface QuizDelProposal { pageTitle: string; no: number }
+export interface QuizSpec {
+  no: number
+  question: string
+  options: QuizOption[]
+  /** 选择题=选项 key；简答题=参考答案 */
+  answer: string
+  explanation: string
+  type?: 'choice' | 'short'
+  referenceAnswer?: string
+}

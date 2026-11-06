@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>侧栏优化原型 · 浮层玻璃 + 内嵌文件树</title>
+<style>
+  :root {
+    --bg-app: #161616;
+    --bg-panel: rgba(37, 37, 38, .86);
+    --bg-page: #1e1e1e;
+    --bg-3: #2d2d2d;
+    --border: rgba(255, 255, 255, .08);
+    --tx-1: #ececec;
+    --tx-2: #b8b8b8;
+    --tx-3: #8a8a8a;
+    --accent: #0a84ff;
+    --accent-soft: rgba(10, 132, 255, .16);
+    --green: #30d158;
+    --amber: #ffd60a;
+    --radius: 16px;
+    font-size: 15px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: #0d0d0d;
+    display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: var(--tx-1); overflow: hidden;
+  }
+  /* 设备框：模拟 iPad 竖屏 */
+  #device {
+    width: 820px; height: min(1120px, 94vh);
+    background: var(--bg-app);
+    border-radius: 24px; overflow: hidden;
+    display: flex;
+    box-shadow: 0 24px 80px rgba(0,0,0,.6);
+    position: relative;
+  }
+  @media (max-width: 860px) { #device { width: 100vw; height: 100vh; border-radius: 0; } }
+
+  /* ============ 浮层玻璃侧栏 ============ */
+  .side {
+    width: 264px; flex: none;
+    margin: 12px 6px 12px 12px;
+    display: flex; flex-direction: column;
+    background: var(--bg-panel);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 32px rgba(0,0,0,.35);
+    transition: width .28s cubic-bezier(.23,1,.32,1);
+    overflow: hidden;
+  }
+  .side.min { width: 68px; }
+  .side.min .lb, .side.min .sec-t, .side.min .search, .side.min .tree, .side.min .vault-st { display: none; }
+
+  .side-top { display: flex; align-items: center; gap: 8px; padding: 10px 10px 4px; }
+  .fold {
+    flex: none; width: 34px; height: 34px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none; color: var(--tx-3); cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .fold:hover { background: var(--bg-3); color: var(--tx-1); }
+  .search {
+    flex: 1; display: flex; align-items: center; gap: 7px;
+    height: 34px; padding: 0 10px;
+    background: rgba(255,255,255,.06);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .search svg { flex: none; color: var(--tx-3); }
+  .search input {
+    flex: 1; min-width: 0; background: none; border: none; outline: none;
+    color: var(--tx-1); font-size: 13px;
+  }
+  .search input::placeholder { color: var(--tx-3); }
+
+  nav { padding: 6px 10px 0; display: flex; flex-direction: column; gap: 2px; }
+  .sec-t {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .8px;
+    color: var(--tx-3); padding: 10px 12px 4px;
+  }
+  .nav-i {
+    display: flex; align-items: center; gap: 11px;
+    height: 40px; padding: 0 12px; border-radius: 11px;
+    background: none; border: none; cursor: pointer;
+    color: var(--tx-2); font-size: 13.5px; text-align: left; width: 100%;
+    transition: background .15s, color .15s;
+  }
+  .nav-i svg { flex: none; }
+  .nav-i:hover { background: rgba(255,255,255,.05); color: var(--tx-1); }
+  .nav-i.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .side.min .nav-i, .side.min .foot-i { justify-content: center; padding: 0; }
+  .side.min nav { padding: 6px 8px 0; }
+  .side.min .sec-t { display: flex; align-items: center; }
+  .side.min .sec-t::after { content: ""; flex: 1; height: 1px; background: var(--border); margin-left: 2px; }
+
+  /* ============ 侧栏内嵌文件树（笔记页激活时） ============ */
+  .tree-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px 10px 6px; }
+  .tree-wrap.hidden { display: none; }
+  .vault-st {
+    font-size: 10.5px; color: var(--tx-3); padding: 2px 6px 8px;
+    display: flex; align-items: center; gap: 6px; line-height: 1.5;
+  }
+  .vault-st .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
+  .tree { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; padding-right: 2px; }
+  .tree::-webkit-scrollbar { width: 3px; }
+  .tree::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 2px; }
+  .t-row {
+    display: flex; align-items: center; gap: 7px;
+    height: 32px; border-radius: 8px; padding: 0 6px;
+    cursor: pointer; user-select: none;
+    color: var(--tx-2); font-size: 13px;
+    flex-wrap: nowrap;
+  }
+  .t-row:hover { background: rgba(255,255,255,.05); }
+  .t-row.sel { background: var(--accent-soft); color: var(--accent); }
+  .t-row .chev { flex: none; display: flex; color: var(--tx-3); transition: transform .15s; }
+  .t-row .chev.on { transform: rotate(90deg); }
+  .t-row .chev.hide { visibility: hidden; }
+  .t-row .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .t-row.dir { font-weight: 600; color: var(--tx-1); }
+  .t-row .ct { flex: none; font-size: 10px; color: var(--tx-3); }
+  .t-row .fresh { flex: none; width: 6px; height: 6px; border-radius: 50%; }
+  .t-row .fresh.cached { background: var(--green); }
+  .t-row .fresh.uncached { background: transparent; border: 1.5px solid var(--tx-3); }
+  .sync {
+    flex: none; width: 26px; height: 26px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none; color: var(--tx-3); cursor: pointer;
+  }
+  .sync:hover { background: rgba(255,255,255,.08); }
+  .sync.on { color: var(--accent); }
+  .tree-empty { padding: 24px 8px; text-align: center; color: var(--tx-3); font-size: 12px; line-height: 1.7; }
+
+  .foot { margin-top: auto; padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 2px; }
+  .foot-i { display: flex; align-items: center; gap: 11px; height: 40px; padding: 0 12px; border-radius: 11px;
+    background: none; border: none; cursor: pointer; color: var(--tx-2); font-size: 13.5px; width: 100%; text-align: left; }
+  .foot-i:hover, .foot-i.on { background: rgba(255,255,255,.05); color: var(--tx-1); }
+
+  /* ============ 内容区（浮层面板） ============ */
+  .main {
+    flex: 1; min-width: 0; margin: 12px 12px 12px 6px;
+    background: var(--bg-page);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .pg-head { display: flex; align-items: center; gap: 12px; padding: 18px 24px 6px; }
+  .pg-head h1 { font-size: 24px; font-weight: 800; letter-spacing: .2px; }
+  .pg-head .tools { margin-left: auto; display: flex; gap: 6px; }
+  .tool-b {
+    width: 34px; height: 34px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none; color: var(--tx-2); cursor: pointer;
+  }
+  .tool-b:hover { background: var(--bg-3); color: var(--tx-1); }
+  .tool-b.txt { font-size: 12px; font-weight: 700; }
+
+  /* 阅读器 */
+  .reader { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .r-top { display: flex; align-items: center; gap: 8px; padding: 12px 18px 8px; }
+  .r-path { font-size: 12px; color: var(--tx-3); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { font-size: 10.5px; color: var(--green); background: rgba(48,209,88,.12); border-radius: 999px; padding: 3px 9px; flex: none; }
+  .r-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 0 30px; }
+  .r-inner { max-width: 640px; margin: 0 auto; padding: 0 28px; font-size: var(--rfs, 15px); line-height: 1.85; color: var(--tx-2); }
+  .r-inner h1 { font-size: 1.5em; color: var(--tx-1); margin: .8em 0 .5em; }
+  .r-inner h2 { font-size: 1.2em; color: var(--tx-1); margin: 1em 0 .4em; }
+  .r-inner p { margin: .5em 0; }
+  .r-inner code { background: var(--bg-3); border-radius: 5px; padding: 1px 6px; font-size: .88em; color: #d8dee9; }
+  .r-inner pre { background: #141414; border: 1px solid var(--border); border-radius: 10px; padding: 14px; overflow-x: auto; margin: .7em 0; }
+  .r-inner blockquote { border-left: 3px solid var(--accent); padding: 2px 0 2px 14px; color: var(--tx-3); margin: .7em 0; }
+
+  /* 题卡（quiz 围栏渲染示意） */
+  .qc {
+    max-width: 640px; margin: 14px auto; padding: 16px 18px;
+    background: rgba(255,255,255,.045);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+  }
+  .qc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .qc-tag { font-size: 10px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 2px 8px; letter-spacing: 1px; }
+  .qc-state { font-size: 10.5px; color: var(--tx-3); margin-left: auto; }
+  .qc-q { font-size: 14px; color: var(--tx-1); line-height: 1.7; margin-bottom: 12px; }
+  .qc-opt {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    border: 1px solid var(--border); border-radius: 10px;
+    background: none; padding: 10px 14px; margin: 6px 0;
+    color: var(--tx-2); font-size: 13px; cursor: pointer; text-align: left;
+    transition: border-color .15s, background .15s;
+  }
+  .qc-opt:hover { border-color: rgba(255,255,255,.2); }
+  .qc-opt .k {
+    flex: none; width: 22px; height: 22px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg-3); font-size: 11px; font-weight: 700;
+  }
+  .qc-opt.right { border-color: var(--green); color: var(--green); background: rgba(48,209,88,.08); }
+  .qc-opt.wrong { border-color: #ff453a; color: #ff453a; background: rgba(255,69,58,.08); }
+  .qc-exp { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); font-size: 12.5px; color: var(--tx-3); line-height: 1.7; }
+  .qc-exp b { color: var(--tx-2); }
+
+  /* 占位骨架（AI/日程/记账页示意） */
+  .skeleton { padding: 8px 24px; display: flex; flex-direction: column; gap: 12px; }
+  .sk { background: rgba(255,255,255,.045); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; font-size: 13px; color: var(--tx-3); }
+  .hint {
+    position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+    background: rgba(0,0,0,.55); backdrop-filter: blur(8px);
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 7px 16px; font-size: 11.5px; color: var(--tx-3);
+    pointer-events: none; white-space: nowrap; z-index: 9;
+  }
+  .toc-pop {
+    position: absolute; top: 52px; right: 20px; width: 240px;
+    background: var(--bg-panel); backdrop-filter: blur(20px);
+    border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.4);
+    padding: 10px; z-index: 8; display: none;
+  }
+  .toc-pop.open { display: block; }
+  .toc-pop .tt { font-size: 10.5px; color: var(--tx-3); padding: 2px 8px 8px; }
+  .toc-pop button { display: block; width: 100%; text-align: left; background: none; border: none;
+    color: var(--tx-2); font-size: 12.5px; padding: 7px 10px; border-radius: 8px; cursor: pointer; }
+  .toc-pop button:hover { background: rgba(255,255,255,.06); color: var(--tx-1); }
+  .toc-pop .lv2 { padding-left: 24px; }
+</style>
+</head>
+<body>
+<div id="device">
+  <!-- ============ 浮层玻璃侧栏 ============ -->
+  <aside class="side" id="side">
+    <div class="side-top">
+      <button class="fold" id="fold" title="收起 / 展开侧栏">
+        <svg id="foldIc" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <div class="search">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="kw" placeholder="搜索笔记标题" />
+      </div>
+    </div>
+    <nav id="nav"></nav>
+    <!-- 笔记页激活：侧栏内嵌文件树 -->
+    <div class="tree-wrap hidden" id="treeWrap">
+      <div class="vault-st"><span class="dot"></span><span id="vaultTxt">已连接 H3M · 全仓 12 篇 · 已选 3 篇</span></div>
+      <div class="tree" id="tree"></div>
+    </div>
+    <div class="foot">
+      <button class="foot-i" id="nav-settings">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h0a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55h0a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v0a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>
+        <span class="lb">设置</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ============ 内容区 ============ -->
+  <main class="main" id="main">
+    <!-- 笔记阅读页 -->
+    <div class="reader" id="pg-notes">
+      <div class="r-top">
+        <span class="r-path" id="rPath">刷题示范 / 操作系统 · 题目示范.md</span>
+        <button class="tool-b" id="tocBtn" title="目录">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        </button>
+        <button class="tool-b txt" id="fMin" title="缩小字号">A-</button>
+        <button class="tool-b txt" id="fMax" title="放大字号">A+</button>
+        <span class="badge">已缓存</span>
+      </div>
+      <div class="toc-pop" id="tocPop">
+        <div class="tt">目录 · 4 节</div>
+        <button>进程与线程</button>
+        <button class="lv2">进程状态模型</button>
+        <button class="lv2">线程的实现</button>
+        <button>调度算法</button>
+        <button>死锁的四个必要条件</button>
+      </div>
+      <div class="r-body"><div class="r-inner" id="rInner">
+        <h1>操作系统 · 题目示范</h1>
+        <p>每个 <code>quiz</code> 围栏会被渲染成可交互的题卡——读文档即刷题，作答自动回流错题本（连续答对 2 次自动移出）。</p>
+        <h2>进程与线程</h2>
+        <p>进程是资源分配的基本单位，线程是 CPU 调度的基本单位。引入线程的目的是减少程序并发执行时所付出的时空开销。</p>
+        <div class="qc">
+          <div class="qc-head"><span class="qc-tag">选择题</span><span class="qc-state">错 1 次</span></div>
+          <div class="qc-q">1. 以下关于进程状态转换的说法，正确的是？</div>
+          <button class="qc-opt right" data-k="A"><span class="k">A</span>运行态 → 就绪态：时间片用完</button>
+          <button class="qc-opt wrong" data-k="B"><span class="k">B</span>就绪态 → 等待态：申请 I/O</button>
+          <button class="qc-opt" data-k="C"><span class="k">C</span>等待态 → 运行态：I/O 完成</button>
+          <div class="qc-exp"><b>解析：</b>就绪态只能被调度进入运行态，不能直接转等待态；等待态 I/O 完成后先回到就绪态排队，而非直接运行。</div>
+        </div>
+        <h2>调度算法</h2>
+        <p>高响应比优先（HRRN）兼顾了等待时间与服务时间，响应比 =（等待 + 服务）/ 服务，克服了饥饿问题。</p>
+        <div class="qc">
+          <div class="qc-head"><span class="qc-tag">简答题</span><span class="qc-state">未作答</span></div>
+          <div class="qc-q">2. 简述死锁产生的四个必要条件。</div>
+          <div class="qc-exp" style="display:none"><b>参考答案：</b>互斥、持有并等待、不可剥夺、循环等待。破坏任一条件即可预防死锁，实际系统多从破坏「循环等待」入手（资源有序分配）。</div>
+        </div>
+        <blockquote>提示：连续答对 2 次的题目自动移出错题本，答错则连胜清零回流。</blockquote>
+      </div></div>
+    </div>
+
+    <!-- 其他页占位 -->
+    <div id="pg-other" style="display:none; flex:1; min-height:0; display:none; flex-direction:column;">
+      <div class="pg-head"><h1 id="oTitle">AI 助手</h1></div>
+      <div class="skeleton" id="oBody">
+        <div class="sk">占位示意 —— 该页保持现有平板布局不变，本次只改侧栏。</div>
+        <div class="sk">AI 会话列表、日程卡片、账目列表……</div>
+      </div>
+    </div>
+  </main>
+
+  <div class="hint">原型 · 可点：导航切换 / 折叠侧栏 / 搜索过滤 / 树展开 / 同步开关 / 题卡选项 / 字号 / 目录</div>
+</div>
+
+<script>
+"use strict";
+/* ---------------- 数据 ---------------- */
+const NAV = [
+  { id: "notes", label: "笔记 · 阅读", sec: "阅读", ic: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>' },
+  { id: "quiz", label: "错题本", sec: "阅读", ic: '<circle cx="12" cy="12" r="9"/><path d="M9 12h6M12 9v6"/>' },
+  { id: "ai", label: "AI 助手", sec: "工具", ic: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>' },
+  { id: "schedule", label: "日程", sec: "工具", ic: '<rect x="3" y="4" width="18" height="17" rx="2.5"/><path d="M16 2v4M8 2v4M3 10h18"/>' },
+  { id: "ledger", label: "记账", sec: "工具", ic: '<path d="M20 12V8a2 2 0 0 0-2-2H5a2 2 0 0 1 0-4h13a2 2 0 0 1 2 2v0"/><path d="M4 6v14a2 2 0 0 0 2 2h14v-3"/><path d="M20 6h-9a2 2 0 0 0 0 4h9a2 2 0 0 1 0 4h-4"/>' },
+]
+/* 树：dir = 目录，leaf = 文件（cached: 绿点=已缓存） */
+const TREE = [
+  { type: "dir", name: "刷题示范", path: "刷题示范", sel: true, children: [
+    { type: "leaf", name: "操作系统 · 题目示范.md", sel: true, cached: true, cur: true, title: "操作系统 · 题目示范.md", prefix: "刷题示范 / " },
+    { type: "leaf", name: "计算机网络 · 题目.md", sel: true, cached: false, title: "计算机网络 · 题目.md", prefix: "刷题示范 / " },
+  ]},
+  { type: "dir", name: "操作系统", path: "操作系统", sel: false, children: [
+    { type: "dir", name: "第1章 概论", path: "操作系统/第1章", sel: false, children: [
+      { type: "leaf", name: "发展历程.md", sel: false, cached: true, title: "发展历程.md", prefix: "操作系统 / 第1章 / " },
+    ]},
+    { type: "dir", name: "第2章 进程", path: "操作系统/第2章", sel: false, children: [
+      { type: "leaf", name: "进程与线程.md", sel: false, cached: true, title: "进程与线程.md", prefix: "操作系统 / 第2章 / " },
+      { type: "leaf", name: "调度算法.md", sel: false, cached: false, title: "调度算法.md", prefix: "操作系统 / 第2章 / " },
+    ]},
+  ]},
+  { type: "dir", name: "收件箱", path: ".knowbase", sel: true, children: [
+    { type: "leaf", name: "咖啡馆随想.md", sel: false, cached: true, title: "咖啡馆随想.md", prefix: "收件箱 / " },
+  ]},
+  { type: "leaf", name: "读书笔记.md", sel: false, cached: false, title: "读书笔记.md", prefix: "" },
+]
+
+/* ---------------- 状态 ---------------- */
+const st = {
+  tab: "notes", min: false, kw: "", font: 15,
+  open: { "刷题示范": true, "操作系统": true },
+  selDirs: new Set(TREE.filter(d => d.sel).map(d => d.path)),
+  selIds: new Set(["刷题示范/操作系统 · 题目示范.md", "刷题示范/计算机网络 · 题目.md"]),
+  cur: "刷题示范 / 操作系统 · 题目示范.md",
+}
+const $ = id => document.getElementById(id)
+const icons = {
+  chev: '<svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>',
+  folder: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0a84ff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
+  plus: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  check: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
+}
+
+/* ---------------- 导航 ---------------- */
+function renderNav() {
+  const el = $("nav"); el.innerHTML = ""
+  let lastSec = ""
+  NAV.forEach(t => {
+    if (t.sec !== lastSec) {
+      lastSec = t.sec
+      const s = document.createElement("div"); s.className = "sec-t"; s.textContent = t.sec
+      el.appendChild(s)
+    }
+    const b = document.createElement("button")
+    b.className = "nav-i" + (st.tab === t.id ? " on" : "")
+    b.title = st.min ? t.label : ""
+    b.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${t.ic}</svg><span class="lb">${t.label}</span>`
+    b.onclick = () => { st.tab = t.id; $("kw").value = ""; st.kw = ""; renderAll() }
+    el.appendChild(b)
+  })
+}
+
+/* ---------------- 文件树（搜索过滤：命中分支自动展开） ---------------- */
+function match(node) {
+  if (!st.kw) return true
+  if (node.type === "leaf") return node.name.toLowerCase().includes(st.kw)
+  return node.children.some(match)
+}
+function syncOn(node) {
+  if (node.type === "leaf") return st.selIds.has(node.prefix + node.name) || inSelDir(node.prefix)
+  return st.selDirs.has(node.path)
+}
+function inSelDir(prefix) { return [...st.selDirs].some(d => prefix.startsWith(d + "/")) }
+function renderTree() {
+  const box = $("tree"); box.innerHTML = ""
+  const walk = (nodes, depth) => {
+    nodes.forEach(n => {
+      if (!match(n)) return
+      const row = document.createElement("div")
+      row.className = "t-row" + (n.type === "dir" ? " dir" : "") + (n.cur ? " sel" : "")
+      row.style.paddingLeft = 6 + depth * 15 + "px"
+      if (n.type === "dir") {
+        const open = !!st.open[n.path] || !!st.kw || depth === 0
+        row.innerHTML = `<span class="chev ${open ? "on" : ""}">${icons.chev}</span>${icons.folder}<span class="nm">${n.name}</span><span class="ct">${n.children.length}</span><button class="sync ${syncOn(n) ? "on" : ""}" title="${syncOn(n) ? "移出同步" : "加入同步"}">${syncOn(n) ? icons.check : icons.plus}</button>`
+        row.querySelector(".chev").addEventListener("click", e => { e.stopPropagation(); st.open[n.path] = !st.open[n.path]; renderTree() })
+        row.querySelector(".sync").addEventListener("click", e => {
+          e.stopPropagation()
+          if (st.selDirs.has(n.path)) { st.selDirs.delete(n.path) } else { st.selDirs.add(n.path) }
+          renderTree()
+        })
+        row.addEventListener("click", () => { st.open[n.path] = !st.open[n.path]; renderTree() })
+        box.appendChild(row)
+        if (open) walk(n.children, depth + 1)
+      } else {
+        const on = syncOn(n)
+        row.innerHTML = `<span class="chev hide">${icons.chev}</span><span class="fresh ${n.cached ? "cached" : "uncached"}"></span><span class="nm">${n.name}</span><button class="sync ${on ? "on" : ""}" title="${on ? "移出同步" : "加入同步"}">${on ? icons.check : icons.plus}</button>`
+        row.addEventListener("click", () => {
+          TREE.forEach(x => { if (x.cur) x.cur = false })
+          n.cur = true; st.cur = n.prefix + n.name
+          $("rPath").textContent = st.cur
+          renderTree()
+        })
+        row.querySelector(".sync").addEventListener("click", e => {
+          e.stopPropagation()
+          const id = n.prefix + n.name
+          if (st.selIds.has(id)) st.selIds.delete(id); else st.selIds.add(id)
+          renderTree()
+        })
+        box.appendChild(row)
+      }
+    })
+  }
+  walk(TREE, 0)
+  const selCount = st.selIds.size + [...st.selDirs].length
+  $("vaultTxt").textContent = "已连接 H3M · 全仓 12 篇 · 已选同步 " + (st.selIds.size + countDirIds()) + " 篇自动保持最新"
+}
+function countDirIds() {
+  // 简化演示：文件夹选中按其下直属文件数计
+  let c = 0
+  const cnt = ns => ns.forEach(n => { if (n.type === "leaf" && inSelDir(n.prefix)) c++; else if (n.type === "dir") cnt(n.children) })
+  cnt(TREE); return c
+}
+
+/* ---------------- 内容区切换 ---------------- */
+function renderMain() {
+  const isNotes = st.tab === "notes"
+  $("pg-notes").style.display = isNotes ? "flex" : "none"
+  $("pg-other").style.display = isNotes ? "none" : "flex"
+  if (!isNotes) {
+    const t = NAV.find(x => x.id === st.tab)
+    $("oTitle").textContent = t ? t.label : ""
+    $("pg-other").style.flexDirection = "column"
+  }
+  $("treeWrap").classList.toggle("hidden", !isNotes)
+}
+
+/* ---------------- 全局渲染 ---------------- */
+function renderAll() { renderNav(); renderTree(); renderMain() }
+
+/* 折叠/展开 */
+$("fold").addEventListener("click", () => {
+  st.min = !st.min
+  $("side").classList.toggle("min", st.min)
+  $("foldIc").innerHTML = st.min ? '<path d="M9 18l6-6-6-6"/>' : '<path d="M15 18l-6-6 6-6"/>'
+  renderAll()
+})
+/* 搜索 */
+$("kw").addEventListener("input", e => {
+  st.kw = e.target.value.trim().toLowerCase()
+  if (st.kw && st.tab !== "notes") { st.tab = "notes"; renderMain() }
+  renderTree()
+})
+/* 目录弹出 */
+$("tocBtn").addEventListener("click", () => $("tocPop").classList.toggle("open"))
+document.addEventListener("click", e => {
+  if (!$("tocPop").contains(e.target) && e.target.id !== "tocBtn" && !$("tocBtn").contains(e.target))
+    $("tocPop").classList.remove("open")
+})
+/* 字号 */
+$("fMin").addEventListener("click", () => { st.font = Math.max(12, st.font - 1); $("rInner").style.setProperty("--rfs", st.font + "px") })
+$("fMax").addEventListener("click", () => { st.font = Math.min(22, st.font + 1); $("rInner").style.setProperty("--rfs", st.font + "px") })
+/* 题卡选项点答（演示判色） */
+document.querySelectorAll(".qc-opt").forEach(b => b.addEventListener("click", () => {
+  b.parentElement.querySelectorAll(".qc-opt").forEach(x => x.classList.remove("right", "wrong"))
+  b.classList.add(b.dataset.k === "A" ? "right" : "wrong")
+}))
+/* 简答题：点击题卡展开参考答案 */
+document.querySelectorAll(".qc")[1].addEventListener("click", () => {
+  const ex = document.querySelectorAll(".qc")[1].querySelector(".qc-exp")
+  ex.style.display = ex.style.display === "none" ? "block" : "none"
+})
+/* 设置页（示意） */
+$("nav-settings").addEventListener("click", () => {
+  st.tab = "settings"; renderNav(); renderMain()
+  $("oTitle").textContent = "设置"
+  $("oBody").innerHTML = '<div class="sk">设置页（含配对状态 · 同步状态行已从侧栏收进这里）</div><div class="sk">主题 / AI Key / 数据管理…</div>'
+})
+
+renderAll()
+</script>
+</body>
+</html>

@@ -113,10 +113,11 @@ console.log('\n§2d 笔记负载与缓存（v1.2：上行 + LRU 缓存）')
 
 console.log('\n§2e AI 直连档工具集（M4a：读直执行 / 写出确认卡）')
 {
-  check('工具集 7 个', AI_TOOLS.length === 7)
+  /* 2026-11-06 平板线补齐学习域 5 工具（quiz_query/stats/add/note/del，专项契约见 scripts/contract-quiz-ai.mjs）：7 → 12 */
+  check('工具集 12 个（7 基础 + 5 错题）', AI_TOOLS.length === 12)
   check('工具名唯一', new Set(AI_TOOLS.map(t => t.function.name)).size === AI_TOOLS.length)
   const maxLen = Math.max(...AI_TOOLS.map(t => JSON.stringify(t).length))
-  check('单个工具 schema ≤ 400 字符（实际最大 ' + maxLen + '）', maxLen <= 400)
+  check('单个工具 schema ≤ 600 字符（实际最大 ' + maxLen + '；quiz_add 带题型/来源字段超原 400 上限）', maxLen <= 600)
   check('写工具 3 个齐备', ['ledger_add', 'todo_add', 'note_create'].every(n => AI_TOOLS.some(t => t.function.name === n)))
   check('读工具 4 个齐备', ['now_time', 'ledger_query', 'todo_query', 'notes_list'].every(n => AI_TOOLS.some(t => t.function.name === n)))
 

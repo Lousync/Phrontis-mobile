@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Msg, NoteProposal, Session, TodoProposal, TxProposal } from '../../lib/types'
+import type { Msg, NoteProposal, QuizAddProposal, QuizDelProposal, QuizNoteProposal, Session, TodoProposal, TxProposal } from '../../lib/types'
 import { fmtMoney, mdRender, sessGroupKey, TODO_TYPE_LABEL } from '../../lib/data'
 import { useApp } from '../../lib/store'
 import { ICheck, IHistory, IMic, ISearch, ISend, ISparkle, IPlus, IDots, IStop, IChevR } from '../icons'
@@ -18,6 +18,9 @@ function ActionCard({ m }: { m: Msg }) {
   const head = c.kind === 'tx' ? 'AI 操作 · 记账'
     : c.kind === 'todo' ? 'AI 操作 · 加待办'
     : c.kind === 'note' ? 'AI 操作 · 记笔记'
+    : c.kind === 'quiz' ? 'AI 操作 · 出题入库'
+    : c.kind === 'quiz-note' ? 'AI 操作 · 错题备注'
+    : c.kind === 'quiz-del' ? 'AI 操作 · 移出错题'
     : 'AI 操作 · 改日程'
   let okLabel = '确认'
   let doneLabel = '已完成'
@@ -40,6 +43,41 @@ function ActionCard({ m }: { m: Msg }) {
       <>
         <div className="ac-row"><span className="ac-amt" style={{ fontSize: 17 }}>{p.title}</span><span className="ac-meta">{p.date}</span></div>
         <div className="ac-row" style={{ marginTop: 4 }}><span className="ac-meta">类型：{TODO_TYPE_LABEL[p.type]}</span></div>
+      </>
+    )
+  } else if (c.kind === 'quiz' && d && 'question' in d) {
+    const p = d as QuizAddProposal
+    okLabel = '确认入库'
+    doneLabel = '已入库'
+    body = (
+      <>
+        <div className="ac-row"><span className="ac-amt" style={{ fontSize: 16 }}>{p.question}</span></div>
+        <div className="ac-row" style={{ marginTop: 4 }}>
+          <span className="ac-meta">
+            {p.pageTitle} · {p.type === 'short' ? '简答' : '选择题 ' + p.options.map(o => o.key).join('/') } · 答案 {p.answer}
+          </span>
+        </div>
+        {p.explanation && <div className="ac-row" style={{ marginTop: 4 }}><span className="ac-meta">解析：{p.explanation.slice(0, 120)}</span></div>}
+      </>
+    )
+  } else if (c.kind === 'quiz-note' && d && 'note' in d) {
+    const p = d as QuizNoteProposal
+    okLabel = '确认备注'
+    doneLabel = '已备注'
+    body = (
+      <>
+        <div className="ac-row"><span className="ac-amt" style={{ fontSize: 16 }}>{p.pageTitle} · 第 {p.no} 题</span></div>
+        <div className="ac-row" style={{ marginTop: 4 }}><span className="ac-meta" style={{ whiteSpace: 'pre-wrap' }}>{p.note}</span></div>
+      </>
+    )
+  } else if (c.kind === 'quiz-del' && d && 'no' in d) {
+    const p = d as QuizDelProposal
+    okLabel = '确认移出'
+    doneLabel = '已移出'
+    body = (
+      <>
+        <div className="ac-row"><span className="ac-amt" style={{ fontSize: 16 }}>{p.pageTitle} · 第 {p.no} 题</span></div>
+        <div className="ac-row" style={{ marginTop: 4 }}><span className="ac-meta">移出错题本（记录删除，不可恢复）</span></div>
       </>
     )
   } else if (c.kind === 'note' && d && 'body' in d) {

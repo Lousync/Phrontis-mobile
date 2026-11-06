@@ -1010,3 +1010,350 @@ button.vault-line:disabled { cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ============ 平板壳（T0，design.md §10）============
+ * 形态检测（useFormFactor）给 .app 加 .tablet：解除手机 letterbox（420px 居中 + 圆角边框），
+ * 左侧栏（TabletChrome）+ 右内容区。底部玻璃坞与小顶栏退出，贴底控件回落。 */
+.app.tablet {
+  max-width: none;
+  height: 100dvh;
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  flex-direction: row;
+  background: var(--bg-primary);
+}
+
+/* 侧栏 v3（design.md §10.1）：浮层玻璃面板 + 域切换条 + 域内容独占。
+ * 壳底 primary、内容区 primary、面板 secondary 半透明+blur：深色主题面板亮于底（浮起），
+ * 亮色主题面板灰于白底（备忘录同款），无需分主题写色值。 */
+.tb-side {
+  width: 264px; flex: none;
+  display: flex; flex-direction: column;
+  margin: 12px 6px 12px calc(12px + env(safe-area-inset-left));
+  margin-top: calc(12px + env(safe-area-inset-top));
+  margin-bottom: calc(12px + env(safe-area-inset-bottom));
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  background: var(--bg-secondary);
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, .18);
+  overflow: hidden;
+  transition: width .28s cubic-bezier(.23, 1, .32, 1);
+}
+.tb-side.min { width: 68px; }
+.side-top { display: flex; align-items: center; gap: 6px; padding: 10px 10px 6px; }
+.tb-fold {
+  flex: none; width: 34px; height: 34px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted);
+  transition: background .15s, color .15s;
+}
+.tb-fold:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+/* 域切换条：导航压成一行 5 图标（rail 态转纵排=导航本身） */
+.tb-seg {
+  flex: 1; display: flex; gap: 3px;
+  background: rgba(127, 127, 127, .1);
+  border: 1px solid var(--border-soft);
+  border-radius: 11px; padding: 3px;
+}
+.tb-seg-i {
+  flex: 1; height: 32px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted);
+  transition: background .15s, color .15s;
+}
+.tb-seg-i:hover { color: var(--text-primary); }
+.tb-seg-i.on { background: var(--accent-soft); color: var(--accent-hover); }
+.tb-side.min .side-top { flex-direction: column; }
+.tb-side.min .tb-seg { flex-direction: column; padding: 6px 4px; }
+.tb-side.min .tb-seg-i { flex: none; width: 40px; height: 40px; }
+
+/* 域内容：独占侧栏主体（rail 态隐藏） */
+.tb-domain { flex: 1; min-height: 0; display: flex; padding: 2px 10px 4px; }
+.tb-side.min .tb-domain { display: none; }
+.tb-domain-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dom-title { font-size: 11px; font-weight: 700; color: var(--text-muted); padding: 4px 6px 8px; display: flex; align-items: baseline; gap: 6px; }
+.dom-title .more { font-weight: 400; font-size: 10px; }
+.tb-search { height: 34px; padding: 0 10px; margin-bottom: 8px; flex: none; }
+.tb-search input { font-size: 13px; }
+.tb-tree { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; padding-right: 2px; }
+.tb-tree::-webkit-scrollbar { width: 3px; }
+.tb-tree::-webkit-scrollbar-thumb { background: rgba(127, 127, 127, .3); border-radius: 2px; }
+.tb-tree .vt-row { height: 32px; border-radius: 8px; }
+.tb-tree .vt-row.on { color: var(--accent-hover); background: var(--accent-soft); }
+.tb-tree-empty { padding: 22px 8px; text-align: center; color: var(--text-muted); font-size: 12px; line-height: 1.7; }
+.tb-phone-sec { border-top: 1px solid var(--border-soft); margin-top: 8px; padding-top: 2px; }
+/* 域内容通用行（AI 会话 / 错题书架 / 日程聚合 / 流水） */
+.tb-row {
+  display: flex; align-items: center; gap: 8px;
+  height: 36px; border-radius: 9px; padding: 0 10px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-secondary); font-size: 13px; text-align: left; width: 100%;
+  transition: background .15s, color .15s;
+}
+.tb-row:hover { background: var(--bg-tertiary); }
+.tb-row.on { background: var(--accent-soft); color: var(--accent-hover); }
+.tb-row .tb-row-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-row .tb-row-v { flex: none; font-size: 11px; color: var(--text-muted); }
+.tb-row .tag { flex: none; font-size: 10px; border-radius: 6px; padding: 2px 7px; background: rgba(127, 127, 127, .14); color: var(--text-muted); }
+.tb-row .tag.ok { color: var(--green); background: rgba(48, 209, 88, .12); }
+.tb-row .tag.warn { color: var(--amber); background: rgba(255, 214, 10, .1); }
+.tb-row .tag.mid { color: var(--accent-hover); background: var(--accent-soft); }
+.tb-item {
+  display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px;
+  border-radius: 12px; color: var(--text-secondary); font-size: 14px; text-align: left;
+  transition: background .15s, color .15s;
+}
+.tb-item:hover { background: var(--bg-tertiary); }
+.tb-item:active { transform: scale(.98); }
+.tb-item.on { color: var(--accent-hover); background: var(--accent-soft); }
+.tb-foot { margin-top: auto; display: flex; flex-direction: column; gap: 4px; padding: 6px 10px 10px; }
+.tb-foot .c-meta { padding: 0 12px 6px; }
+/* 平板笔记空态（未选中笔记时的内容区引导） */
+.notes-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; color: var(--text-muted); font-size: 12px; padding-bottom: 8vh;
+}
+.notes-empty p { margin: 0; font-size: 14.5px; color: var(--text-secondary); }
+.notes-empty .btn-primary { display: inline-flex; align-items: center; width: auto; margin-top: 8px; }
+
+/* 内容区：正文限宽防大屏行长失控（~760px 是 26px 字号下舒适的阅读宽度上限） */
+.app.tablet .pages { flex: 1; }
+.app.tablet .page { padding: 24px 32px 36px; }
+.app.tablet .page > * { max-width: 760px; width: 100%; align-self: center; }
+/* FAB 是悬浮钮不是内容块，限宽规则会把它拉成通栏条——恢复原尺寸并贴右 */
+.app.tablet .page > .fab { width: 54px; max-width: 54px; align-self: flex-end; }
+/* 对照 iPad 备忘录：平板无底部悬浮球，新建入口在页头/阅读顶栏右上角（tb-only 只在平板显示） */
+.tb-only { display: none; }
+.app.tablet .tb-only { display: flex; }
+.app.tablet .pg-head .tb-only { margin-left: auto; }
+.app.tablet .page > .fab { display: none; }
+/* WebKit（iPad Safari）会把 width/align-self 应用到绝对定位子元素上（Chromium 按规范忽略），
+   阅读器/添加条因此被压成「内容高的浮块」——覆盖层类子元素必须显式翻回 auto，
+   让 base 规则的 inset:0 + left/right 重新生效铺满全页 */
+.app.tablet .page > .reader,
+.app.tablet .page > .add-bar { width: auto; max-width: none; align-self: auto; }
+.app.tablet .dock, .app.tablet .c-bar { display: none; }
+/* 壳底与内容区同一纸面色：侧栏玻璃面板（secondary）靠阴影/边框浮起（§10.1） */
+.app.tablet .pages { background: var(--bg-primary); }
+/* 空态引导铺满内容区（非浮层，但同样不要限宽） */
+.app.tablet .page > .notes-empty { max-width: none; width: auto; align-self: auto; }
+
+/* 平板日程快捷添加（真机反馈 2026-11-06）：通栏输入条改右下圆钮 + 就地浮起面板（内联展开，非抽屉）。
+ * fixed 相对视口：悬浮在内容区右下角，列表滚动不带走（absolute 会钉在内容尾部随滚动漂移，真机已踩）。
+ * 二者均为 .page 直接子元素——WebKit 翻回 width/align-self（§实现坑） */
+.app.tablet .page > .tb-add {
+  width: 54px; max-width: 54px; align-self: auto;
+  position: fixed; right: 24px; bottom: calc(24px + env(safe-area-inset-bottom));
+  height: 54px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent); color: #fff; border: none; cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .22); z-index: 5;
+  transition: transform .18s, filter .15s;
+}
+.app.tablet .page > .tb-add:hover { filter: brightness(1.08); }
+.app.tablet .page > .tb-add.open { transform: rotate(45deg); }
+.app.tablet .page > .tb-quick-add {
+  width: min(380px, 86vw); max-width: none; align-self: auto;
+  position: fixed; right: 24px; bottom: calc(88px + env(safe-area-inset-bottom));
+  padding: 14px;
+  background: var(--bg-secondary); border: 1px solid var(--border-soft); border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .25); z-index: 5;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.tb-quick-add .qa-row { display: flex; gap: 8px; align-items: center; }
+.tb-quick-add input {
+  flex: 1; min-width: 0; height: 38px; padding: 0 12px;
+  background: var(--bg-tertiary); border: 1px solid var(--border-soft); border-radius: 10px;
+  outline: none; color: var(--text-primary); font-size: 14px;
+}
+.tb-quick-add input:focus { border-color: var(--accent); }
+.tb-quick-add input[type='time'] { flex: none; width: 110px; }
+.tb-quick-add .qa-go { flex: none; width: auto; height: 38px; padding: 0 18px; }
+.tb-quick-add .seg { display: flex; gap: 4px; }
+.tb-quick-add .qa-hint { font-size: 10.5px; color: var(--text-muted); flex: 1; text-align: right; }
+
+/* 贴底控件：不再给浮坞让位，直接贴近底缘（toasts 亦然） */
+.app.tablet .add-bar { bottom: calc(20px + env(safe-area-inset-bottom)); }
+.app.tablet .fab { bottom: calc(20px + env(safe-area-inset-bottom)); }
+.app.tablet .toast-wrap { bottom: calc(20px + env(safe-area-inset-bottom)); }
+
+/* 阅读正文限宽（两栏恒定：侧栏 | 内容区，阅读时内容区就是阅读器） */
+.app.tablet .reader-body .md { max-width: 720px; margin: 0 auto; }
+
+/* 目录浮层：手机覆盖层与平板右栏通用（定位上下文分别是 .reader / .duo-reader，均已 positioned） */
+.tb-toc {
+  position: absolute; top: 54px; right: 16px; width: 252px; max-height: calc(100% - 130px);
+  overflow-y: auto; z-index: 8; padding: 8px;
+  background: var(--glass); border: 1px solid var(--border-soft); border-radius: 12px;
+  -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .4);
+}
+.tb-toc-t { font-size: 11px; color: var(--text-muted); padding: 4px 8px 6px; }
+.tb-toc button {
+  display: block; width: 100%; text-align: left; font-size: 12.5px; color: var(--text-secondary);
+  padding: 6px 8px; border-radius: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tb-toc button:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.tb-toc .toc-lv2 { padding-left: 20px; }
+.tb-toc .toc-lv3 { padding-left: 32px; }
+.icon-btn.on { color: var(--accent-hover); background: var(--accent-soft); }
+
+/* 字号按钮（文字型 icon-btn） */
+.fs-btn { font-size: 12px; font-weight: 600; letter-spacing: .5px; }
+
+/* ============ 备忘录式编辑器（即建即编，弃抽屉表单） ============ */
+.note-editor .btn-done {
+  height: 30px; padding: 0 14px; border-radius: 15px; margin-left: auto;
+  background: var(--accent-soft); color: var(--accent-hover); font-size: 13px; font-weight: 600;
+  transition: background .15s, transform .12s;
+}
+.note-editor .btn-done:active { transform: scale(.95); }
+.editor-area {
+  flex: 1; resize: none; border: none; outline: none; background: transparent;
+  padding: 18px 20px 40px; font-size: 15px; line-height: 1.85; color: var(--text-primary);
+  font-family: inherit; caret-color: var(--accent);
+}
+.editor-area::placeholder { color: var(--text-muted); }
+.app.tablet .note-editor .editor-area { max-width: 720px; width: 100%; align-self: center; padding: 24px 20px 40px; }
+
+/* ============ 桌面同款嵌套文件树（平板笔记） ============ */
+/* 对齐 VaultTree：目录恒在前、缩进 depth 步进、展开态 chev 旋转；
+   行尾同步开关（+ / ✓）控制「选择同步」范围 */
+.vtree { display: flex; flex-direction: column; gap: 1px; }
+.vt-row {
+  display: flex; align-items: center; gap: 7px; min-height: 34px; padding-right: 4px;
+  border-radius: 9px; font-size: 13.5px; color: var(--text-secondary); cursor: pointer;
+  transition: background .12s;
+}
+.vt-row:hover { background: var(--bg-tertiary); }
+.vt-row.dir { font-weight: 600; color: var(--text-primary); }
+.vt-row .chev { display: flex; flex: none; color: var(--text-muted); transition: transform .15s; }
+.vt-row .chev.on { transform: rotate(90deg); }
+.vt-row .vt-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-row .count { flex: none; font-size: 10.5px; color: var(--text-muted); }
+.vt-toggle { flex: none; width: 30px; height: 30px; }
+.vt-toggle.on { color: var(--accent-hover); }
+
+/* ============ 刷题（桌面 quiz 模块移动子集） ============ */
+/* 书架态 */
+.quiz-stats { display: flex; gap: 10px; }
+.quiz-stats .qs { flex: 1; background: var(--bg-primary); border: 1px solid var(--border-soft); border-radius: 12px; padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; }
+.quiz-stats .qs b { font-size: 20px; }
+.quiz-stats .qs span { font-size: 11px; color: var(--text-muted); }
+.quiz-stats .qs.warn b { color: var(--amber); }
+.quiz-stats .qs.ok b { color: var(--green); }
+.quiz-book { background: var(--bg-primary); border: 1px solid var(--border-soft); border-radius: 14px; overflow: hidden; }
+.qb-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border-soft); }
+.qb-tier { flex: none; font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 7px; }
+.qb-tier.t4 { background: rgba(229, 87, 74, .16); color: var(--red); }
+.qb-tier.t2 { background: rgba(240, 165, 44, .16); color: var(--amber); }
+.qb-tier.t1 { background: var(--accent-soft); color: var(--accent-hover); }
+.qb-tier.t0 { background: var(--bg-tertiary); color: var(--text-muted); }
+.qb-title { font-weight: 700; font-size: 14px; }
+.qb-count { margin-left: auto; font-size: 11.5px; color: var(--text-muted); }
+.qb-row { display: flex; align-items: center; gap: 8px; padding: 9px 14px; font-size: 12.5px; color: var(--text-secondary); }
+.qb-row.um { background: rgba(240, 165, 44, .05); }
+.qb-row + .qb-row { border-top: 1px solid var(--border-soft); }
+.qb-no { flex: none; width: 22px; height: 22px; border-radius: 7px; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; }
+.qb-q { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qb-m { flex: none; font-size: 11px; color: var(--text-muted); }
+.quiz-go { margin-left: auto; }
+.pg-head .quiz-go { margin-left: auto; }
+/* 平板页头的主按钮恢复常规尺寸（.btn-primary 的 width:100% 是手机表单钮全局样式，
+ * 会把页头「刷题」拉成通栏绿横幅并换行——真机截图反馈 2026-11-06） */
+.app.tablet .pg-head .btn-primary { width: auto; height: 38px; padding: 0 18px; font-size: 13.5px; }
+/* 书架密度收紧 */
+.app.tablet .quiz-stats .qs { padding: 8px 12px; }
+.app.tablet .quiz-stats .qs b { font-size: 16px; }
+.app.tablet .qb-row { padding: 7px 14px; }
+.app.tablet .qb-no { width: 20px; height: 20px; }
+
+/* 档位筛选条：书架展示与刷题范围跟随 */
+.quiz-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.qf-chip {
+  height: 32px; padding: 0 14px; border-radius: 16px; font-size: 12.5px;
+  color: var(--text-secondary); background: var(--bg-primary); border: 1px solid var(--border-soft);
+  transition: background .15s, color .15s, border-color .15s;
+}
+.qf-chip.on { color: var(--accent-hover); background: var(--accent-soft); border-color: transparent; font-weight: 600; }
+.qb-run {
+  flex: none; height: 30px; padding: 0 12px; border-radius: 15px; font-size: 12px; font-weight: 600;
+  color: var(--accent-hover); background: var(--accent-soft);
+  transition: transform .12s, background .15s;
+}
+.qb-run:active { transform: scale(.95); }
+
+/* 刷题态：一题一屏 */
+.quiz-progress { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--text-muted); }
+.quiz-progress .qp-bar { flex: 1; height: 4px; border-radius: 2px; background: var(--bg-tertiary); overflow: hidden; }
+.quiz-progress .qp-bar div { height: 100%; background: var(--accent); transition: width .25s ease; }
+.quiz-progress .qp-score { color: var(--accent-hover); font-weight: 600; }
+.quiz-card { background: var(--bg-primary); border: 1px solid var(--border-soft); border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.qc-meta { font-size: 11px; color: var(--text-muted); }
+.qc-q { font-size: 17px; font-weight: 700; line-height: 1.6; }
+.qc-opts { display: flex; flex-direction: column; gap: 8px; }
+.qc-opt {
+  display: flex; align-items: center; gap: 10px; text-align: left; min-height: 46px; padding: 8px 14px;
+  border: 1px solid var(--border); border-radius: 12px; font-size: 14px; color: var(--text-primary);
+  transition: border-color .15s, background .15s;
+}
+.qc-opt .k { flex: none; width: 24px; height: 24px; border-radius: 8px; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+.qc-opt.right { border-color: var(--green); background: rgba(137, 209, 133, .12); }
+.qc-opt.right .k { background: var(--green); color: #fff; }
+.qc-opt.wrong { border-color: var(--red); background: rgba(229, 87, 74, .1); }
+.qc-opt.wrong .k { background: var(--red); color: #fff; }
+.qc-exp { font-size: 13px; line-height: 1.8; color: var(--text-secondary); background: var(--bg-secondary); border-radius: 10px; padding: 10px 14px; }
+.qc-exp .lbl, .qc-ref .lbl { display: block; font-size: 10.5px; color: var(--text-muted); margin-bottom: 3px; }
+.qc-short textarea {
+  width: 100%; min-height: 110px; resize: vertical; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg-secondary); padding: 12px 14px; font-size: 14px; line-height: 1.8; color: var(--text-primary);
+  font-family: inherit; outline: none;
+}
+.qc-short textarea:focus { border-color: var(--accent); }
+.qc-self { display: flex; flex-direction: column; gap: 10px; }
+.qc-ref { font-size: 13px; line-height: 1.8; color: var(--text-secondary); background: var(--bg-secondary); border-radius: 10px; padding: 10px 14px; }
+.qc-selfbtns { display: flex; gap: 10px; }
+.qc-selfbtns button { flex: 1; height: 44px; border-radius: 12px; font-size: 14px; font-weight: 600; }
+.qc-selfbtns .btn-ok { background: rgba(137, 209, 133, .16); color: var(--green); }
+.qc-selfbtns .btn-bad { background: rgba(229, 87, 74, .12); color: var(--red); }
+.qc-next { width: 100%; }
+
+/* 刷题态视觉居中 + 跳过 */
+.page.quiz-run { justify-content: center; }
+.quiz-skip {
+  align-self: center; color: var(--text-muted); font-size: 12.5px; padding: 6px 18px; border-radius: 10px;
+  transition: background .15s, color .15s;
+}
+.quiz-skip:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
+.quiz-progress .icon-btn { flex: none; }
+
+/* 阅读器内嵌题卡（quiz 围栏 → 就地刷题）：限宽与 .md 同口径，融入文档流 */
+.app.tablet .reader-body .qc-inline { max-width: 720px; width: 100%; margin: 14px auto; }
+.qc-inline .qc-meta { display: flex; align-items: center; gap: 8px; }
+.qc-inline .badge-sync { margin-left: auto; }
+
+/* 阅读字号可调：.md 以 --rfs 为字号源（阅读器容器内联注入），标题/行内代码随动 */
+.md { --rfs: 14px; }
+.md p, .md li { font-size: var(--rfs); }
+.md h1 { font-size: calc(var(--rfs) * 1.5); }
+.md h2 { font-size: calc(var(--rfs) * 1.18); }
+.md code { font-size: calc(var(--rfs) * 0.85); }
+/* marked(GFM) 全语法支持：表格 / 图片 / 链接 / 删除线 / 任务列表 / hr / h3 */
+.md h3 { font-size: calc(var(--rfs) * 1.05); margin: 14px 0 8px; font-weight: 700; }
+.md table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: calc(var(--rfs) * 0.9); display: block; overflow-x: auto; }
+.md th, .md td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.md th { background: var(--bg-tertiary); font-weight: 600; }
+.md img { max-width: 100%; border-radius: 8px; }
+.md hr { border: none; border-top: 1px solid var(--border-soft); margin: 16px 0; }
+.md a { color: var(--accent-hover); text-decoration: none; }
+.md a:hover { text-decoration: underline; }
+.md del { color: var(--text-muted); }
+.md input[type='checkbox'] { accent-color: var(--accent); margin-right: 6px; }
+.md ol { padding-left: 22px; margin: 8px 0; }
+.md strong { font-weight: 700; }
+.md em { font-style: italic; }

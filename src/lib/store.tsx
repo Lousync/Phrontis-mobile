@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { ReactNode } from 'react'
-import type { AiChatMsg, AiConfig, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteProposal, PairedDevice, PhoneNote, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
+import type { AiChatMsg, AiConfig, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteCache, NoteProposal, NoteTreePage, PairedDevice, PhoneNote, QuizAddProposal, QuizDelProposal, QuizNoteProposal, QuizRecord, QuizSpec, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
 import { THEME_IDS } from './types'
 import { seedFolders, seedHabits, seedSessions, seedTodos, seedEntries, TODAY, VOICE_PHRASES, welcomeText, dayIso, fmtMoney, monthOf, monthStats, txToDisplay } from './data'
 import {
@@ -10,9 +10,15 @@ import {
   type RemoteLedgerItem, type RemoteScheduleItem,
 } from './sync'
 import { AI_MAX_ROUNDS, aiConfigReady, chatOnce, loadAiConfig, parseToolArgs, saveAiConfig } from './ai'
-import { AI_TOOLS, buildSystemPrompt, validateLedgerAdd, validateNoteCreate, validateTodoAdd, type ToolResult } from './aiTools'
+import { AI_TOOLS, buildSystemPrompt, quizQueryForModel, quizStatsForModel, validateLedgerAdd, validateNoteCreate, validateQuizAdd, validateQuizDel, validateQuizNote, validateTodoAdd, type ToolResult } from './aiTools'
+import { fetchNoteContent, fetchNoteTree, loadNoteCache, loadNoteTree, saveNoteCache, saveNoteTree } from './sync'
 
 export interface ToastItem { id: number; msg: string; type: 'ok' | 'warn' | 'info' }
+
+/** 仓库阅读选区（侧栏树点开的笔记） */
+export type VaultReader = { title: string; path: string; kind: 'vault' | 'phone' }
+/** 选择同步范围：文件夹路径 + 单篇 id（localStorage 持久化） */
+export type SyncSel = { dirs: string[]; ids: string[] }
 
 let seq = 100
 const nextId = (p: string) => p + (++seq)
@@ -22,11 +28,59 @@ const K_TODOS = 'pm.todos'
 /** v0.3 起账本存同步形态（pm.txs 是旧版展示形态键，弃用不迁移——当时只有演示数据） */
 const K_LEDGER = 'pm.ledger'
 const K_NOTES = 'pm.notes'
+const K_QUIZ = 'pm.quiz'
+const K_SYNC_SEL = 'pm.noteSyncSel'
 const K_THEME = 'pm.theme'
 
 /** 手机笔记种子（首次启动；上行走 notes 域进电脑收件箱） */
 const seedPhoneNotes: PhoneNote[] = [
   { id: 'p1', title: '咖啡馆随想', body: '手机版的记账要不要支持语音快速记？先想想。', synced: false },
+]
+
+/* 刷题种子（验证 UI 手感；真数据待协议 v1.3 从桌面 .knowbase/modules/quiz 同步） */
+const seedQuizRecords: QuizRecord[] = [
+  { id: 'q1', pageId: 'os-final', pageTitle: '操作系统期末试卷', no: 1, type: 'choice',
+    question: '进程的三种基本状态不包括以下哪一项？',
+    options: [{ key: 'A', text: '就绪' }, { key: 'B', text: '运行' }, { key: 'C', text: '阻塞' }, { key: 'D', text: '挂起' }],
+    answer: 'D', explanation: '进程三态：就绪、运行、阻塞；挂起是引入中级调度后的扩展态，不属于基本三态。',
+    wrongCount: 3, correctCount: 1, streakCorrect: 0, lastResult: 'wrong', updatedAt: Date.now() - 86400000 },
+  { id: 'q2', pageId: 'os-final', pageTitle: '操作系统期末试卷', no: 2, type: 'choice',
+    question: '下列哪种调度算法有利于短作业？',
+    options: [{ key: 'A', text: '先来先服务' }, { key: 'B', text: '短作业优先' }, { key: 'C', text: '时间片轮转' }, { key: 'D', text: '高响应比优先' }],
+    answer: 'B', explanation: 'SJF 直接以作业长短为优先依据，平均等待时间最短。',
+    wrongCount: 0, correctCount: 2, streakCorrect: 2, lastResult: 'correct', updatedAt: Date.now() - 7200000 },
+  { id: 'q3', pageId: 'os-final', pageTitle: '操作系统期末试卷', no: 3, type: 'choice',
+    question: '死锁的四个必要条件是互斥、占有且等待、不可剥夺和？',
+    options: [{ key: 'A', text: '循环等待' }, { key: 'B', text: '优先级反转' }, { key: 'C', text: '饥饿' }, { key: 'D', text: '竞态' }],
+    answer: 'A', explanation: '四条件：互斥、占有且等待、不可剥夺、循环等待，缺一不可。',
+    wrongCount: 1, correctCount: 0, streakCorrect: 0, lastResult: 'wrong', updatedAt: Date.now() - 172800000 },
+  { id: 'q4', pageId: 'os-final', pageTitle: '操作系统期末试卷', no: 4, type: 'short',
+    question: '简述虚拟内存的定义及其依托的核心机制。',
+    options: [],
+    answer: '虚拟内存：程序装入时只装入部分页面即可运行，地址空间可大于物理内存；核心机制是请求分页（缺页中断 + 页面置换）。',
+    explanation: '局部性原理是其可行性基础；请求调页 + 置换实现逻辑地址空间到物理内存的映射。',
+    wrongCount: 2, correctCount: 0, streakCorrect: 0, lastResult: 'wrong', updatedAt: Date.now() - 259200000 },
+  { id: 'q5', pageId: 'net-wrong', pageTitle: '计算机网络错题集', no: 1, type: 'choice',
+    question: 'TCP 三次握手中，第二个报文的标志位是？',
+    options: [{ key: 'A', text: 'SYN' }, { key: 'B', text: 'ACK' }, { key: 'C', text: 'SYN+ACK' }, { key: 'D', text: 'FIN' }],
+    answer: 'C', explanation: '服务端收到 SYN 后回 SYN+ACK，第三次客户端单独发 ACK。',
+    wrongCount: 4, correctCount: 1, streakCorrect: 0, lastResult: 'wrong', updatedAt: Date.now() - 3600000 },
+  { id: 'q6', pageId: 'net-wrong', pageTitle: '计算机网络错题集', no: 2, type: 'choice',
+    question: 'IP 地址 192.168.1.0/26 的可用主机数是？',
+    options: [{ key: 'A', text: '62' }, { key: 'B', text: '64' }, { key: 'C', text: '30' }, { key: 'D', text: '126' }],
+    answer: 'A', explanation: '/26 主机位 6 位，2^6-2=62（去掉网络地址与广播地址）。',
+    wrongCount: 1, correctCount: 1, streakCorrect: 0, lastResult: 'wrong', updatedAt: Date.now() - 86400000 * 2 },
+  { id: 'q7', pageId: 'net-wrong', pageTitle: '计算机网络错题集', no: 3, type: 'short',
+    question: '简述 DNS 递归查询与迭代查询的区别。',
+    options: [],
+    answer: '递归：客户端只发一次请求，服务器必须替它查出最终结果；迭代：服务器返回下一步应查询的地址，由请求方继续追。',
+    explanation: '主机到本地域名服务器通常递归，本地服务器到根/顶级通常迭代。',
+    wrongCount: 0, correctCount: 0, streakCorrect: 0, lastResult: '', updatedAt: Date.now() - 86400000 * 3 },
+  { id: 'q8', pageId: 'net-wrong', pageTitle: '计算机网络错题集', no: 4, type: 'choice',
+    question: 'HTTP 与 HTTPS 的默认端口分别是？',
+    options: [{ key: 'A', text: '80 / 443' }, { key: 'B', text: '8080 / 443' }, { key: 'C', text: '80 / 8443' }, { key: 'D', text: '22 / 80' }],
+    answer: 'A', explanation: 'HTTP 80，HTTPS 443；8080/8443 常作测试备选。',
+    wrongCount: 0, correctCount: 0, streakCorrect: 0, lastResult: '', updatedAt: Date.now() - 86400000 * 4 },
 ]
 
 /** 在途删除操作的条目 id：远端回流时跳过这些 id（本地已删，等队列 push 落墓碑） */
@@ -53,6 +107,10 @@ interface Store {
   toggleKbSim: () => void
   /** 系统输入法展开中（input/textarea 聚焦即视同键盘弹出；真机键盘模型的状态源） */
   kbOpen: boolean
+
+  /* 平板侧栏收纳（仅平板壳消费；手机壳不渲染侧栏） */
+  sideCollapsed: boolean
+  toggleSide: () => void
 
   /* 同步 */
   online: boolean
@@ -98,6 +156,45 @@ interface Store {
   markCached: (title: string) => void
   phoneNotes: PhoneNote[]
   addPhoneNote: (title: string, body: string) => void
+  /** 备忘录式即建即编：本地建空笔记返回 id（不入同步队列，退出编辑时统一入队/丢弃） */
+  createPhoneNote: () => string
+  /** 编辑中实时更新本地内容（列表首行标题跟手；内容随时落 localStorage 防丢） */
+  updatePhoneNote: (id: string, title: string, body: string) => void
+  /** 空笔记丢弃：本地移除，不入队列不产生垃圾 */
+  discardPhoneNote: (id: string) => void
+  /** 编辑完成：内容入上行队列（op id = 笔记 uuid，与 v1.2 notes 域契约一致） */
+  syncPhoneNote: (id: string, title: string, body: string) => void
+
+  /* 仓库笔记树域（design.md §10.1：平板侧栏托管树与选择同步，手机端同源复用） */
+  vaultKw: string
+  setVaultKw: (v: string) => void
+  vaultTree: { fetchedAt: number; pages: NoteTreePage[] }
+  vaultLoading: boolean
+  vaultExpanded: Record<string, boolean>
+  toggleVaultExpand: (path: string) => void
+  vaultCache: NoteCache
+  vaultReader: VaultReader | null
+  setVaultReader: (r: VaultReader | null) => void
+  vaultBody: string
+  /** cached=与目录一致；stale=离线回落旧版缓存（联网对账后自动刷新）；loading/error 同名 */
+  vaultState: 'cached' | 'loading' | 'error' | 'stale'
+  syncSel: SyncSel
+  toggleSyncDir: (path: string) => void
+  toggleSyncNote: (id: string) => void
+  noteInSync: (page: NoteTreePage) => boolean
+  fetchVaultTree: () => void
+  openVaultNote: (page: NoteTreePage) => void
+  openPhoneNote: (id: string) => void
+
+  /* 刷题（桌面 quiz 模块移动子集；真相源暂为本地，协议 v1.3 接桌面 quiz 域） */
+  quizRecords: QuizRecord[]
+  answerQuiz: (id: string, correct: boolean) => void
+  /** 阅读器题卡作答：按 文档+题号 upsert 错题记录（首答建档，重答累计 streak/错次） */
+  upsertQuizAnswer: (pageId: string, pageTitle: string, spec: QuizSpec, correct: boolean) => void
+  /* AI 错题工具落库（确认卡后调用） */
+  addQuizRecord: (p: QuizAddProposal) => void
+  setQuizNote: (p: QuizNoteProposal) => void
+  deleteQuizRecord: (p: QuizDelProposal) => void
 
   /* AI */
   /** 模型配置（pm.aiConfig，Key 只在本机） */
@@ -162,12 +259,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [entries, setEntries] = useState<LedgerEntry[]>(() => loadJson<LedgerEntry[]>(K_LEDGER, seedEntries))
   const txs = useMemo(() => entries.map(txToDisplay), [entries])
 
+  /* 平板侧栏收纳：rail(64px 图标) ⇄ 展开(232px)，落 localStorage 重启保持 */
+  const [sideCollapsed, setSideCollapsed] = useState(() => localStorage.getItem('tb.sideCollapsed') === '1')
+  const toggleSide = useCallback(() => {
+    setSideCollapsed(v => {
+      localStorage.setItem('tb.sideCollapsed', v ? '0' : '1')
+      return !v
+    })
+  }, [])
+
   useEffect(() => { saveJson(K_TODOS, todos) }, [todos])
   useEffect(() => { saveJson(K_LEDGER, entries) }, [entries])
 
   const [folders, setFolders] = useState<Folder[]>(seedFolders)
   const [phoneNotes, setPhoneNotes] = useState<PhoneNote[]>(() => loadJson<PhoneNote[]>(K_NOTES, seedPhoneNotes))
   useEffect(() => { saveJson(K_NOTES, phoneNotes) }, [phoneNotes])
+
+  /* ---------- 仓库笔记树域（§10.1） ---------- */
+  const [vaultKw, setVaultKw] = useState('')
+  const [vaultTree, setVaultTree] = useState(() => loadNoteTree())
+  const [vaultLoading, setVaultLoading] = useState(false)
+  const [vaultExpanded, setVaultExpanded] = useState<Record<string, boolean>>({})
+  const [vaultCache, setVaultCache] = useState<NoteCache>(() => loadNoteCache())
+  const [vaultReader, setVaultReader] = useState<VaultReader | null>(null)
+  const [vaultBody, setVaultBody] = useState('')
+  const [vaultState, setVaultState] = useState<'cached' | 'loading' | 'error' | 'stale'>('cached')
+  const [syncSel, setSyncSel] = useState<SyncSel>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(K_SYNC_SEL) || '')
+      if (v && Array.isArray(v.dirs) && Array.isArray(v.ids)) return v
+    } catch { /* 首次/损坏 → 默认 */ }
+    return { dirs: [], ids: [] }
+  })
+  useEffect(() => { localStorage.setItem(K_SYNC_SEL, JSON.stringify(syncSel)) }, [syncSel])
 
   const [aiConfig, setAiConfigState] = useState<AiConfig>(() => loadAiConfig())
   const [sessions, setSessions] = useState<Session[]>(seedSessions)
@@ -198,6 +322,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const phoneNotesRef = useRef(phoneNotes); phoneNotesRef.current = phoneNotes
   const aiConfigRef = useRef(aiConfig); aiConfigRef.current = aiConfig
   const pairedRef = useRef(paired); pairedRef.current = paired
+  const vaultTreeRef = useRef(vaultTree); vaultTreeRef.current = vaultTree
+  const syncSelRef = useRef(syncSel); syncSelRef.current = syncSel
+  const vaultCacheRef = useRef(vaultCache); vaultCacheRef.current = vaultCache
+  const vaultReaderRef = useRef(vaultReader); vaultReaderRef.current = vaultReader
+  const vaultStateRef = useRef(vaultState); vaultStateRef.current = vaultState
   const runSyncRef = useRef<() => void>(() => {})
 
   useEffect(() => { document.documentElement.dataset.theme = theme; saveJson(K_THEME, theme) }, [theme])
@@ -614,6 +743,205 @@ export function AppProvider({ children }: { children: ReactNode }) {
     markPending(label, id)
   }, [markPending])
 
+  /* 备忘录式即建即编（平板拍板，弃抽屉表单）：新建=本地空笔记直接进编辑器，
+   * 首行即标题、编辑实时落本地（localStorage 兜底防丢），退出时统一入队/丢弃 */
+  const createPhoneNote = useCallback(() => {
+    const id = uuid()
+    setPhoneNotes(list => [{ id, title: '', body: '', synced: false }, ...list])
+    return id
+  }, [])
+  const updatePhoneNote = useCallback((id: string, title: string, body: string) => {
+    setPhoneNotes(list => list.map(n => n.id === id ? { ...n, title, body, synced: false } : n))
+  }, [])
+  const discardPhoneNote = useCallback((id: string) => {
+    setPhoneNotes(list => list.filter(n => n.id !== id))
+  }, [])
+  const syncPhoneNote = useCallback((id: string, title: string, body: string) => {
+    const label = '笔记「' + (title || '无标题').slice(0, 20) + '」'
+    enqueueOp({ id, domain: 'notes', updatedAt: new Date().toISOString(), data: buildNoteData(title, body), label })
+    markPending(label, id)
+  }, [markPending])
+
+  /* ---------- 仓库笔记树域（侧栏托管，§10.1） ---------- */
+  const noteInSync = useCallback((page: NoteTreePage) => {
+    const sel = syncSelRef.current
+    return sel.ids.includes(page.id) ||
+      page.path.split('/').slice(0, -1).some((_, i, arr) => sel.dirs.includes(arr.slice(0, i + 1).join('/')))
+  }, [])
+
+  const toggleSyncDir = useCallback((path: string) => setSyncSel(s => ({
+    ...s,
+    dirs: s.dirs.includes(path) ? s.dirs.filter(d => d !== path) : [...s.dirs, path],
+  })), [])
+  const toggleSyncNote = useCallback((id: string) => setSyncSel(s => ({
+    ...s,
+    ids: s.ids.includes(id) ? s.ids.filter(i => i !== id) : [...s.ids, id],
+  })), [])
+  const toggleVaultExpand = useCallback((path: string) => {
+    setVaultExpanded(m => ({ ...m, [path]: !m[path] }))
+  }, [])
+
+  const fetchVaultTree = useCallback(() => {
+    setVaultLoading(true)
+    fetchNoteTree()
+      .then(pages => {
+        saveNoteTree(pages)
+        setVaultTree({ fetchedAt: Date.now(), pages })
+      })
+      .catch((e: Error) => toast(e.message, 'warn'))
+      .finally(() => setVaultLoading(false))
+  }, [toast])
+
+  /** 打开电脑笔记：缓存与目录版本一致（mtimeMs 对账）→ 直接读；否则在线拉取并落缓存 */
+  const openVaultNote = useCallback((page: NoteTreePage) => {
+    const hit = vaultCacheRef.current[page.id]
+    const fresh = !!hit && hit.mtimeMs === page.mtimeMs
+    setVaultReader({ title: page.title, path: page.path, kind: 'vault' })
+    if (fresh) {
+      setVaultBody(hit.body)
+      setVaultState('cached')
+      return
+    }
+    setVaultBody('')
+    setVaultState('loading')
+    fetchNoteContent(page.id)
+      .then(c => {
+        setVaultBody(c.body)
+        setVaultState('cached')
+        setVaultCache(prev => {
+          const next = { ...prev, [page.id]: { title: page.title, body: c.body, mtimeMs: page.mtimeMs, at: Date.now() } }
+          saveNoteCache(next)
+          return next
+        })
+      })
+      .catch((e: Error) => {
+        /* 离线/伴侣不可达 → 有旧缓存就回落显示旧版（stale），联网对账后自动刷新；完全没缓存才报错 */
+        if (hit) {
+          setVaultBody(hit.body)
+          setVaultState('stale')
+          toast('离线，显示旧版缓存', 'info')
+        } else {
+          setVaultState('error')
+          toast(e.message, 'warn')
+        }
+      })
+  }, [toast])
+
+  const openPhoneNote = useCallback((id: string) => {
+    const hit = phoneNotesRef.current.find(x => x.id === id)
+    if (!hit) return
+    setVaultReader({ title: hit.title, path: '手机笔记 / ' + hit.title, kind: 'phone' })
+    setVaultBody('# ' + hit.title + '\n\n' + hit.body)
+    setVaultState('cached')
+  }, [])
+
+  /* 进笔记页且已配对 → 自动拉目录树 */
+  useEffect(() => {
+    if (activeTab !== 'notes' || !paired) return
+    fetchVaultTree()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, paired])
+
+  /* 选择同步增量对账：60s 一轮 + 进页/选区变化即触发（mtimeMs 变了才重拉，在线时选中内容自动保持最新） */
+  const vaultRefreshingRef = useRef(false)
+  const vaultRefreshRef = useRef<() => void>(() => {})
+  vaultRefreshRef.current = () => {
+    if (vaultRefreshingRef.current || !pairedRef.current) return
+    const targets = vaultTreeRef.current.pages
+      .filter(noteInSync)
+      .filter(p => { const hit = vaultCacheRef.current[p.id]; return !hit || hit.mtimeMs !== p.mtimeMs })
+    if (!targets.length) return
+    vaultRefreshingRef.current = true
+    ;(async () => {
+      for (const p of targets) {
+        try {
+          const c = await fetchNoteContent(p.id)
+          setVaultCache(prev => {
+            const next = { ...prev, [p.id]: { title: p.title, body: c.body, mtimeMs: p.mtimeMs, at: Date.now() } }
+            saveNoteCache(next)
+            return next
+          })
+          /* 正在读的笔记若处于旧版回落态：原地刷新成新版（离线→联网闭环） */
+          if (vaultReaderRef.current?.path === p.path && vaultStateRef.current === 'stale') {
+            setVaultBody(c.body)
+            setVaultState('cached')
+          }
+        } catch { /* 静默：下一轮对账再试 */ }
+      }
+      vaultRefreshingRef.current = false
+    })()
+  }
+  useEffect(() => {
+    if (activeTab !== 'notes' || !paired) return
+    vaultRefreshRef.current()
+    const t = setInterval(() => vaultRefreshRef.current(), 60_000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, paired, vaultTree, syncSel])
+
+  /* ---------- 刷题（桌面 quiz 模块移动子集） ----------
+   * 掌握判定对齐桌面：连续答对 ≥2 自动移出错题本（streak 累加），答错清零回流。
+   * 作答即时落本地（pm.quiz）；回流桌面待协议 v1.3 quiz 域。 */
+  const [quizRecords, setQuizRecords] = useState<QuizRecord[]>(() => loadJson<QuizRecord[]>(K_QUIZ, seedQuizRecords))
+  useEffect(() => { saveJson(K_QUIZ, quizRecords) }, [quizRecords])
+  const quizRecordsRef = useRef(quizRecords); quizRecordsRef.current = quizRecords
+  const answerQuiz = useCallback((id: string, correct: boolean) => {
+    setQuizRecords(list => list.map(r => r.id !== id ? r : {
+      ...r,
+      correctCount: r.correctCount + (correct ? 1 : 0),
+      wrongCount: r.wrongCount + (correct ? 0 : 1),
+      streakCorrect: correct ? r.streakCorrect + 1 : 0,
+      lastResult: correct ? 'correct' : 'wrong',
+      updatedAt: Date.now(),
+    }))
+  }, [])
+
+  /* AI 错题工具的落库三件套（确认卡确认后走这里，与 UI 同一条写入路径） */
+  const addQuizRecord = useCallback((p: QuizAddProposal) => {
+    const book = quizRecordsRef.current.filter(r => r.pageTitle === p.pageTitle)
+    const nextNo = book.reduce((m, r) => Math.max(m, r.no), 0) + 1
+    setQuizRecords(list => [{
+      id: uuid(), pageId: 'ai', pageTitle: p.pageTitle, no: nextNo,
+      type: p.type, question: p.question, options: p.options, answer: p.answer, explanation: p.explanation,
+      wrongCount: 0, correctCount: 0, streakCorrect: 0, lastResult: '', updatedAt: Date.now(),
+    }, ...list])
+  }, [])
+  const setQuizNote = useCallback((p: QuizNoteProposal) => {
+    setQuizRecords(list => list.map(r => r.pageTitle === p.pageTitle && r.no === p.no ? { ...r, note: p.note, updatedAt: Date.now() } : r))
+  }, [])
+  const deleteQuizRecord = useCallback((p: QuizDelProposal) => {
+    setQuizRecords(list => list.filter(r => !(r.pageTitle === p.pageTitle && r.no === p.no)))
+  }, [])
+  const upsertQuizAnswer = useCallback((pageId: string, pageTitle: string, spec: QuizSpec, correct: boolean) => {
+    setQuizRecords(list => {
+      const hit = list.find(r => r.pageId === pageId && r.pageTitle === pageTitle && r.no === spec.no)
+      if (hit) {
+        return list.map(r => r.id !== hit.id ? r : {
+          ...r,
+          correctCount: r.correctCount + (correct ? 1 : 0),
+          wrongCount: r.wrongCount + (correct ? 0 : 1),
+          streakCorrect: correct ? r.streakCorrect + 1 : 0,
+          lastResult: correct ? 'correct' : 'wrong',
+          updatedAt: Date.now(),
+        })
+      }
+      return [{
+        id: uuid(),
+        pageId, pageTitle, no: spec.no,
+        type: spec.type || 'choice',
+        question: spec.question,
+        options: spec.options,
+        answer: spec.answer,
+        explanation: spec.explanation,
+        wrongCount: correct ? 0 : 1,
+        correctCount: correct ? 1 : 0,
+        streakCorrect: correct ? 1 : 0,
+        lastResult: correct ? 'correct' : 'wrong',
+        updatedAt: Date.now(),
+      }, ...list]
+    })
+  }, [])
+
   /* ---------- AI ---------- */
 
   const newSession = useCallback(() => {
@@ -745,6 +1073,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
       case 'notes_list': {
         const items = phoneNotesRef.current.map(x => ({ title: x.title, synced: x.synced }))
         return { ok: true, forModel: JSON.stringify({ count: items.length, items: items.slice(0, 20) }) }
+      }
+      case 'quiz_query': {
+        return { ok: true, forModel: quizQueryForModel(quizRecordsRef.current, args) }
+      }
+      case 'quiz_stats': {
+        return { ok: true, forModel: quizStatsForModel(quizRecordsRef.current) }
+      }
+      case 'quiz_add': {
+        const p = validateQuizAdd(args)
+        if (typeof p === 'string') return no(p)
+        const n = quizRecordsRef.current.filter(r => r.pageTitle === p.pageTitle).length
+        return {
+          ok: true,
+          forModel: '已生成出题确认卡（' + p.pageTitle + ' · 第 ' + (n + 1) + ' 题）。等用户确认入库，不要重复调用。',
+          proposal: { kind: 'quiz', data: p },
+        }
+      }
+      case 'quiz_note': {
+        const p = validateQuizNote(args)
+        if (typeof p === 'string') return no(p)
+        return { ok: true, forModel: '已生成错题备注确认卡。等用户确认。', proposal: { kind: 'quiz-note', data: p } }
+      }
+      case 'quiz_del': {
+        const p = validateQuizDel(args)
+        if (typeof p === 'string') return no(p)
+        return { ok: true, forModel: '已生成移出确认卡。等用户确认。', proposal: { kind: 'quiz-del', data: p } }
       }
       default:
         return no('未知工具：' + name)
@@ -895,13 +1249,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } else if (kind === 'note' && data && 'body' in data) {
       const p = data as NoteProposal
       addPhoneNote(p.title || '闪念', p.body)
+    } else if (kind === 'quiz' && data && 'question' in data) {
+      addQuizRecord(data as QuizAddProposal)
+    } else if (kind === 'quiz-note' && data && 'note' in data) {
+      setQuizNote(data as QuizNoteProposal)
+    } else if (kind === 'quiz-del' && data && 'no' in data) {
+      deleteQuizRecord(data as QuizDelProposal)
     } else if (kind === 'move') {
       /* 演示卡（未配置 AI 时的脚本行为）：也走真实写入路径——原先只删本地不进队列，同步会把跑步条目原样带回来 */
       deleteTodo('t3')
       addTodo({ title: '跑步 30 分钟', type: 'daily', time: '19:30', date: dayIso(1) })
     }
     updateMsg(msgId, m => ({ ...m, card: m.card ? { ...m.card, confirmed: true } : m.card }))
-  }, [saveTx, addTodo, deleteTodo, addPhoneNote, updateMsg])
+  }, [saveTx, addTodo, deleteTodo, addPhoneNote, addQuizRecord, setQuizNote, deleteQuizRecord, updateMsg])
 
   const dismissCard = useCallback((msgId: string) => {
     updateMsg(msgId, m => ({ ...m, card: undefined }))
@@ -940,10 +1300,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value: Store = {
     theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, sheetOrigin, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
+    sideCollapsed, toggleSide,
     online, syncing, syncPct, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, adoptPaired, unpair,
     schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, deleteTodo, habits, toggleHabit,
     entries, txs, saveTx, updateTx, deleteTx, editTxId, openTxEdit,
     folders, toggleFolder, markCached, phoneNotes, addPhoneNote,
+    createPhoneNote, updatePhoneNote, discardPhoneNote, syncPhoneNote,
+    vaultKw, setVaultKw, vaultTree, vaultLoading, vaultExpanded, toggleVaultExpand, vaultCache,
+    vaultReader, setVaultReader, vaultBody, vaultState, syncSel, toggleSyncDir, toggleSyncNote,
+    noteInSync, fetchVaultTree, openVaultNote, openPhoneNote,
+    quizRecords, answerQuiz, upsertQuizAnswer,
+    addQuizRecord, setQuizNote, deleteQuizRecord,
     aiConfig, updateAiConfig, sessions, curSession, newSession, switchSession, deleteSession, renameSession, togglePin,
     streaming, streamText, sendChat, stopStream, confirmCard, dismissCard,
     voicePhase, voiceElapsed, toggleVoice,

@@ -41,4 +41,6 @@ export const IKeyboard = make(<><rect x="2" y="5" width="20" height="14" rx="2" 
 export const IStop = make(<rect x="7" y="7" width="10" height="10" rx="2" />, { filled: true })
 export const IX = make(<path d="M18 6L6 18M6 6l12 12" />, { sw: 2 })
 export const IEye = make(<><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></>)
+export const IQuiz = make(<> <circle cx="12" cy="12" r="9" /> <path d="M9 12h6M12 9v6" /> </>)
+
 export const IRefresh = make(<><path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" /></>)

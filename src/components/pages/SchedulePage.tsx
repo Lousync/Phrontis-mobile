@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Habit, Todo, TodoType } from '../../lib/types'
 import { TODO_TYPE_LABEL, TODAY, dayIso, fmtMin, weekOf } from '../../lib/data'
 import { burstAt } from '../../lib/fx'
 import { useApp } from '../../lib/store'
+import { useFormFactor } from '../../lib/useFormFactor'
 import { IChevL, IChevR, IPlus } from '../../components/icons'
 import { Grip, Sheet } from '../../components/Sheet'
 import { PageHead } from '../../components/chrome'
@@ -216,9 +217,57 @@ function TodoSheet({ selDate }: { selDate: string }) {
   )
 }
 
+/* 平板快捷添加面板（真机反馈 2026-11-06：通栏输入条改按钮 + 就地浮起，内联展开非抽屉）。
+ * 日期随当前选中日；Enter 添加 / Esc 收起 / 点外部收起。 */
+function QuickTodoAdd({ selDate, onClose }: { selDate: string; onClose: () => void }) {
+  const { addTodo, toast } = useApp()
+  const [title, setTitle] = useState('')
+  const [type, setType] = useState<TodoType>('plan')
+  const [time, setTime] = useState('')
+  const save = () => {
+    if (!title.trim()) { toast('先写要做什么', 'warn'); return }
+    addTodo({ title: title.trim(), type, time, date: selDate })
+    onClose()
+  }
+  /* 点面板与圆钮之外收起 */
+  useEffect(() => {
+    const h = (e: PointerEvent) => {
+      const t = e.target as HTMLElement
+      if (!t.closest('.tb-quick-add') && !t.closest('.tb-add')) onClose()
+    }
+    document.addEventListener('pointerdown', h)
+    return () => document.removeEventListener('pointerdown', h)
+  }, [onClose])
+  return (
+    <div className="tb-quick-add">
+      <div className="qa-row">
+        <input
+          autoFocus
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="要做什么？"
+          onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') onClose() }}
+        />
+        <button className="btn-primary qa-go" onClick={save}>添加</button>
+      </div>
+      <div className="seg">
+        {(['plan', 'deadline', 'daily'] as TodoType[]).map(t => (
+          <button key={t} className={type === t ? 'on' : ''} onClick={() => setType(t)}>{TODO_TYPE_LABEL[t]}</button>
+        ))}
+      </div>
+      <div className="qa-row">
+        <input type="time" value={time} onChange={e => setTime(e.target.value)} />
+        <span className="qa-hint">记到 {selDate === TODAY ? '今天' : selDate} · Enter 添加</span>
+      </div>
+    </div>
+  )
+}
+
 export function SchedulePage({ active }: { active: boolean }) {
   const { todos, habits, selDate, setSelDate, schedView, setSchedView, openSheet, deleteTodo } = useApp()
+  const tablet = useFormFactor() === 'tablet'
   const [delId, setDelId] = useState<string | null>(null)
+  const [quickAdd, setQuickAdd] = useState(false)
   const [weekOff, setWeekOff] = useState(0)
   const dayTodos = todos.filter(t => t.date === selDate)
   const totalN = dayTodos.filter(t => !t.parentId).length
@@ -286,10 +335,22 @@ export function SchedulePage({ active }: { active: boolean }) {
       {schedView === 'grid' && <DayGrid key={selDate} dayTodos={dayTodos} />}
       {schedView === 'habit' && habits.map(h => <HabitCard key={h.id} h={h} />)}
 
-      {schedView === 'list' && (
+      {schedView === 'list' && !tablet && (
         <button className="add-bar" onClick={e => openSheet('todo', e.currentTarget)}>
           <IPlus />添加待办
         </button>
+      )}
+      {schedView === 'list' && tablet && (
+        <>
+          {quickAdd && <QuickTodoAdd selDate={selDate} onClose={() => setQuickAdd(false)} />}
+          <button
+            className={'tb-add' + (quickAdd ? ' open' : '')}
+            onClick={() => setQuickAdd(v => !v)}
+            title={quickAdd ? '收起' : '新建待办'}
+          >
+            <IPlus size={20} />
+          </button>
+        </>
       )}
     </section>
   )
