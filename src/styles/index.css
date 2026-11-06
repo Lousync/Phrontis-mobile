@@ -889,29 +889,87 @@ button.vault-line:disabled { cursor: default; }
   border: none;
   box-shadow: none;
   flex-direction: row;
+  background: var(--bg-primary);
 }
 
-/* 侧栏：安全区全让位（竖屏顶部刘海 / 横屏侧边）；可收纳 rail ⇄ 展开 */
+/* 侧栏 v3（design.md §10.1）：浮层玻璃面板 + 域切换条 + 域内容独占。
+ * 壳底 primary、内容区 primary、面板 secondary 半透明+blur：深色主题面板亮于底（浮起），
+ * 亮色主题面板灰于白底（备忘录同款），无需分主题写色值。 */
 .tb-side {
-  width: 232px; flex: none;
-  display: flex; flex-direction: column; gap: 2px;
-  padding: calc(12px + env(safe-area-inset-top)) 10px calc(14px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
-  border-right: 1px solid var(--border-soft);
+  width: 264px; flex: none;
+  display: flex; flex-direction: column;
+  margin: 12px 6px 12px calc(12px + env(safe-area-inset-left));
+  margin-top: calc(12px + env(safe-area-inset-top));
+  margin-bottom: calc(12px + env(safe-area-inset-bottom));
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
   background: var(--bg-secondary);
-  transition: width .26s cubic-bezier(.23, 1, .32, 1);
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, .18);
+  overflow: hidden;
+  transition: width .28s cubic-bezier(.23, 1, .32, 1);
 }
-/* 收纳态：64px 纯图标 rail（iPadOS 侧栏手法），文字隐藏、点按切页 */
-.tb-side.min { width: 64px; padding-left: calc(8px + env(safe-area-inset-left)); padding-right: 8px; }
+.tb-side.min { width: 68px; }
+.side-top { display: flex; align-items: center; gap: 6px; padding: 10px 10px 6px; }
 .tb-fold {
-  display: flex; align-items: center; gap: 8px;
-  height: 40px; padding: 0 12px; margin-bottom: 8px;
-  border-radius: 11px; color: var(--text-muted); font-size: 13px;
+  flex: none; width: 34px; height: 34px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted);
   transition: background .15s, color .15s;
 }
 .tb-fold:hover { background: var(--bg-tertiary); color: var(--text-primary); }
-.tb-side.min .tb-fold { justify-content: center; padding: 0; }
-.tb-side.min .tb-lb { display: none; }
-.tb-side.min .tb-item { justify-content: center; padding: 0; }
+/* 域切换条：导航压成一行 5 图标（rail 态转纵排=导航本身） */
+.tb-seg {
+  flex: 1; display: flex; gap: 3px;
+  background: rgba(127, 127, 127, .1);
+  border: 1px solid var(--border-soft);
+  border-radius: 11px; padding: 3px;
+}
+.tb-seg-i {
+  flex: 1; height: 32px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted);
+  transition: background .15s, color .15s;
+}
+.tb-seg-i:hover { color: var(--text-primary); }
+.tb-seg-i.on { background: var(--accent-soft); color: var(--accent-hover); }
+.tb-side.min .side-top { flex-direction: column; }
+.tb-side.min .tb-seg { flex-direction: column; padding: 6px 4px; }
+.tb-side.min .tb-seg-i { flex: none; width: 40px; height: 40px; }
+
+/* 域内容：独占侧栏主体（rail 态隐藏） */
+.tb-domain { flex: 1; min-height: 0; display: flex; padding: 2px 10px 4px; }
+.tb-side.min .tb-domain { display: none; }
+.tb-domain-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dom-title { font-size: 11px; font-weight: 700; color: var(--text-muted); padding: 4px 6px 8px; display: flex; align-items: baseline; gap: 6px; }
+.dom-title .more { font-weight: 400; font-size: 10px; }
+.tb-search { height: 34px; padding: 0 10px; margin-bottom: 8px; flex: none; }
+.tb-search input { font-size: 13px; }
+.tb-tree { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; padding-right: 2px; }
+.tb-tree::-webkit-scrollbar { width: 3px; }
+.tb-tree::-webkit-scrollbar-thumb { background: rgba(127, 127, 127, .3); border-radius: 2px; }
+.tb-tree .vt-row { height: 32px; border-radius: 8px; }
+.tb-tree .vt-row.on { color: var(--accent-hover); background: var(--accent-soft); }
+.tb-tree-empty { padding: 22px 8px; text-align: center; color: var(--text-muted); font-size: 12px; line-height: 1.7; }
+.tb-phone-sec { border-top: 1px solid var(--border-soft); margin-top: 8px; padding-top: 2px; }
+/* 域内容通用行（AI 会话 / 错题书架 / 日程聚合 / 流水） */
+.tb-row {
+  display: flex; align-items: center; gap: 8px;
+  height: 36px; border-radius: 9px; padding: 0 10px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-secondary); font-size: 13px; text-align: left; width: 100%;
+  transition: background .15s, color .15s;
+}
+.tb-row:hover { background: var(--bg-tertiary); }
+.tb-row.on { background: var(--accent-soft); color: var(--accent-hover); }
+.tb-row .tb-row-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-row .tb-row-v { flex: none; font-size: 11px; color: var(--text-muted); }
+.tb-row .tag { flex: none; font-size: 10px; border-radius: 6px; padding: 2px 7px; background: rgba(127, 127, 127, .14); color: var(--text-muted); }
+.tb-row .tag.ok { color: var(--green); background: rgba(48, 209, 88, .12); }
+.tb-row .tag.warn { color: var(--amber); background: rgba(255, 214, 10, .1); }
+.tb-row .tag.mid { color: var(--accent-hover); background: var(--accent-soft); }
 .tb-item {
   display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px;
   border-radius: 12px; color: var(--text-secondary); font-size: 14px; text-align: left;
@@ -920,8 +978,15 @@ button.vault-line:disabled { cursor: default; }
 .tb-item:hover { background: var(--bg-tertiary); }
 .tb-item:active { transform: scale(.98); }
 .tb-item.on { color: var(--accent-hover); background: var(--accent-soft); }
-.tb-foot { margin-top: auto; display: flex; flex-direction: column; gap: 4px; padding-top: 10px; }
+.tb-foot { margin-top: auto; display: flex; flex-direction: column; gap: 4px; padding: 6px 10px 10px; }
 .tb-foot .c-meta { padding: 0 12px 6px; }
+/* 平板笔记空态（未选中笔记时的内容区引导） */
+.notes-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; color: var(--text-muted); font-size: 12px; padding-bottom: 8vh;
+}
+.notes-empty p { margin: 0; font-size: 14.5px; color: var(--text-secondary); }
+.notes-empty .btn-primary { display: inline-flex; align-items: center; width: auto; margin-top: 8px; }
 
 /* 内容区：正文限宽防大屏行长失控（~760px 是 26px 字号下舒适的阅读宽度上限） */
 .app.tablet .pages { flex: 1; }
@@ -940,6 +1005,10 @@ button.vault-line:disabled { cursor: default; }
 .app.tablet .page > .reader,
 .app.tablet .page > .add-bar { width: auto; max-width: none; align-self: auto; }
 .app.tablet .dock, .app.tablet .c-bar { display: none; }
+/* 壳底与内容区同一纸面色：侧栏玻璃面板（secondary）靠阴影/边框浮起（§10.1） */
+.app.tablet .pages { background: var(--bg-primary); }
+/* 空态引导铺满内容区（非浮层，但同样不要限宽） */
+.app.tablet .page > .notes-empty { max-width: none; width: auto; align-self: auto; }
 
 /* 贴底控件：不再给浮坞让位，直接贴近底缘（toasts 亦然） */
 .app.tablet .add-bar { bottom: calc(20px + env(safe-area-inset-bottom)); }
