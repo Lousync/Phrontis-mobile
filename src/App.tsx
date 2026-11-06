@@ -6,7 +6,7 @@ import { LedgerPage, TxSheet } from './components/pages/LedgerPage'
 import { NoteSheet, NotesPage } from './components/pages/NotesPage'
 import { UsagePage } from './components/pages/UsagePage'
 import { SettingsPage, AiConfigSheet, ThemePickerSheet } from './components/pages/SettingsPage'
-import { QrScanSheet } from './components/QrScanSheet'
+import { ScanOverlay } from './components/ScanOverlay'
 
 function Shell() {
   const { activeTab, sheet, kbSim, kbOpen, selDate } = useApp()
@@ -30,7 +30,7 @@ function Shell() {
         {sheet === 'sessions' && <SessionSheet />}
         {sheet === 'ai-config' && <AiConfigSheet />}
         {sheet === 'theme' && <ThemePickerSheet />}
-        {sheet === 'scan' && <QrScanSheet />}
+        {sheet === 'scan' && <ScanOverlay />}
         <Toasts />
       </div>
       {kbSim && <div className="kb-sim-band">模拟输入法区域 · 真机此处为键盘</div>}
