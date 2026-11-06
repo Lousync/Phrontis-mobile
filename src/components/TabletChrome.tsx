@@ -8,7 +8,7 @@ import { IBook, ICalendar, IChevL, IChevR, IGear, IQuiz, ISparkle, IWallet } fro
  * 用量保持二级入口不进侧栏。 */
 const NAV: Array<{ id: string; label: string; icon: (p: { size?: number }) => React.ReactElement }> = [
   { id: 'notes', label: '笔记 · 阅读', icon: IBook },
-  { id: 'quiz', label: '刷题', icon: IQuiz },
+  { id: 'quiz', label: '错题本', icon: IQuiz },
   { id: 'ai', label: 'AI 助手', icon: ISparkle },
   { id: 'schedule', label: '日程', icon: ICalendar },
   { id: 'ledger', label: '记账', icon: IWallet },

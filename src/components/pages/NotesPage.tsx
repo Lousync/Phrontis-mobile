@@ -7,7 +7,9 @@ import { useFormFactor } from '../../lib/useFormFactor'
 import {
   fetchNoteContent, fetchNoteTree, loadNoteCache, loadNoteTree, saveNoteCache, saveNoteTree,
 } from '../../lib/sync'
+import { splitDocSegments } from '../../lib/quizParse'
 import { IBack, IBars, ICheck, IChevR, IFolder, IPlus, IPen, ISearch } from '../../components/icons'
+import { QuizCard } from '../../components/QuizCard'
 import { PageHead } from '../../components/chrome'
 
 /* 备忘录式内容→条目：首行为标题（去掉 markdown # 前缀），其余为正文 */
@@ -87,7 +89,7 @@ function loadSel(): SyncSel {
 }
 
 export function NotesPage({ active }: { active: boolean }) {
-  const { phoneNotes, toast, paired, createPhoneNote, updatePhoneNote, discardPhoneNote, syncPhoneNote } = useApp()
+  const { phoneNotes, toast, paired, createPhoneNote, updatePhoneNote, discardPhoneNote, syncPhoneNote, quizRecords } = useApp()
   const tablet = useFormFactor() === 'tablet'
   const [kw, setKw] = useState('')
   const [tree, setTree] = useState(() => loadNoteTree())
@@ -222,6 +224,7 @@ export function NotesPage({ active }: { active: boolean }) {
 
   const folders = useMemo(() => buildFolders(tree.pages), [tree])
   const treeRoot = useMemo(() => buildTree(tree.pages), [tree])
+  const segs = useMemo(() => splitDocSegments(readerBody), [readerBody])
   const kwTrim = kw.trim()
 
   /** 打开电脑笔记：缓存且与 tree 版本一致（mtimeMs 对账）→ 直接读；否则在线拉取并落缓存 */
@@ -430,7 +433,18 @@ export function NotesPage({ active }: { active: boolean }) {
         </div>
       )}
       <div className="reader-body" ref={bodyRef}>
-        <div className="md" style={{ '--rfs': fontSz + 'px' } as CSSProperties} dangerouslySetInnerHTML={{ __html: mdRender(readerBody) }} />
+        {/* md 文档分段渲染：quiz 围栏 → 就地题卡（读文档即刷题），其余走 mdRender */}
+        {segs.map((s, i) => s.kind === 'md'
+          ? <div key={i} className="md" style={{ '--rfs': fontSz + 'px' } as CSSProperties} dangerouslySetInnerHTML={{ __html: mdRender(s.text) }} />
+          : (
+            <QuizCard
+              key={'q' + i}
+              spec={s.spec}
+              pageId={reader?.path || ''}
+              pageTitle={reader?.title || ''}
+              record={quizRecords.find(r => r.pageId === reader?.path && r.pageTitle === reader?.title && r.no === s.spec.no)}
+            />
+          ))}
       </div>
       <div className="reader-foot">
         <span className="note">

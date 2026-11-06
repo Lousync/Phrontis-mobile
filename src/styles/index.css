@@ -1039,6 +1039,11 @@ button.vault-line:disabled { cursor: default; }
 .qc-selfbtns .btn-bad { background: rgba(229, 87, 74, .12); color: var(--red); }
 .qc-next { width: 100%; }
 
+/* 阅读器内嵌题卡（quiz 围栏 → 就地刷题）：限宽与 .md 同口径，融入文档流 */
+.app.tablet .reader-body .qc-inline { max-width: 720px; width: 100%; margin: 14px auto; }
+.qc-inline .qc-meta { display: flex; align-items: center; gap: 8px; }
+.qc-inline .badge-sync { margin-left: auto; }
+
 /* 阅读字号可调：.md 以 --rfs 为字号源（阅读器容器内联注入），标题/行内代码随动 */
 .md { --rfs: 14px; }
 .md p, .md li { font-size: var(--rfs); }

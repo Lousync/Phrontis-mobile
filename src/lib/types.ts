@@ -243,3 +243,14 @@ export interface QuizRecord {
   lastResult: '' | 'correct' | 'wrong'
   updatedAt: number
 }
+
+export interface QuizSpec {
+  no: number
+  question: string
+  options: QuizOption[]
+  /** 选择题=选项 key；简答题=参考答案 */
+  answer: string
+  explanation: string
+  type?: 'choice' | 'short'
+  referenceAnswer?: string
+}

@@ -133,7 +133,7 @@ export function QuizPage({ active }: { active: boolean }) {
   /* 书架态：错题书架（按来源分书 + 错次档位）+ 统计 + 开始刷题 */
   return (
     <section className={'page' + (active ? ' active' : '')}>
-      <PageHead title="刷题">
+      <PageHead title="错题本">
         {unmastered.length > 0 && <button className="btn-primary quiz-go" onClick={startRun}>开始刷题 · {unmastered.length} 道未掌握</button>}
       </PageHead>
       <div className="quiz-stats">
@@ -164,7 +164,7 @@ export function QuizPage({ active }: { active: boolean }) {
           </div>
         )
       })}
-      {!quizRecords.length && <div className="empty" style={{ padding: '24px 0' }}>还没有题目——协议 v1.3 接通后从桌面错题库同步</div>}
+      {!quizRecords.length && <div className="empty" style={{ padding: '24px 0' }}>还没有错题记录——读带 quiz 题卡的文档，作答后自动归档到这里</div>}
     </section>
   )
 }

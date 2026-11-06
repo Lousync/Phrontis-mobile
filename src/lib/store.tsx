@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { ReactNode } from 'react'
-import type { AiChatMsg, AiConfig, AiMode, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteProposal, PairedDevice, PhoneNote, QuizRecord, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
+import type { AiChatMsg, AiConfig, AiMode, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteProposal, PairedDevice, PhoneNote, QuizRecord, QuizSpec, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
 import { THEME_IDS } from './types'
 import { seedFolders, seedHabits, seedSessions, seedTodos, seedEntries, TODAY, VOICE_PHRASES, welcomeText, dayIso, fmtMoney, monthOf, monthStats, txToDisplay } from './data'
 import {
@@ -161,6 +161,8 @@ interface Store {
   /* 刷题（桌面 quiz 模块移动子集；真相源暂为本地，协议 v1.3 接桌面 quiz 域） */
   quizRecords: QuizRecord[]
   answerQuiz: (id: string, correct: boolean) => void
+  /** 阅读器题卡作答：按 文档+题号 upsert 错题记录（首答建档，重答累计 streak/错次） */
+  upsertQuizAnswer: (pageId: string, pageTitle: string, spec: QuizSpec, correct: boolean) => void
 
   /* AI */
   aiMode: AiMode
@@ -694,6 +696,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updatedAt: Date.now(),
     }))
   }, [])
+  const upsertQuizAnswer = useCallback((pageId: string, pageTitle: string, spec: QuizSpec, correct: boolean) => {
+    setQuizRecords(list => {
+      const hit = list.find(r => r.pageId === pageId && r.pageTitle === pageTitle && r.no === spec.no)
+      if (hit) {
+        return list.map(r => r.id !== hit.id ? r : {
+          ...r,
+          correctCount: r.correctCount + (correct ? 1 : 0),
+          wrongCount: r.wrongCount + (correct ? 0 : 1),
+          streakCorrect: correct ? r.streakCorrect + 1 : 0,
+          lastResult: correct ? 'correct' : 'wrong',
+          updatedAt: Date.now(),
+        })
+      }
+      return [{
+        id: uuid(),
+        pageId, pageTitle, no: spec.no,
+        type: spec.type || 'choice',
+        question: spec.question,
+        options: spec.options,
+        answer: spec.answer,
+        explanation: spec.explanation,
+        wrongCount: correct ? 0 : 1,
+        correctCount: correct ? 1 : 0,
+        streakCorrect: correct ? 1 : 0,
+        lastResult: correct ? 'correct' : 'wrong',
+        updatedAt: Date.now(),
+      }, ...list]
+    })
+  }, [])
 
   /* ---------- AI ---------- */
 
@@ -1062,7 +1093,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     entries, txs, saveTx, updateTx, deleteTx, editTxId, openTxEdit,
     folders, toggleFolder, markCached, phoneNotes, addPhoneNote,
     createPhoneNote, updatePhoneNote, discardPhoneNote, syncPhoneNote,
-    quizRecords, answerQuiz,
+    quizRecords, answerQuiz, upsertQuizAnswer,
     aiMode, setAiMode, aiConfig, updateAiConfig, sessions, curSession, newSession, switchSession, deleteSession, renameSession, togglePin,
     streaming, streamText, sendChat, stopStream, confirmCard, dismissCard,
     voicePhase, voiceElapsed, toggleVoice,
