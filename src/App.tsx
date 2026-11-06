@@ -5,7 +5,7 @@ import { SchedulePage, TodoSheet } from './components/pages/SchedulePage'
 import { LedgerPage, TxSheet } from './components/pages/LedgerPage'
 import { NoteSheet, NotesPage } from './components/pages/NotesPage'
 import { UsagePage } from './components/pages/UsagePage'
-import { SettingsPage, AiConfigSheet } from './components/pages/SettingsPage'
+import { SettingsPage, AiConfigSheet, ThemePickerSheet } from './components/pages/SettingsPage'
 
 function Shell() {
   const { activeTab, sheet, kbSim, kbOpen, selDate } = useApp()
@@ -28,6 +28,7 @@ function Shell() {
         {sheet === 'note' && <NoteSheet />}
         {sheet === 'sessions' && <SessionSheet />}
         {sheet === 'ai-config' && <AiConfigSheet />}
+        {sheet === 'theme' && <ThemePickerSheet />}
         <Toasts />
       </div>
       {kbSim && <div className="kb-sim-band">模拟输入法区域 · 真机此处为键盘</div>}

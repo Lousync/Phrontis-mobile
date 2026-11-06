@@ -34,6 +34,8 @@ export function SettingsPage({ active }: { active: boolean }) {
   /* 已存配置的连接测试状态（摘要卡上；表单内测试在抽屉里另有一份） */
   const [testSt, setTestSt] = useState<null | { ok: boolean; ms?: number }>(null)
   const [testing, setTesting] = useState(false)
+  /* 入口行展示的当前主题（色板固定取目标主题自己的色值，不随当前主题变） */
+  const curTheme = THEME_PICKS.find(t => t.id === theme) ?? THEME_PICKS[0]
 
   const scopeRows: Array<{ k: string; label: string; why?: string }> = [
     { k: '记账', label: '记账 · 双向按条目合并（含删除）' },
@@ -188,32 +190,67 @@ export function SettingsPage({ active }: { active: boolean }) {
       <div>
         <div className="set-label">外观</div>
         <div className="card">
-          {/* 主题网格：一点即换，色板预览即所见 */}
-          <div className="theme-grid">
-            {THEME_PICKS.map(t => (
-              <button key={t.id} className={'theme-chip' + (theme === t.id ? ' on' : '')} onClick={() => setTheme(t.id)}>
-                <span className="sw" style={{ background: t.bg }}>
-                  <span className="dot" style={{ background: t.dot }} />
-                  <i className="l1" style={{ background: t.line }} />
-                  <i className="l2" style={{ background: t.line }} />
-                </span>
-                <span className="nm">{t.name}</span>
-                {theme === t.id && <span className="tick"><ICheck size={10} /></span>}
-              </button>
-            ))}
-          </div>
+          {/* 外观：一行式主题入口（2026-11-06 方案 A——七套平铺占两行半高度，收进抽屉；
+             色板展示目标主题自己的颜色，不随当前主题变） */}
+          <button className="theme-entry" onClick={e => openSheet('theme', e.currentTarget)}>
+            <span className="sw" style={{ background: curTheme.bg }}>
+              <span className="dot" style={{ background: curTheme.dot }} />
+              <i className="l1" style={{ background: curTheme.line }} />
+              <i className="l2" style={{ background: curTheme.line }} />
+            </span>
+            <span className="body">
+              <span className="n">{curTheme.name}</span>
+              <span className="s">当前主题 · 点按更换</span>
+            </span>
+            <IChevR size={14} />
+          </button>
           {/* 桌面 letterbox 专用（触屏经 CSS 隐藏）：验证键盘弹出时贴底控件上提 */}
           <div className="check-row kb-sim-row" onClick={toggleKbSim}>
             <span className={'box' + (kbSim ? ' on' : '')}>{kbSim && <ICheck size={11} />}</span>
             模拟输入法 <IKeyboard size={13} style={{ color: 'var(--text-muted)' }} />
             <span className="why">桌面调试</span>
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6 }}>四季包暂未带氛围粒子特效（桌面可开）。正式版提供「跟随桌面端主题」选项，主题配置随同步走。</div>
         </div>
       </div>
 
       <div className="ver">Phrontis Mobile {__APP_VERSION__} · 与桌面 3.15.1 配套</div>
     </section>
+  )
+}
+
+/* =========================================================================
+   外观主题抽屉（2026-11-06 方案 A：一行入口 + 抽屉，取代设置页 3 列平铺）
+   点 chip 即 setTheme 并立即关闭，不做「留在抽屉里预览再手动关」。
+   色板固定取目标主题自己的色值（THEME_PICKS），不随当前主题变。
+   ========================================================================= */
+export function ThemePickerSheet() {
+  const { theme, setTheme, closeSheet } = useApp()
+  return (
+    <Sheet>
+      <Grip />
+      <div className="aic-head">
+        <div className="aic-title">外观主题</div>
+        <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={closeSheet}><IX size={14} /></button>
+      </div>
+      <div className="theme-grid">
+        {THEME_PICKS.map(t => (
+          <button
+            key={t.id}
+            className={'theme-chip' + (theme === t.id ? ' on' : '')}
+            onClick={() => { setTheme(t.id); closeSheet() }}
+          >
+            <span className="sw" style={{ background: t.bg }}>
+              <span className="dot" style={{ background: t.dot }} />
+              <i className="l1" style={{ background: t.line }} />
+              <i className="l2" style={{ background: t.line }} />
+            </span>
+            <span className="nm">{t.name}</span>
+            {theme === t.id && <span className="tick"><ICheck size={10} /></span>}
+          </button>
+        ))}
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 12, textAlign: 'center' }}>点一下即换，选完自动关闭</div>
+    </Sheet>
   )
 }
 

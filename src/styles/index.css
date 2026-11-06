@@ -740,6 +740,18 @@ button.vault-line:disabled { cursor: default; }
   animation: tickIn .22s cubic-bezier(.34, 1.56, .64, 1) both;
 }
 @keyframes tickIn { from { transform: scale(0); } }
+/* 外观入口行（2026-11-06 方案 A）：当前主题色板 + 名称 + 副文案 + chevron，点开主题抽屉 */
+.theme-entry { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; padding: 7px 2px; border-radius: 10px; transition: background .13s; }
+.theme-entry:active { background: var(--bg-tertiary); }
+.theme-entry .sw { position: relative; width: 36px; height: 36px; border-radius: 10px; border: 1.5px solid var(--border-soft); flex: none; }
+.theme-entry .sw .dot { position: absolute; top: 6px; right: 6px; width: 9px; height: 9px; border-radius: 50%; }
+.theme-entry .sw i { display: block; height: 3px; border-radius: 2px; margin-left: 7px; }
+.theme-entry .sw i.l1 { width: 16px; margin-top: 17px; opacity: .75; }
+.theme-entry .sw i.l2 { width: 10px; margin-top: 4px; opacity: .4; }
+.theme-entry .body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.theme-entry .n { font-size: 13.5px; color: var(--text-primary); }
+.theme-entry .s { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+.theme-entry > svg { color: var(--text-muted); flex: none; }
 .device-card { display: flex; align-items: center; gap: 12px; }
 .device-ico { width: 42px; height: 42px; border-radius: 12px; background: var(--accent-soft); color: var(--accent-hover); display: flex; align-items: center; justify-content: center; flex: none; }
 .device-card .info { flex: 1; }
