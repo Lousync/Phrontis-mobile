@@ -241,6 +241,11 @@ button.c-meta:active { opacity: .7; }
   display: none; flex-direction: column; gap: 14px; overscroll-behavior: contain;
 }
 .page.active { display: flex; animation: pageIn .22s ease; }
+/* 键盘弹起时收掉给浮坞让位的 96px 底部留白 —— 浮坞此刻已被 .kb-open 隐藏，
+ * 留着就是一大块空洞（真机实测输入框离键盘约 100px）。只留 10px 净空，输入栏贴住键盘上沿。 */
+.app.kb-open .page { padding-bottom: 10px; }
+/* 抽屉同理：它底部本来留 28px 给「键盘收起时的安全区」，键盘真的在时只需一点净空 */
+.app.kb-open .sheet { padding-bottom: 12px; }
 @keyframes pageIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /* 全部完成：页面色温极淡变暖（勾选组合拳的收尾一层） */

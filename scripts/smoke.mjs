@@ -238,6 +238,10 @@ ok('输入框聚焦后抽屉仍贴壳底（不下沉）', await page.locator('#r
   const app = el.closest('.app')
   return !!app && Math.abs(el.getBoundingClientRect().bottom - app.getBoundingClientRect().bottom) < 2
 }))
+/* 键盘弹起时浮坞已隐藏，那 96px 的「给浮坞让位」留白必须收掉，否则输入栏离键盘一大截 */
+ok('键盘弹起时页面底部留白收掉（输入栏贴键盘）',
+  parseFloat(await page.locator('#root .page.active').evaluate(el => getComputedStyle(el).paddingBottom)) <= 12,
+)
 await page.locator('#root .sheet .key-wrap input').fill('sk-smoke-fake')
 await page.locator('#root .sheet .aic-foot .btn-primary').click()
 await page.waitForTimeout(500)
