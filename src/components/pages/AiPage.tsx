@@ -269,13 +269,19 @@ export function AiPage({ active }: { active: boolean }) {
 
       <div className="composer">
         <div className="input-bar">
-          <button className={'mic-btn' + (voicePhase === 'recording' ? ' rec' : '')} onClick={toggleVoice}>{micInner}</button>
+          {/* 三个按钮都用 onMouseDown preventDefault：不让它们抢走 input 的焦点。
+              否则点发送 → input 失焦 → 键盘收起 → 壳变高、页面底部留白从 10px 恢复成 96px，
+              整条输入栏在「按下」和「抬起」之间下移近百像素，pointerup 落到别处，
+              click 不成立 —— 用户实测的「输入框消失、再点一次才发出去」就是这个。
+              用 onMouseDown 而非 onPointerDown：前者不会吞掉 click（iOS 上有过坑）。 */}
+          <button className={'mic-btn' + (voicePhase === 'recording' ? ' rec' : '')}
+            onMouseDown={e => e.preventDefault()} onClick={toggleVoice}>{micInner}</button>
           <span className={'voice-bars' + (voicePhase === 'recording' ? ' on' : '')}><i /><i /><i /><i /></span>
           <input value={input} onChange={e => setInput(e.target.value)} disabled={voicePhase !== 'idle'}
             placeholder={placeholder} onKeyDown={e => { if (e.key === 'Enter') doSend() }} />
           {streaming
-            ? <button className="send-btn stop" onClick={stopStream} title="停止生成"><IStop size={15} /></button>
-            : <button className="send-btn" onClick={doSend} disabled={!input.trim()}><ISend /></button>}
+            ? <button className="send-btn stop" onMouseDown={e => e.preventDefault()} onClick={stopStream} title="停止生成"><IStop size={15} /></button>
+            : <button className="send-btn" onMouseDown={e => e.preventDefault()} onClick={doSend} disabled={!input.trim()}><ISend /></button>}
         </div>
       </div>
 
