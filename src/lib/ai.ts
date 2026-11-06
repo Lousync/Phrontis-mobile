@@ -144,6 +144,8 @@ export function modelsUrlOf(cfg: AiConfig): string {
 
 export interface AiReply {
   content: string
+  /** 思考痕迹（仅推理模型返回）：DeepSeek / 硅基流动用 reasoning_content，OpenRouter 系用 reasoning */
+  reasoning?: string
   toolCalls: AiToolCall[]
 }
 
@@ -177,7 +179,7 @@ export async function chatOnce(
       signal: ctrl.signal,
     })
     const json = await res.json().catch(() => ({})) as {
-      choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown } }>
+      choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown; reasoning_content?: unknown; reasoning?: unknown } }>
       error?: { message?: string }
     }
     if (!res.ok) {
@@ -185,8 +187,13 @@ export async function chatOnce(
     }
     const msg = json?.choices?.[0]?.message
     if (!msg) throw new Error('模型返回格式异常')
+    /* 思考痕迹：不同网关字段名不同（DeepSeek/Qwen/硅基流动 = reasoning_content，
+       OpenRouter 系 = reasoning）。两者都取不到就是普通模型，不显示折叠区。 */
+    const rawReason = typeof msg.reasoning_content === 'string' ? msg.reasoning_content
+      : typeof msg.reasoning === 'string' ? msg.reasoning : ''
     return {
       content: typeof msg.content === 'string' ? msg.content : '',
+      reasoning: rawReason.trim() ? rawReason.trim() : undefined,
       toolCalls: Array.isArray(msg.tool_calls) ? (msg.tool_calls as AiToolCall[]) : [],
     }
   } catch (e) {

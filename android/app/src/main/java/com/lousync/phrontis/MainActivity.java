@@ -1,6 +1,8 @@
 package com.lousync.phrontis;
 
+import android.content.pm.ActivityInfo;
 import android.os.Bundle;
+import android.util.DisplayMetrics;
 import android.webkit.WebView;
 
 import androidx.core.graphics.Insets;
@@ -44,7 +46,31 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        applyOrientationPolicy();
         hookInsets();
+    }
+
+    /**
+     * 屏幕方向策略（2026-11-06）：手机锁竖屏，平板不干预。
+     *
+     * 为什么不在清单里写 android:screenOrientation="portrait"：那是静态值，一份 APK 对所有设备生效，
+     * 平板会跟着被锁死。而横屏只该由平板使用 —— 手机横过来时 .app 的 letterbox 规则（宽度 ≥480px
+     * 收窄成 420px 居中卡片）会把界面压成一条，既不是一套真正的横向布局，也不该被看到。
+     *
+     * sw600dp 是 Android 通用的平板断点（平板线 feat/tablet 的 useFormFactor 也取 768px 宽度，
+     * 二者在常见机型上一致）。平板保持 UNSPECIFIED —— 跟随系统旋转与用户的旋转锁，
+     * 由那边的自适应两栏布局接管。
+     */
+    private void applyOrientationPolicy() {
+        int swDp = getResources().getConfiguration().smallestScreenWidthDp;
+        if (swDp <= 0) {
+            /* 极少数设备/初始化阶段该值为 0（未填充），按短边估算，避免把平板误判成手机 */
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            swDp = Math.round(Math.min(dm.widthPixels, dm.heightPixels) / dm.density);
+        }
+        setRequestedOrientation(swDp >= 600
+                ? ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
     }
 
     private void hookInsets() {

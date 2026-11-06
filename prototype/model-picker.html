@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>模型选择器原型 · 全屏子页</title>
+<style>
+  :root {
+    --bg: #f6f4ea; --card: #fffef8; --field: #f1eede;
+    --border: rgba(60,58,40,.14); --border-soft: rgba(60,58,40,.08);
+    --text: #2c2c2a; --muted: #8a8878; --accent: #2e8b3d;
+    --gold: #b07a18;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { background: #e9e6d8; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; color: var(--text); display: flex; justify-content: center; padding: 24px 12px; min-height: 100vh; }
+  .note { max-width: 430px; color: #6f6d5c; font-size: 12px; line-height: 1.7; margin: 0 auto 18px; }
+  .note b { color: var(--text); font-weight: 500; }
+  .phone { position: relative; width: 390px; height: 780px; background: var(--bg); border-radius: 28px; border: 1px solid var(--border); overflow: hidden; box-shadow: 0 24px 70px rgba(40,38,20,.28); }
+  .pg { padding: 26px 20px 0; height: 100%; }
+  .set-label { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 1px; margin: 4px 0 8px; }
+  .card { background: var(--card); border: 1px solid var(--border-soft); border-radius: 18px; padding: 16px; margin-bottom: 22px; }
+  .device-card { display: flex; align-items: center; gap: 12px; }
+  .device-ico { width: 42px; height: 42px; border-radius: 13px; background: var(--field); display: flex; align-items: center; justify-content: center; font-size: 19px; flex: none; }
+  .device-card .n { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+  .device-card .s { font-size: 12px; color: var(--muted); margin-top: 3px; display: flex; align-items: center; gap: 8px; }
+  .pdot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+  .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .btn-row { display: flex; gap: 9px; margin-top: 14px; }
+  .btn-row button { flex: 1; height: 44px; border-radius: 13px; font-size: 14px; cursor: pointer; border: none; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-ghost { background: none; border: 1px solid var(--border) !important; color: var(--text); }
+  .model-field { display: flex; align-items: center; gap: 10px; background: var(--field); border-radius: 12px; padding: 12px 13px; cursor: pointer; }
+  .model-field .lab { font-size: 11px; color: var(--muted); }
+  .model-field .val { font-size: 13.5px; font-family: ui-monospace, Menlo, monospace; margin-top: 2px; }
+  .model-field .chev { margin-left: auto; color: var(--muted); }
+  /* 全屏子页：右侧滑入（同扫码页 scan-full 形态），不是上伸抽屉 */
+  .picker-full { position: absolute; inset: 0; z-index: 60; background: var(--bg); transform: translateX(102%); transition: transform .3s cubic-bezier(.32,.72,.28,1); display: flex; flex-direction: column; }
+  .picker-full.open { transform: translateX(0); }
+  .pk-head { display: flex; align-items: center; gap: 10px; padding: calc(14px + 18px) 16px 12px; border-bottom: 1px solid var(--border-soft); background: var(--card); flex: none; }
+  .pk-head .back { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 17px; padding: 4px 6px; }
+  .pk-head .t { font-size: 17px; font-weight: 700; }
+  .pk-head .from { font-size: 11.5px; color: var(--muted); margin-left: auto; display: flex; align-items: center; gap: 5px; padding-right: 4px; }
+  .pk-search { padding: 12px 16px 6px; flex: none; }
+  .search { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--border-soft); border-radius: 12px; padding: 10px 12px; }
+  .search input { flex: 1; background: none; border: none; outline: none; color: var(--text); font-size: 14px; }
+  .search input::placeholder { color: var(--muted); }
+  .list { flex: 1; overflow-y: auto; padding: 2px 12px 20px; scrollbar-width: thin; scrollbar-color: rgba(60,58,40,.2) transparent; }
+  .g-head { font-size: 11.5px; color: var(--muted); letter-spacing: 1px; padding: 14px 8px 7px; }
+  .m-card { background: var(--card); border: 1px solid var(--border-soft); border-radius: 15px; margin-bottom: 8px; display: flex; align-items: center; gap: 11px; padding: 12px 13px; cursor: pointer; }
+  .m-card.sel { border-color: rgba(46,139,61,.45); background: rgba(46,139,61,.06); }
+  .avatar { width: 40px; height: 40px; border-radius: 12px; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; flex: none; }
+  .m-body { flex: 1; min-width: 0; }
+  .m-name { font-size: 13.5px; font-weight: 600; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .m-tags { display: flex; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
+  .tag { font-size: 10px; border-radius: 6px; padding: 1.5px 7px; background: var(--field); color: var(--muted); }
+  .tag.def { background: rgba(176,122,24,.13); color: var(--gold); }
+  .tag.r { background: rgba(46,139,61,.1); color: var(--accent); }
+  .tick { width: 22px; height: 22px; border-radius: 50%; flex: none; border: 1.5px solid var(--border); display: flex; align-items: center; justify-content: center; color: transparent; font-size: 11px; }
+  .m-card.sel .tick { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 30px 0; }
+  .foot { flex: none; padding: 10px 16px calc(14px + 10px); text-align: center; font-size: 11px; color: var(--muted); background: var(--card); border-top: 1px solid var(--border-soft); }
+</style>
+</head>
+<body>
+<div style="width:430px">
+  <div class="note"><b>模型选择器原型 · 全屏子页版</b> —— 点设置卡里的模型行，整页从<b>右侧</b>滑入（同扫码页形态，不是上伸抽屉）。独立页头 + 大空间列表，标签/徽标/圆勾沿用上一版设计。</div>
+  <div class="phone">
+    <div class="pg">
+      <div class="set-label">AI 模型（手机直连）</div>
+      <div class="card">
+        <div class="device-card">
+          <div class="device-ico">✦</div>
+          <div class="info">
+            <div class="n"><span class="pdot" style="background:#1f6f43"></span>opencode</div>
+            <div class="s"><span class="mono" id="sumModel">qwen3-coder</span><span class="st" style="background:var(--field);padding:2px 8px;border-radius:999px;font-size:11.5px;color:var(--muted)">未测试</span></div>
+          </div>
+        </div>
+        <div class="btn-row"><button class="btn-ghost">测试连接</button><button class="btn-primary">保存</button></div>
+        <div style="margin-top:14px" class="model-field" onclick="openPicker()">
+          <span class="pdot" style="background:#1f6f43"></span>
+          <span style="flex:1"><span class="lab">模型</span><br><span class="val" id="fieldModel">qwen3-coder</span></span>
+          <span class="chev">›</span>
+        </div>
+      </div>
+    </div>
+    <div class="picker-full" id="pk">
+      <div class="pk-head">
+        <button class="back" onclick="closePicker()">‹</button>
+        <span class="t">选择模型</span>
+        <span class="from" id="fromInfo"><span class="pdot" style="background:#1f6f43"></span>来自 opencode · 6 个</span>
+      </div>
+      <div class="pk-search"><div class="search"><span style="color:var(--muted);font-size:13px">🔍</span><input id="kw" placeholder="搜索模型"></div></div>
+      <div class="list" id="list"></div>
+      <div class="foot">清单由端点 /models 拉取 · 拉取失败可手填</div>
+    </div>
+  </div>
+</div>
+<script>
+  const $ = id => document.getElementById(id);
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  // 模拟 /models 拉取结果；tag: def=官方默认 r=推理 ctx=长文本 fast=快速 eco=经济 vision=视觉
+  const GROUPS = [
+    { head: '推荐', items: [
+      { name: 'qwen3-coder', tags: [['def', '默认'], ['r', '代码强'], ['fast', '快速']], color: '#1f6f43', ch: 'Q' },
+      { name: 'claude-sonnet-4', tags: [['r', '推理'], ['ctx', '200K 长文本']], color: '#b07a18', ch: 'C' },
+    ]},
+    { head: '全部模型', items: [
+      { name: 'gpt-5', tags: [['r', '推理'], ['vision', '视觉']], color: '#0f766e', ch: 'G' },
+      { name: 'gemini-2.5-pro', tags: [['ctx', '1M 长文本'], ['vision', '视觉']], color: '#7c5cd6', ch: 'G' },
+      { name: 'deepseek-v3', tags: [['eco', '经济']], color: '#4d6bfe', ch: 'D' },
+      { name: 'kimi-k2', tags: [['ctx', '长文本'], ['eco', '经济']], color: '#c0392b', ch: 'K' },
+    ]},
+  ];
+  let cur = 'qwen3-coder';
+  function rows() {
+    const kw = $('kw').value.trim().toLowerCase();
+    let html = '', n = 0;
+    for (const g of GROUPS) {
+      const items = g.items.filter(m => m.name.toLowerCase().includes(kw));
+      if (!items.length) continue;
+      html += `<div class="g-head">${g.head}</div>`;
+      for (const m of items) {
+        n++;
+        html += `<div class="m-card${m.name === cur ? ' sel' : ''}" onclick="pick('${m.name}')">
+          <span class="avatar" style="background:${m.color}">${m.ch}</span>
+          <span class="m-body"><span class="m-name">${esc(m.name)}</span>
+          <span class="m-tags">${m.tags.map(([c, t]) => `<span class="tag ${c}">${t}</span>`).join('')}</span></span>
+          <span class="tick">✓</span></div>`;
+      }
+    }
+    $('list').innerHTML = n ? html : '<div class="empty">没有匹配的模型</div>';
+    $('fromInfo').innerHTML = `<span class="pdot" style="background:#1f6f43"></span>来自 opencode · ${n} 个`;
+  }
+  function openPicker() { $('pk').classList.add('open'); $('kw').value = ''; rows(); }
+  function closePicker() { $('pk').classList.remove('open'); }
+  function pick(name) { cur = name; $('fieldModel').textContent = name; $('sumModel').textContent = name; rows(); setTimeout(closePicker, 180); }
+  $('kw').oninput = rows;
+</script>
+</body>
+</html>

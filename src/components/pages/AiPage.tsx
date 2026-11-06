@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Msg, NoteProposal, QuizAddProposal, QuizDelProposal, QuizNoteProposal, Session, TodoProposal, TxProposal } from '../../lib/types'
 import { fmtMoney, mdRender, sessGroupKey, TODO_TYPE_LABEL } from '../../lib/data'
 import { useApp } from '../../lib/store'
-import { ICheck, IHistory, IMic, ISearch, ISend, ISparkle, IPlus, IDots, IStop } from '../icons'
+import { ICheck, IHistory, IMic, ISearch, ISend, ISparkle, IPlus, IDots, IStop, IChevR } from '../icons'
 import { Grip, Sheet } from '../Sheet'
 import { PageHead } from '../chrome'
 
@@ -115,23 +115,34 @@ function ActionCard({ m }: { m: Msg }) {
   )
 }
 
+/**
+ * 思考痕迹：一行折叠 + 左细线展开体（观感对齐桌面 `.kb-think`）。
+ * 只在手机直连档、且模型确实返回了 reasoning 时出现；默认收起——思考不是答案，不该抢正文。
+ * 展开是页内内联展开，不弹层（符合项目 UI 规范）。
+ */
+function ThinkBlock({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className={'think' + (open ? ' open' : '')}>
+      <button className="think-head" onClick={() => setOpen(v => !v)}>
+        <IChevR size={11} />
+        思考过程
+        <span className="think-meta">{text.length} 字</span>
+      </button>
+      {open && <div className="think-body">{text}</div>}
+    </div>
+  )
+}
+
 function MsgView({ m }: { m: Msg }) {
   if (m.role === 'user') return <div className="msg user">{m.text}</div>
   return (
     <div className="msg ai">
-      <span dangerouslySetInnerHTML={{ __html: m.text }} />
+      {m.reason && <ThinkBlock text={m.reason} />}
+      {/* 2026-11-06：此前直接 innerHTML 塞原文，**加粗** / 列表 / 代码块全是字面量；
+          统一走 mdRender（与流式同一渲染器），并套 .md 复用笔记阅读器的排版 */}
+      <div className="md" dangerouslySetInnerHTML={{ __html: mdRender(m.text) }} />
       {m.card && <ActionCard m={m} />}
-      {m.changes && m.changes.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 4 }}>电脑端本次改动</div>
-          {m.changes.map((c, i) => (
-            <div className="mini-todo" key={i}>
-              <span className="mt-dot" style={{ background: 'var(--accent)' }} />
-              <span>{c.action} · {c.target}</span>
-            </div>
-          ))}
-        </div>
-      )}
       {m.list && m.list.length > 0 && (
         <div style={{ marginTop: 8 }}>
           {m.list.map(t => (
@@ -267,7 +278,7 @@ export function SessionSheet() {
 }
 
 export function AiPage({ active }: { active: boolean }) {
-  const { sessions, curSession, streaming, streamText, sendChat, stopStream, aiMode, setAiMode, voicePhase, voiceElapsed, toggleVoice, openSheet } = useApp()
+  const { sessions, curSession, streaming, streamText, sendChat, stopStream, voicePhase, voiceElapsed, toggleVoice, openSheet } = useApp()
   const [input, setInput] = useState('')
   const sess = sessions.find(s => s.id === curSession) ?? sessions[0]
   const chatRef = useRef<HTMLDivElement>(null)
@@ -288,19 +299,14 @@ export function AiPage({ active }: { active: boolean }) {
   return (
     <section className={'page' + (active ? ' active' : '')}>
       <PageHead title="AI 助手">
-        <div className="ai-mode">
-          <button className={aiMode === 'direct' ? 'on' : ''} onClick={() => setAiMode('direct')}><span className="mdot" />手机直连</button>
-          <button className={aiMode === 'pc' ? 'on pc' : ''} onClick={() => setAiMode('pc')}><span className="mdot" />电脑 AI</button>
-        </div>
         <button className="icon-btn" style={{ width: 32, height: 32, flex: 'none' }} onClick={e => openSheet('sessions', e.currentTarget)}><IHistory /></button>
       </PageHead>
 
       <div className="chat" ref={chatRef}>
         {sess.messages.map(m => <MsgView key={m.id} m={m} />)}
         {streaming && (
-          <div className="msg ai">
-            <span dangerouslySetInnerHTML={{ __html: mdRender(streamText).replace(/^<p>/, '').replace(/<\/p>$/, '') }} />
-            <span className="cursor" />
+          <div className="msg ai streaming">
+            <div className="md" dangerouslySetInnerHTML={{ __html: mdRender(streamText).replace(/^<p>/, '').replace(/<\/p>$/, '') }} />
           </div>
         )}
       </div>

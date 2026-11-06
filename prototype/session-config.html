@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 供应商配置 · 极简编辑态原型</title>
+<style>
+  :root {
+    --bg: #f6f4ea; --card: #fffef8; --field: #f1eede;
+    --border: rgba(60,58,40,.14); --border-soft: rgba(60,58,40,.08);
+    --text: #2c2c2a; --muted: #8a8878; --accent: #2e8b3d; --accent-deep: #256f31;
+    --amber: #b07a18; --red: #c0392b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { background: #e9e6d8; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; color: var(--text); display: flex; justify-content: center; padding: 24px 12px; min-height: 100vh; }
+  .note { max-width: 430px; color: #6f6d5c; font-size: 12px; line-height: 1.7; margin: 0 auto 18px; }
+  .note b { color: var(--text); font-weight: 500; }
+  .phone { position: relative; width: 390px; height: 780px; background: var(--bg); border-radius: 28px; border: 1px solid var(--border); overflow: hidden; box-shadow: 0 24px 70px rgba(40,38,20,.28); }
+  .pg { padding: 26px 20px 0; height: 100%; overflow-y: auto; }
+  .set-label { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 1px; margin: 4px 0 8px; }
+  .card { background: var(--card); border: 1px solid var(--border-soft); border-radius: 18px; padding: 16px; margin-bottom: 22px; }
+  .device-card { display: flex; align-items: center; gap: 12px; }
+  .device-ico { width: 42px; height: 42px; border-radius: 13px; background: var(--field); display: flex; align-items: center; justify-content: center; font-size: 19px; flex: none; }
+  .device-card .n { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+  .device-card .s { font-size: 12px; color: var(--muted); margin-top: 3px; display: flex; align-items: center; gap: 8px; }
+  .pdot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+  .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .st { padding: 2px 8px; border-radius: 999px; background: var(--field); }
+  .st.ok { background: rgba(46,139,61,.14); color: var(--accent); }
+  .btn-row { display: flex; gap: 9px; margin-top: 14px; }
+  .btn-row button { flex: 1; height: 44px; border-radius: 13px; font-size: 14px; cursor: pointer; border: none; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-ghost { background: none; border: 1px solid var(--border) !important; color: var(--text); }
+  .hint { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin-top: 10px; }
+  .backdrop { position: absolute; inset: 0; background: rgba(30,28,12,.45); opacity: 0; pointer-events: none; transition: opacity .22s; z-index: 40; }
+  .backdrop.open { opacity: 1; pointer-events: auto; }
+  .sheet { position: absolute; left: 0; right: 0; bottom: -102%; z-index: 41; background: var(--card); border-radius: 22px 22px 0 0; border-top: 1px solid var(--border); padding: 10px 20px 26px; transition: bottom .3s cubic-bezier(.32,.72,.28,1); max-height: 92%; overflow-y: auto; }
+  .sheet.open { bottom: 0; }
+  .grip { width: 38px; height: 4px; border-radius: 2px; background: var(--border); margin: 4px auto 12px; }
+  .aic-head { display: flex; align-items: center; margin-bottom: 14px; }
+  .aic-head .t { font-size: 16px; font-weight: 600; flex: 1; text-align: center; }
+  .icon-btn { border: none; background: none; color: var(--muted); cursor: pointer; padding: 6px; font-size: 14px; width: 30px; }
+  /* 供应商一行（可展开） */
+  .prov-row { display: flex; align-items: center; gap: 9px; background: var(--field); border-radius: 12px; padding: 11px 13px; cursor: pointer; margin-bottom: 14px; }
+  .prov-row .n { font-size: 13.5px; font-weight: 600; }
+  .prov-row .s { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .prov-row .chev { margin-left: auto; color: var(--muted); font-size: 13px; transition: transform .18s; }
+  .prov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .prov-card { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border-soft); background: none; border-radius: 12px; padding: 10px 11px; cursor: pointer; text-align: left; }
+  .prov-card.on { border-color: var(--accent); background: rgba(46,139,61,.07); }
+  .prov-card .pn { font-size: 12.5px; font-weight: 600; display: flex; gap: 5px; align-items: center; }
+  .prov-card .pn em { font-style: normal; font-size: 10px; color: var(--accent); border: 1px solid var(--accent); border-radius: 6px; padding: 0 4px; }
+  .prov-card .ps { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 7px; }
+  .in-wrap { position: relative; }
+  .field input { width: 100%; background: var(--field); border: 1px solid transparent; border-radius: 12px; padding: 12px 13px; font-size: 15px; outline: none; color: var(--text); }
+  .field input:focus { border-color: var(--accent); background: var(--card); }
+  .field input.err { border-color: var(--red); }
+  .field .eye { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); border: none; background: none; color: var(--muted); cursor: pointer; padding: 4px; }
+  .model-row { display: flex; gap: 8px; }
+  .model-row input { flex: 1; }
+  .fetch-btn { flex: none; border: 1px solid var(--border); background: none; border-radius: 12px; padding: 0 14px; font-size: 13px; color: var(--text); cursor: pointer; }
+  .fetch-btn:disabled { color: var(--muted); opacity: .6; cursor: default; }
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+  .chips button { border: 1px solid var(--border-soft); background: var(--field); border-radius: 999px; padding: 6px 12px; font-size: 12px; color: var(--text); cursor: pointer; font-family: ui-monospace, Menlo, monospace; }
+  .chips button.on { border-color: var(--accent); color: var(--accent); background: rgba(46,139,61,.08); }
+  .adv { border-top: 1px solid var(--border-soft); margin-top: 4px; }
+  .adv-head { display: flex; align-items: center; gap: 6px; padding: 12px 2px; font-size: 13px; color: var(--muted); cursor: pointer; }
+  .adv-head .chev { transition: transform .18s; }
+  .adv-head.open .chev { transform: rotate(90deg); }
+  .adv-body { display: none; padding-bottom: 6px; }
+  .adv-body.open { display: block; }
+  .kv { background: var(--field); border-radius: 11px; padding: 10px 12px; font-size: 12px; line-height: 1.9; margin-bottom: 10px; }
+  .kv b { color: var(--muted); font-weight: 400; display: inline-block; width: 64px; }
+  .badge { font-size: 10px; border-radius: 6px; padding: 1px 6px; margin-left: 6px; }
+  .badge.ok { color: var(--accent); border: 1px solid rgba(46,139,61,.4); }
+  .foot { display: flex; gap: 9px; margin-top: 16px; }
+  .foot button { flex: 1; height: 46px; border-radius: 13px; font-size: 14.5px; cursor: pointer; border: none; }
+  .toast { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%) translateY(8px); background: rgba(40,40,36,.94); color: #fff; font-size: 12.5px; padding: 9px 16px; border-radius: 999px; opacity: 0; transition: all .25s; z-index: 50; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div style="width:430px">
+  <div class="note"><b>AI 供应商配置 · 极简编辑态原型</b> —— 点「编辑配置」打开抽屉。<b>已配置 = 直接进编辑态</b>（Key + 模型为主，供应商收成一行，预设说明收进高级）；「重置为未配置」可预览首次添加的两步流。缺陷修法：编辑态表单<b>回填已存配置</b>，Key 留空 = 保留旧 Key。</div>
+  <div class="phone">
+    <div class="pg">
+      <div class="set-label">AI 模型（手机直连）</div>
+      <div class="card">
+        <div class="device-card">
+          <div class="device-ico">✦</div>
+          <div class="info">
+            <div class="n"><span class="pdot" style="background:#1f6f43"></span>opencode</div>
+            <div class="s"><span class="mono" id="sumModel">qwen3-coder</span><span class="st ok" id="sumSt">可用 · 843ms</span></div>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn-ghost" onclick="toast('已向当前配置发一条测试消息')">测试连接</button>
+          <button class="btn-primary" onclick="openSheet('edit')">编辑配置</button>
+        </div>
+        <div class="hint">Key 只存手机本地，不上行不同步。换供应商不会丢聊天记录。<a href="javascript:void(0)" onclick="resetUnconfig()" style="color:var(--amber)">重置为未配置（预览两步流）</a></div>
+      </div>
+    </div>
+    <div class="backdrop" id="backdrop" onclick="closeSheet()"></div>
+    <div class="sheet" id="sheet">
+      <div class="grip"></div>
+      <div class="aic-head"><span class="icon-btn"></span><div class="t" id="sheetTitle">编辑 AI 配置</div><button class="icon-btn" onclick="closeSheet()">✕</button></div>
+      <div id="body"></div>
+    </div>
+    <div class="toast" id="toast"></div>
+  </div>
+</div>
+<script>
+  const $ = id => document.getElementById(id);
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const PRESETS = {
+    opencode: { name: 'opencode', color: '#1f6f43', base: 'https://opencode.ai/inference/go/v1', proto: 'OpenAI 兼容', head: 'x-opencode-session：按对话自动带上', defModel: 'qwen3-coder', models: ['qwen3-coder', 'claude-sonnet-4', 'gpt-5', 'gemini-2.5-pro'] },
+    deepseek: { name: 'DeepSeek', color: '#4d6bfe', base: 'https://api.deepseek.com/v1', proto: 'OpenAI 兼容', head: '—', defModel: 'deepseek-chat', models: ['deepseek-chat', 'deepseek-reasoner'] },
+    zhipu: { name: '智谱 GLM', color: '#3859ff', base: 'https://open.bigmodel.cn/api/paas/v4', proto: 'OpenAI 兼容', head: '—', defModel: 'glm-4.7', models: ['glm-4.7', 'glm-4.7-air'] },
+  };
+  // 已保存配置（模拟 pm.aiConfig）；keySaved = 用户不重输时保留的旧 Key
+  let saved = { provider: 'opencode', base: PRESETS.opencode.base, keySaved: 'sk-opencode-9f2e…c41d', model: 'qwen3-coder' };
+  let mode = 'edit', provOpen = false, advOpen = false, showKey = false;
+  let draft = {};
+  const presetOf = id => PRESETS[id];
+
+  function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1600); }
+  function openSheet(m) { mode = m; provOpen = false; advOpen = false; draft = {}; $('backdrop').classList.add('open'); $('sheet').classList.add('open'); render(); }
+  function closeSheet() { $('backdrop').classList.remove('open'); $('sheet').classList.remove('open'); }
+  function resetUnconfig() { saved = null; $('sumModel').textContent = '未选模型'; $('sumSt').textContent = '未配置'; $('sumSt').className = 'st'; toast('已重置为未配置——现在打开抽屉是两步添加流'); }
+
+  const provRow = p => `<div class="prov-row" onclick="provOpen=!provOpen;render()"><span class="pdot" style="background:${p.color}"></span><span><div class="n">${p.name}</div><div class="s">点按更换供应商</div></span><span class="chev">›</span></div>`;
+  const provGrid = cur => `<div class="prov-grid">${Object.entries(PRESETS).map(([id, p]) => `<button class="prov-card${id === cur ? ' on' : ''}" onclick="pickProv('${id}')"><span class="pdot" style="background:${p.color}"></span><span><div class="pn">${p.name}${id === cur ? '<em>当前</em>' : ''}</div><div class="ps">${p.proto}</div></span></button>`).join('')}</div>`;
+
+  function render() {
+    if (!saved && mode === 'edit') mode = 'pick';
+    if (mode === 'pick') { // 未配置：两步添加流的第一步
+      $('sheetTitle').textContent = '选择供应商';
+      $('body').innerHTML = `<div class="prov-grid">${Object.entries(PRESETS).map(([id, p]) => `<button class="prov-card" onclick="addProv('${id}')"><span class="pdot" style="background:${p.color}"></span><span><div class="pn">${p.name}</div><div class="ps">${p.proto}</div></span></button>`).join('')}</div><div class="hint" style="text-align:center">选中预设 → 只差粘一个 Key</div>`;
+      return;
+    }
+    // 编辑态：供应商收成一行，Key + 模型为主
+    const p = presetOf(draft.provider || saved.provider);
+    const pid = draft.provider || saved.provider;
+    const model = draft.model !== undefined ? draft.model : saved.model;
+    $('sheetTitle').textContent = '编辑 AI 配置';
+    $('body').innerHTML = `
+      ${provOpen ? provGrid(pid) : provRow(p)}
+      <div class="field"><label>API Key</label><div class="in-wrap">
+        <input id="fKey" type="${showKey ? 'text' : 'password'}" placeholder="已保存（重输即覆盖，留空保留旧 Key）" oninput="draft.key=this.value">
+        <button class="eye" onclick="showKey=!showKey;render()">${showKey ? '🙈' : '👁'}</button></div></div>
+      <div class="field"><label>模型</label><div class="model-row">
+        <input id="fModel" class="${draft.modelErr ? 'err' : ''}" value="${esc(model)}" oninput="draft.model=this.value;draft.modelErr=false">
+        <button class="fetch-btn" id="fetchBtn" onclick="fetchModels()">${draft.fetching ? '拉取中…' : '⟳ 拉取清单'}</button></div>
+        ${draft.chips ? `<div class="chips">${p.models.map(m => `<button class="${m === model ? 'on' : ''}" onclick="draft.model='${m}';render()">${m}</button>`).join('')}</div>` : '<div class="hint">也可拉取端点的模型清单来选</div>'}
+      </div>
+      <div class="adv"><div class="adv-head${advOpen ? ' open' : ''}" onclick="advOpen=!advOpen;render()"><span class="chev">›</span>高级（预设详情 / 地址覆盖 / 自定义请求头）</div>
+        <div class="adv-body${advOpen ? ' open' : ''}">
+          <div class="kv"><b>接口地址</b>${p.base}<span class="badge ok">按官方文档</span><br><b>协议</b>${p.proto}<br><b>会话头</b>${p.head}</div>
+          <div class="field"><label>接口地址覆盖（可选）</label><input placeholder="${p.base}" oninput="draft.base=this.value"></div>
+          <div class="field"><label>自定义请求头 JSON（可选）</label><input placeholder='{"X-Foo": "bar"}' oninput="draft.head=this.value"></div>
+        </div></div>
+      <div class="foot"><button class="btn-ghost" onclick="toast('已向草稿配置发一条测试消息')">测试连接</button><button class="btn-primary" onclick="doSave()">保存</button></div>`;
+  }
+  window.provOpen; // noop
+  function addProv(id) { // 未配置路径：选预设 → 进编辑态（空配置草稿）
+    const p = presetOf(id); saved = { provider: id, base: p.base, keySaved: '', model: p.defModel }; mode = 'edit'; render();
+  }
+  function pickProv(id) { // 编辑态换供应商：预填该预设默认模型，Key 清空（不同端 Key 不通用）
+    const p = presetOf(id); saved = { provider: id, base: p.base, keySaved: '', model: p.defModel }; provOpen = false; draft = {}; render(); toast('已切换到 ' + p.name + '，请填新 Key');
+  }
+  function fetchModels() { draft.fetching = true; render(); setTimeout(() => { draft.fetching = false; draft.chips = true; render(); toast('清单已拉取（原型为模拟数据）'); }, 700); }
+  function doSave() {
+    const model = (draft.model !== undefined ? draft.model : saved.model).trim();
+    if (!model) { draft.modelErr = true; render(); toast('模型不能为空'); return; }
+    saved = { ...saved, provider: draft.provider || saved.provider, model, keySaved: draft.key && draft.key.trim() ? draft.key.trim() : saved.keySaved };
+    $('sumModel').textContent = model; $('sumSt').textContent = '未测试'; $('sumSt').className = 'st';
+    closeSheet(); toast('已保存——Key ' + (draft.key && draft.key.trim() ? '已更新' : '沿用旧值'));
+  }
+</script>
+</body>
+</html>

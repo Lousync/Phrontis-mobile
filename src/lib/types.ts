@@ -75,10 +75,10 @@ export interface Msg {
   id: string
   role: 'user' | 'ai'
   text: string
+  /** 思考痕迹（推理模型才有）：模型返回的 reasoning 原文，折叠展示 */
+  reason?: string
   card?: Card
   list?: Todo[]
-  /** 电脑档：桌面端本轮真实写改动（changes 清单展示） */
-  changes?: Array<{ tool: string; action: string; target: string }>
 }
 
 export interface Session {
@@ -221,7 +221,6 @@ export interface AiChatMsg {
   tool_calls?: AiToolCall[]
   tool_call_id?: string
 }
-export type AiMode = 'direct' | 'pc'
 export type VoicePhase = 'idle' | 'recording' | 'transcribing'
 export type SchedView = 'list' | 'grid' | 'habit'
 

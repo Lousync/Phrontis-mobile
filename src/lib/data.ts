@@ -202,7 +202,8 @@ import DOMPurify from 'dompurify'
 marked.setOptions({ gfm: true, breaks: true })
 
 export function mdRender(src: string): string {
-  return DOMPurify.sanitize(marked.parse(src, { async: false }))
+  /* Node 契约环境（verify-markdown.mjs）无 window：消毒只在浏览器运行时生效，契约只验语法语义 */
+  return typeof window !== 'undefined' ? DOMPurify.sanitize(marked.parse(src, { async: false })) : marked.parse(src, { async: false })
 }
 
 export const fmtMoney = (n: number) => n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })

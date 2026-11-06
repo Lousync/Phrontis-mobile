@@ -382,67 +382,9 @@ export function buildScheduleData(
   }
 }
 
-/* ================= AI 电脑档（v1.3：中继到桌面 agentService） ================= */
-
-const K_AI_PC_SESSIONS = 'pm.aiPcSessions'
-
-/** 手机会话 id → 桌面会话 id 映射（桌面删了会话 → 服务端自动新建并回传新 id，这里跟着更新） */
-export function getPcSessionId(phoneSessionId: string): string {
-  return loadJson<Record<string, string>>(K_AI_PC_SESSIONS, {})[phoneSessionId] ?? ''
-}
-
-function savePcSessionId(phoneSessionId: string, desktopSessionId: string): void {
-  const map = loadJson<Record<string, string>>(K_AI_PC_SESSIONS, {})
-  if (map[phoneSessionId] === desktopSessionId) return
-  map[phoneSessionId] = desktopSessionId
-  saveJson(K_AI_PC_SESSIONS, map)
-}
-
-export interface PcChatOutcome {
-  reply: string
-  desktopSessionId: string
-  /** 电脑端本轮真实写改动（直接在桌面真相源执行，手机只做展示） */
-  changes: Array<{ tool: string; action: string; target: string }>
-}
-
 /** 用户主动停止生成（区别于超时/网络失败的 Error，store 里静默收尾不报错） */
 export class AiStopped extends Error {
   constructor() { super('stopped') }
-}
-
-/** 电脑档对话（POST /api/ai/chat）。超时 120s 自弃（桌面那轮照常完成）；业务失败抛 error 文案 */
-export async function pcChat(phoneSessionId: string, message: string, external?: AbortSignal): Promise<PcChatOutcome> {
-  const p = getPaired()
-  if (!p) throw new Error('尚未配对电脑——电脑档需要先配对并连上电脑')
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 120_000)
-  const onAbort = () => ctrl.abort()
-  external?.addEventListener('abort', onAbort)
-  try {
-    const res = await fetch(p.baseUrl + '/api/ai/chat', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + p.token },
-      body: JSON.stringify({ sessionId: getPcSessionId(phoneSessionId), message }),
-      signal: ctrl.signal,
-    })
-    const json = await res.json().catch(() => ({})) as {
-      ok?: boolean; reply?: string; sessionId?: string; error?: string; code?: string
-      changes?: Array<{ tool: string; action: string; target: string }>
-    }
-    if (res.status === 401) throw new Error('电脑不再认识这台设备，请重新配对')
-    if (!res.ok || !json.sessionId) throw new Error(json.error || 'AI 中继失败（' + res.status + '）')
-    const desktopSessionId = String(json.sessionId)
-    savePcSessionId(phoneSessionId, desktopSessionId)
-    if (!json.ok) throw new Error(json.error || '电脑侧 AI 没有完成这一轮')
-    return { reply: String(json.reply || ''), desktopSessionId, changes: Array.isArray(json.changes) ? json.changes : [] }
-  } catch (e) {
-    if (external?.aborted) throw new AiStopped()
-    if (e instanceof DOMException && e.name === 'AbortError') throw new Error('电脑处理超时（120s）——桌面那一轮会继续跑完，稍后再问')
-    throw e instanceof Error ? e : new Error('AI 中继失败')
-  } finally {
-    clearTimeout(timer)
-    external?.removeEventListener('abort', onAbort)
-  }
 }
 
 /* ================= 连接探测与同步 ================= */

@@ -5,6 +5,7 @@ import { discoverCompanions, pollPair, requestPair, type DiscoveredPc } from '..
 import { useApp } from '../../lib/store'
 import { IBars, ICheck, IChevL, IChevR, IKeyboard, IMonitor, IRefresh, ISparkle, IX, IEye } from '../../components/icons'
 import { PageHead } from '../../components/chrome'
+import { ModelPicker } from '../../components/ModelPicker'
 import { Sheet, Grip } from '../Sheet'
 
 /** 主题选择器清单（色板预览用固定色值——色板必须展示目标主题自己的颜色，不能随当前主题变） */
@@ -218,9 +219,6 @@ export function SettingsPage({ active }: { active: boolean }) {
                     </button>
                   </>
                 )}
-                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 10 }}>
-                  电脑端先开启「工具箱 → 手机伴侣」；配对一次后长期互信，同网自动重连。
-                </div>
               </>
             )
           ) : (
@@ -300,10 +298,7 @@ export function SettingsPage({ active }: { active: boolean }) {
             <button className="btn-primary" disabled={!ready || testing} onClick={() => void doTestSaved()}>
               {testing ? '测试中…' : '测试连接'}
             </button>
-            <button className="btn-ghost" style={{ height: 44 }} onClick={e => openSheet('ai-config', e.currentTarget)}>更换供应商</button>
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 10 }}>
-            Key 只存手机本地，不上行不同步。换供应商不会丢聊天记录。
+            <button className="btn-ghost" style={{ height: 44 }} onClick={e => openSheet('ai-config', e.currentTarget)}>{ready ? '编辑配置' : '去配置'}</button>
           </div>
         </div>
       </div>
@@ -334,7 +329,7 @@ export function SettingsPage({ active }: { active: boolean }) {
         </div>
       </div>
 
-      <div className="ver">Phrontis Mobile {__APP_VERSION__} · 与桌面 3.15.1 配套</div>
+      <div className="ver">Phrontis Mobile {__APP_VERSION__}</div>
     </section>
   )
 }
@@ -370,18 +365,25 @@ export function ThemePickerSheet() {
           </button>
         ))}
       </div>
-      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 12, textAlign: 'center' }}>点一下即换，选完自动关闭</div>
     </Sheet>
   )
 }
 
 /* =========================================================================
-   AI 配置抽屉（对齐桌面 AiModelsTab 的预设体系，2026-11-01 按原型 prototype/ai-config.html 落码）
-   两步：选供应商（8 张预设卡）→ 添加表单（预设填好的明着列出，用户只补 Key / 接入点 ID）。
+   AI 配置抽屉（对齐桌面 AiModelsTab 的预设体系，2026-11-01 按 prototype/ai-config.html 落码；
+   2026-11-06 按 prototype/session-config.html 改「极简编辑态」）
+
+   两条路径：
+   - **已配置 → 直接进编辑态**：供应商收成一行、主体只有 Key + 模型、预设详情进高级。
+     首版是纯添加表单（恒从「选供应商」起步、不回填已存配置），后果是「想换个模型必须
+     重走一遍选供应商，而保存会把 Key 一起弄丢」——这是本次要修的缺陷。
+   - **未配置 → 两步添加流**：8 张预设卡 → 表单（预设替你填好的明着列出）。
+   Key 留空 = 保留旧 Key（不回显原文）；换供应商则必须重填（不同端 Key 不通用）。
    ========================================================================= */
 export function AiConfigSheet() {
   const { aiConfig, closeSheet } = useApp()
-  const [step, setStep] = useState<'pick' | 'form'>('pick')
+  const ready = aiConfigReady(aiConfig)
+  const [step, setStep] = useState<'pick' | 'form' | 'edit'>(ready ? 'edit' : 'pick')
   const [formId, setFormId] = useState<AiProvider | null>(null)
   const p = formId ? presetOf(formId) : null
   return (
@@ -391,10 +393,14 @@ export function AiConfigSheet() {
         <button className="icon-btn" style={{ visibility: step === 'form' ? 'visible' : 'hidden' }} onClick={() => setStep('pick')}>
           <IChevL size={16} />
         </button>
-        <div className="aic-title">{step === 'pick' ? '选择供应商' : `添加「${p?.name}」`}</div>
+        <div className="aic-title">
+          {step === 'edit' ? '编辑 AI 配置' : step === 'pick' ? '选择供应商' : `添加「${p?.name}」`}
+        </div>
         <button className="icon-btn" onClick={closeSheet}><IX size={14} /></button>
       </div>
-      {step === 'pick' ? (
+      {step === 'edit' ? (
+        <AiEditForm onSaved={closeSheet} />
+      ) : step === 'pick' ? (
         <>
           <div className="prov-grid">
             {AI_PRESETS.map(pr => (
@@ -406,10 +412,6 @@ export function AiConfigSheet() {
                 </span>
               </button>
             ))}
-          </div>
-          <div className="prov-foot">
-            <span>选中预设 → 只差粘一个 Key</span>
-            <span>地址 / 协议 / 会话头由预设带好</span>
           </div>
         </>
       ) : p && <AiPresetForm key={p.id} preset={p} onSaved={closeSheet} />}
@@ -585,6 +587,232 @@ function AiPresetForm({ preset, onSaved }: { preset: AiPreset; onSaved: () => vo
         <button className="btn-ghost" style={{ flex: 1, height: 44 }} onClick={() => void doTest()}>测试连接</button>
         <button className="btn-primary" style={{ flex: 1 }} onClick={doSave}>保存</button>
       </div>
+    </>
+  )
+}
+
+/**
+ * 编辑态（已配置后的默认形态，design.md §0 2026-11-06 第 35 条）。
+ *
+ * 与添加表单的差别是**信息密度**：供应商收成一行（点开才出网格）、主体只留
+ * Key 与模型两项、预设详情折进「高级」。两处必须守住的语义：
+ * - Key **不回显**，留空即保留旧值（`aiConfig.apiKey` 兜底）；
+ * - **换供应商必须重填 Key**——不同端的 Key 不通用，静默沿用会得到一个
+ *   看似保存成功、实际每次请求都 401 的配置。
+ */
+function AiEditForm({ onSaved }: { onSaved: () => void }) {
+  const { aiConfig, updateAiConfig, toast } = useApp()
+  const [providerId, setProviderId] = useState<AiProvider>(aiConfig.provider)
+  const preset = presetOf(providerId)
+  const changed = providerId !== aiConfig.provider
+  const [provOpen, setProvOpen] = useState(false)
+  const [apiKey, setApiKey] = useState('')
+  const [showKey, setShowKey] = useState(false)
+  const [model, setModel] = useState(aiConfig.model || presetOf(aiConfig.provider).defaultModel)
+  const [base, setBase] = useState(aiConfig.baseUrl)
+  const [headText, setHeadText] = useState(
+    aiConfig.headers && Object.keys(aiConfig.headers).length ? JSON.stringify(aiConfig.headers) : '',
+  )
+  const [adv, setAdv] = useState(false)
+  const [keyErr, setKeyErr] = useState(false)
+  const [modelErr, setModelErr] = useState(false)
+  const [picker, setPicker] = useState(false)
+  const [testOut, setTestOut] = useState<{ kind: 'ok' | 'bad' | 'busy'; text: string } | null>(null)
+
+  /* 草稿 → 配置；不合法返回错误文案与出错字段 */
+  const build = (): { cfg?: AiConfig; err?: string; field?: 'key' | 'model' | 'base' } => {
+    const key = preset.local ? '' : (apiKey.trim() || (changed ? '' : aiConfig.apiKey))
+    if (!preset.local && !key) {
+      return {
+        err: changed ? `换到「${preset.name}」需要重填 Key（不同端 Key 不通用）。` : '还差一个 API Key。',
+        field: 'key',
+      }
+    }
+    const m = model.trim()
+    if (!m) return { err: preset.modelInput === 'endpoint' ? '火山方舟需要接入点 ID（ep- 开头）。' : '模型不能为空。', field: 'model' }
+    const b = base.trim()
+    if (providerId === 'custom' && !b) return { err: '自定义端点需要接口地址（在高级里填）。', field: 'base' }
+    let headers: Record<string, string> | undefined
+    if (headText.trim()) {
+      try {
+        const v = JSON.parse(headText) as unknown
+        if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error()
+        headers = Object.fromEntries(
+          Object.entries(v as Record<string, unknown>).filter(([, x]) => typeof x === 'string' && !!x),
+        ) as Record<string, string>
+      } catch {
+        return { err: '自定义请求头不是合法的 JSON 对象。', field: 'base' }
+      }
+    }
+    return { cfg: { provider: providerId, baseUrl: b, apiKey: key, model: m, headers } }
+  }
+
+  const flag = (field?: 'key' | 'model' | 'base') => {
+    setKeyErr(field === 'key')
+    setModelErr(field === 'model')
+    if (field === 'base') setAdv(true)
+  }
+
+  const doSave = () => {
+    const r = build()
+    if (!r.cfg) { flag(r.field); setTestOut({ kind: 'bad', text: r.err! }); return }
+    updateAiConfig(r.cfg)
+    toast(preset.local ? `已保存 ${preset.name}` : `已保存 · Key ${r.cfg.apiKey && apiKey.trim() ? '已更新' : '沿用旧值'}`, 'ok')
+    onSaved()
+  }
+
+  const doTest = async () => {
+    const r = build()
+    if (!r.cfg) { flag(r.field); setTestOut({ kind: 'bad', text: r.err! }); return }
+    flag(undefined)
+    setTestOut({ kind: 'busy', text: '正在连接端点，发一条最小探测消息…' })
+    const t0 = performance.now()
+    try {
+      await testAiConfig(r.cfg)
+      setTestOut({ kind: 'ok', text: `连接成功 · ${Math.round(performance.now() - t0)}ms · ${r.cfg.model} 应答正常。Key 有效，可以保存。` })
+    } catch (e) {
+      setTestOut({ kind: 'bad', text: e instanceof Error ? e.message : '连接失败' })
+    }
+  }
+
+  /* 换供应商：预填该预设默认模型，Key 清空（不同端 Key 不通用），地址/头回预设 */
+  const pickProv = (id: AiProvider) => {
+    const np = presetOf(id)
+    setProviderId(id)
+    setProvOpen(false)
+    setApiKey('')
+    setShowKey(false)
+    setModel(np.defaultModel)
+    setBase('')
+    setHeadText('')
+    setKeyErr(false)
+    setModelErr(false)
+    setTestOut(null)
+    toast(np.local ? `已切换到 ${np.name}（本地服务免 Key）` : `已切换到 ${np.name}，请填新 Key`)
+  }
+
+  const keyPlaceholder = preset.local
+    ? '本地模型无需 API Key'
+    : aiConfig.apiKey && !changed
+      ? '已保存（重输即覆盖，留空保留旧 Key）'
+      : 'sk-…（只存手机本地）'
+
+  return (
+    <>
+      {/* 供应商一行：点开才出 8 张卡（原型 §编辑态） */}
+      <button className="prov-row" onClick={() => setProvOpen(v => !v)}>
+        <span className="pdot" style={{ background: preset.color }} />
+        <span className="pr-body">
+          <span className="n">{preset.name}{changed && <em>待更换</em>}</span>
+          <span className="s">{preset.sub} · 点按更换供应商</span>
+        </span>
+        <span className="chev" style={{ transform: provOpen ? 'rotate(90deg)' : 'none' }}><IChevR size={14} /></span>
+      </button>
+      {provOpen && (
+        <div className="prov-grid" style={{ marginBottom: 14 }}>
+          {AI_PRESETS.map(pr => (
+            <button key={pr.id} className={'prov-card' + (pr.id === providerId ? ' on' : '')} onClick={() => pickProv(pr.id)}>
+              <span className="pdot" style={{ background: pr.color }} />
+              <span className="pv-info">
+                <span className="pn">{pr.name}{pr.id === providerId && <em>当前</em>}</span>
+                <span className="ps">{pr.sub}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="field">
+        <label>{preset.local ? 'API Key（本地可留空）' : 'API Key'}</label>
+        <div className="key-wrap">
+          <input
+            type={showKey ? 'text' : 'password'}
+            value={apiKey} disabled={preset.local}
+            onChange={e => { setApiKey(e.target.value); setKeyErr(false) }}
+            className={keyErr ? 'err' : ''}
+            placeholder={keyPlaceholder} />
+          {!preset.local && (
+            <button className="key-eye" onClick={() => setShowKey(s => !s)}><IEye size={16} /></button>
+          )}
+        </div>
+        {changed && !preset.local && (
+          <div className="model-cnt">换供应商后 Key 需重填；旧 Key 仍保留在本机，切回原供应商即恢复。</div>
+        )}
+      </div>
+
+      <div className="field">
+        <label>{preset.modelInput === 'endpoint' ? '接入点 ID' : '模型'}</label>
+        {preset.modelInput === 'endpoint' ? (
+          <>
+            <input className={'mono' + (modelErr ? ' err' : '')} value={model} spellCheck={false}
+              onChange={e => { setModel(e.target.value); setModelErr(false) }} placeholder="ep-2026…" />
+            <div className="model-cnt">{preset.modelHint}</div>
+          </>
+        ) : (
+          <>
+            <button className={'model-field' + (modelErr ? ' err' : '')} onClick={() => setPicker(true)}>
+              <span className="pdot" style={{ background: preset.color }} />
+              <span className="mf-body">
+                <span className="lab">当前模型</span>
+                <span className="val mono">{model || '未选模型'}</span>
+              </span>
+              <IChevR size={14} />
+            </button>
+          </>
+        )}
+      </div>
+
+      <button className={'adv-toggle' + (adv ? ' open' : '')} onClick={() => setAdv(v => !v)}>
+        <IChevR size={12} />高级（预设详情 / 地址覆盖 / 自定义请求头）
+      </button>
+      {adv && (
+        <div className="adv-body">
+          <div className="filled-box">
+            <div className="fb-h">预设替你填好的（可改）</div>
+            <div className="fb-r"><span className="k">接口地址</span><span className="v mono">{preset.base || '（自定义，在下方填）'}</span></div>
+            <div className="fb-r"><span className="k">协议</span><span className="v">{preset.local ? 'Ollama · OpenAI 兼容层' : 'OpenAI 兼容'}</span></div>
+            {preset.header && (
+              <div className="fb-r"><span className="k">会话头</span><span className="v mono">{Object.keys(preset.header)[0]}: 按对话自动带上</span></div>
+            )}
+            {preset.srcConfig && <div className="fb-r"><span className="k" /><span><span className="badge-doc">按官方文档</span></span></div>}
+            {preset.unverified && <div className="fb-r"><span className="k" /><span><span className="badge-unv">地址未经在线核实</span> 测试连接后再用</span></div>}
+          </div>
+          <div className="field" style={{ marginTop: 10 }}>
+            <label>接口地址覆盖（可选）</label>
+            <input className="mono" value={base} spellCheck={false} onChange={e => setBase(e.target.value)}
+              placeholder={preset.base || 'https://your-host/v1'} />
+          </div>
+          <div className="field">
+            <label>自定义请求头（JSON）</label>
+            <input className="mono" value={headText} spellCheck={false} onChange={e => setHeadText(e.target.value)}
+              placeholder='{"头名":"值"}' />
+          </div>
+        </div>
+      )}
+
+      {testOut && <div className={'test-out ' + testOut.kind}>
+        {testOut.kind === 'busy'
+          ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span className="spin" />{testOut.text}</span>
+          : testOut.text}
+      </div>}
+
+      <div className="aic-foot">
+        <button className="btn-ghost" style={{ flex: 1, height: 44 }} onClick={() => void doTest()}>测试连接</button>
+        <button className="btn-primary" style={{ flex: 1 }} onClick={doSave}>保存</button>
+      </div>
+
+      {/* 全屏模型选择页（portal 到 .app，盖住抽屉；不是底部上伸抽屉） */}
+      {picker && (
+        <ModelPicker
+          provider={providerId}
+          baseUrl={base.trim() || preset.base}
+          apiKey={apiKey.trim() || (changed ? '' : aiConfig.apiKey)}
+          current={model}
+          defaultModel={preset.defaultModel}
+          onPick={m => { setModel(m); setModelErr(false); setPicker(false) }}
+          onClose={() => setPicker(false)}
+        />
+      )}
     </>
   )
 }

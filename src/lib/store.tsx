@@ -1,12 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { ReactNode } from 'react'
-import type { AiChatMsg, AiConfig, AiMode, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteCache, NoteProposal, NoteTreePage, PairedDevice, PhoneNote, QuizAddProposal, QuizDelProposal, QuizNoteProposal, QuizRecord, QuizSpec, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
+import type { AiChatMsg, AiConfig, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteCache, NoteProposal, NoteTreePage, PairedDevice, PhoneNote, QuizAddProposal, QuizDelProposal, QuizNoteProposal, QuizRecord, QuizSpec, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
 import { THEME_IDS } from './types'
 import { seedFolders, seedHabits, seedSessions, seedTodos, seedEntries, TODAY, VOICE_PHRASES, welcomeText, dayIso, fmtMoney, monthOf, monthStats, txToDisplay } from './data'
 import {
   AiStopped, buildNoteData, buildScheduleData, enqueueOp, getPaired, getQueue, loadJson, pairWith as pairRequest,
-  pcChat, probeOnline, removeFromQueue, saveJson, syncNow, unpair as unpairDevice, uuid,
+  probeOnline, removeFromQueue, saveJson, syncNow, unpair as unpairDevice, uuid,
   type RemoteLedgerItem, type RemoteScheduleItem,
 } from './sync'
 import { AI_MAX_ROUNDS, aiConfigReady, chatOnce, loadAiConfig, parseToolArgs, saveAiConfig } from './ai'
@@ -196,9 +196,7 @@ interface Store {
   deleteQuizRecord: (p: QuizDelProposal) => void
 
   /* AI */
-  aiMode: AiMode
-  setAiMode: (m: AiMode) => void
-  /** 直连档模型配置（pm.aiConfig，Key 只在本机） */
+  /** 模型配置（pm.aiConfig，Key 只在本机） */
   aiConfig: AiConfig
   updateAiConfig: (cfg: AiConfig) => void
   sessions: Session[]
@@ -294,7 +292,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   })
   useEffect(() => { localStorage.setItem(K_SYNC_SEL, JSON.stringify(syncSel)) }, [syncSel])
 
-  const [aiMode, setAiMode] = useState<AiMode>('direct')
   const [aiConfig, setAiConfigState] = useState<AiConfig>(() => loadAiConfig())
   const [sessions, setSessions] = useState<Session[]>(seedSessions)
   const [curSession, setCurSession] = useState('s1')
@@ -323,7 +320,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const todosRef = useRef(todos); todosRef.current = todos
   const phoneNotesRef = useRef(phoneNotes); phoneNotesRef.current = phoneNotes
   const aiConfigRef = useRef(aiConfig); aiConfigRef.current = aiConfig
-  const aiModeRef = useRef(aiMode); aiModeRef.current = aiMode
   const pairedRef = useRef(paired); pairedRef.current = paired
   const vaultTreeRef = useRef(vaultTree); vaultTreeRef.current = vaultTree
   const syncSelRef = useRef(syncSel); syncSelRef.current = syncSel
@@ -993,9 +989,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return { reply: '已经帮你记到手机笔记里了：「' + captured + '」。同步后可以在电脑端继续整理。', noteCapture: captured }
     }
     return {
-      reply: '收到。这里是原型的占位回复 —— 正式版会调用你在设置里配置的模型（现在是' + (aiMode === 'direct' ? '手机直连' : '电脑代理') + '模式），并可以带着工具直接操作你的记账、日程和笔记。',
+      reply: '收到。这里是原型的占位回复 —— 正式版会调用你在设置里配置的模型，并可以带着工具直接操作你的记账、日程和笔记。',
     }
-  }, [todos, aiMode])
+  }, [todos])
 
   /* 直连档工具执行器：读直查本地状态；写只产出提案（确认卡），绝不在这里落库 */
   const executeTool = (name: string, args: Record<string, unknown>): ToolResult => {
@@ -1149,9 +1145,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         let card: Card | undefined
         let rounds = 0
         let finalText = ''
+        /* 思考痕迹：多轮工具循环里每轮 reasoning 各存一段，落库时拼成一条折叠区（与桌面按轮分段的观感一致） */
+        const reasons: string[] = []
         while (rounds < AI_MAX_ROUNDS) {
           rounds++
           const reply = await chatOnce(cfg, history, AI_TOOLS, 60_000, ctrl.signal, sid)
+          if (reply.reasoning) reasons.push(reply.reasoning)
           if (!reply.toolCalls.length) { finalText = reply.content; break }
           history.push({ role: 'assistant', content: reply.content, tool_calls: reply.toolCalls })
           let proposed = false
@@ -1170,7 +1169,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
         }
         if (!finalText) finalText = rounds >= AI_MAX_ROUNDS ? '工具轮次用尽了，先到这里——换个问法再试试。' : '（模型没有返回内容）'
-        startReveal(finalText, f => { pushAiMsg({ role: 'ai', text: f, card }) })
+        const reason = reasons.length ? reasons.join('\n\n') : undefined
+        startReveal(finalText, f => { pushAiMsg({ role: 'ai', text: f, card, reason }) })
         abortRef.current = null
       } catch (e) {
         abortRef.current = null
@@ -1180,33 +1180,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const msg = e instanceof Error ? e.message : 'AI 请求失败'
         toast(msg, 'warn')
         pushAiMsg({ role: 'ai', text: '没连上模型：' + msg })
-      }
-    })()
-  }
-
-  /* 电脑档（M4b）：对话中继到桌面完整 agentService，写入直接在电脑真相源执行。
-     手机会话 ↔ 桌面会话映射由 pcChat 内部维护（桌面删了会话自动续新） */
-  const runPcAgent = (userText: string) => {
-    const sid = curSessionRef.current
-    const ctrl = new AbortController()
-    abortRef.current = ctrl
-    setStreaming(true)
-    setStreamText('电脑处理中…')
-    void (async () => {
-      try {
-        const r = await pcChat(sid, userText, ctrl.signal)
-        startReveal(r.reply || '（电脑没有返回内容）', f => {
-          pushAiMsg({ role: 'ai', text: f, changes: r.changes.length ? r.changes : undefined })
-        })
-        abortRef.current = null
-      } catch (e) {
-        abortRef.current = null
-        setStreaming(false)
-        setStreamText('')
-        if (e instanceof AiStopped) { toast('已停止生成（电脑那一轮会继续跑完）', 'info'); return }
-        const msg = e instanceof Error ? e.message : '电脑档请求失败'
-        toast(msg, 'warn')
-        pushAiMsg({ role: 'ai', text: '电脑档没跑成：' + msg })
       }
     })()
   }
@@ -1222,19 +1195,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return { ...s, title, ts: Date.now(), messages: [...s.messages, { id: nextId('m'), role: 'user', text: trimmed }] }
     }))
 
-    /* 电脑档：真实中继（桌面完整 agentService，同 Key / 全库工具） */
-    if (aiModeRef.current === 'pc') {
-      if (!pairedRef.current) {
-        startReveal('电脑档需要先配对电脑——到「设置」完成配对，或先用手机直连档。', final => {
-          pushAiMsg({ role: 'ai', text: final })
-        })
-        return
-      }
-      runPcAgent(trimmed)
-      return
-    }
-
-    /* 直连档已配置 → 真实工具循环 */
+    /* 已配置 → 真实工具循环 */
     if (aiConfigReady(aiConfigRef.current)) {
       runDirectAgent(trimmed)
       return
@@ -1335,7 +1296,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     noteInSync, fetchVaultTree, openVaultNote, openPhoneNote,
     quizRecords, answerQuiz, upsertQuizAnswer,
     addQuizRecord, setQuizNote, deleteQuizRecord,
-    aiMode, setAiMode, aiConfig, updateAiConfig, sessions, curSession, newSession, switchSession, deleteSession, renameSession, togglePin,
+    aiConfig, updateAiConfig, sessions, curSession, newSession, switchSession, deleteSession, renameSession, togglePin,
     streaming, streamText, sendChat, stopStream, confirmCard, dismissCard,
     voicePhase, voiceElapsed, toggleVoice,
   }

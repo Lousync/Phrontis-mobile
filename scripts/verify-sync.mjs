@@ -113,10 +113,11 @@ console.log('\n§2d 笔记负载与缓存（v1.2：上行 + LRU 缓存）')
 
 console.log('\n§2e AI 直连档工具集（M4a：读直执行 / 写出确认卡）')
 {
-  check('工具集 7 个', AI_TOOLS.length === 7)
+  /* 2026-11-06 平板线补齐学习域 5 工具（quiz_query/stats/add/note/del，专项契约见 scripts/contract-quiz-ai.mjs）：7 → 12 */
+  check('工具集 12 个（7 基础 + 5 错题）', AI_TOOLS.length === 12)
   check('工具名唯一', new Set(AI_TOOLS.map(t => t.function.name)).size === AI_TOOLS.length)
   const maxLen = Math.max(...AI_TOOLS.map(t => JSON.stringify(t).length))
-  check('单个工具 schema ≤ 400 字符（实际最大 ' + maxLen + '）', maxLen <= 400)
+  check('单个工具 schema ≤ 600 字符（实际最大 ' + maxLen + '；quiz_add 带题型/来源字段超原 400 上限）', maxLen <= 600)
   check('写工具 3 个齐备', ['ledger_add', 'todo_add', 'note_create'].every(n => AI_TOOLS.some(t => t.function.name === n)))
   check('读工具 4 个齐备', ['now_time', 'ledger_query', 'todo_query', 'notes_list'].every(n => AI_TOOLS.some(t => t.function.name === n)))
 
@@ -160,8 +161,14 @@ console.log('\n§3 协议文档契约（docs/design.md §2.1 与手机实现一�
   check('§2.1 v1.2 记录 notes 上行域与无条件应用', design.includes('v1.2 笔记') && design.includes('无条件应用'))
   check('§2.1 记录内容 API 端点', design.includes('/api/notes/tree') && design.includes('/api/notes/content'))
   check('§2.1 记录缓存上限与按 id 解析路径', design.includes('1.5MB') && design.includes('按 id 服务端解析路径'))
-  // v1.3 契约
-  check('§2.1 记录 AI 中继端点与电脑档语义', design.includes('/api/ai/chat') && design.includes('直接在桌面真相源执行'))
+  // v1.3 契约（2026-11-06 电脑档整体移除，改为反向断言；决策记录里仍会提到该端点，故只查端点表行）
+  check('§2.1 端点表已移除 AI 中继端点（电脑档下线）', !design.includes('| `POST /api/ai/chat`'))
+  const syncSrc = readFileSync(join(HERE, '..', 'src', 'lib', 'sync.ts'), 'utf-8')
+  const typesSrc = readFileSync(join(HERE, '..', 'src', 'lib', 'types.ts'), 'utf-8')
+  check('电脑档代码已拔净（pcChat / AiMode / 会话映射）',
+    !syncSrc.includes('export async function pcChat')
+    && !syncSrc.includes('pm.aiPcSessions')
+    && !typesSrc.includes('AiMode'))
 }
 
 console.log('\n' + (failures === 0 ? 'PASS (' + checks + ' checks)' : 'FAIL (' + failures + '/' + checks + ')'))

@@ -51,10 +51,16 @@ await page.waitForTimeout(250)
 await page.locator('#root .page.active').evaluate(el => { el.scrollTop = 300 })
 await page.waitForTimeout(250)
 ok('滚动 >46px：小顶栏淡入', (await page.locator('#root .c-bar.on').count()) === 1)
-ok('滚动下潜：浮坞收缩成当前页胶囊', (await page.locator('#root .dock.min').count()) === 1)
+/* 2026-11-06 用户拍板：浮坞不再随滚动收缩（收缩后只剩一个胶囊、底部空一大片）。
+   这里锁住反向契约——滚到底也必须 5 个页签全在、宽度正常。 */
+ok('滚动下潜：浮坞不收缩（5 页签常驻）', await page.locator('#root .dock').evaluate(el => {
+  if (el.classList.contains('min')) return false
+  const bs = [...el.querySelectorAll('button')]
+  return bs.length === 5 && bs.every(b => b.getBoundingClientRect().width > 20)
+}))
 await page.locator('#root .page.active').evaluate(el => { el.scrollTop = 0 })
 await page.waitForTimeout(250)
-ok('回顶：小顶栏与浮坞复位', (await page.locator('#root .c-bar.on').count()) === 0 && (await page.locator('#root .dock.min').count()) === 0)
+ok('回顶：小顶栏复位', (await page.locator('#root .c-bar.on').count()) === 0)
 
 /* 二级入口：设置 → 工具 → AI 用量 → 返回 */
 await page.locator('#root .tool-row', { hasText: 'AI 用量' }).click()
@@ -141,6 +147,11 @@ ok('录音态（麦克风变红 + 波形条）', (await page.locator('#root .mic
 await page.locator('.mic-btn').click()
 await page.waitForTimeout(2800)
 ok('转写自动发送（AI 回复出现）', (await page.locator('#root .chat .msg.ai').count()) >= 2)
+/* 2026-11-06：落库后的 AI 消息此前直接 innerHTML 塞原文（**加粗** / 列表全是字面量）。
+   现在与流式共用 mdRender 并套 .md 排版，这里锁住「确实走了渲染器」而不是裸文本 */
+ok('AI 回复走 markdown 渲染器（.md 容器 + 段落）',
+  (await page.locator('#root .chat .msg.ai .md').count()) >= 2
+  && (await page.locator('#root .chat .msg.ai .md p').count()) >= 1)
 
 /* 设置：外观主题（一行入口 → 抽屉里一点即换 → 选中即关 + 持久化） */
 await page.locator('#root .dock button', { hasText: '设置' }).click()
@@ -204,11 +215,20 @@ ok('两通道并存取大者（不双重扣）', Math.abs(kbGeom.h0 - kbGeom.hBo
 /* 设置：AI 配置抽屉（预设卡 + 表单 + 保存摘要）——放在最后，保存的假 Key 不得影响前面的演示通路 */
 await page.locator('#root .dock button', { hasText: '设置' }).click()
 await page.waitForTimeout(300)
+/* 设置页静态解释文案已清空（2026-11-06 用户截图指名）：只留卡片内文字与功能性指引。
+   反向锁——以后谁再把「说明一下」加回来，这里直接红。 */
+const setText = await page.locator('#root .page.active').innerText()
+ok('设置页无冗余解释段落（4 处截图指名文案已删）',
+  !/长期互信|不上行不同步|选中预设|只差粘一个|点一下即换|点行打开选择页/.test(setText))
+ok('版本行只保留版本号（去掉「与桌面 X 配套」）',
+  /^Phrontis Mobile \d+\.\d+\.\d+$/.test((await page.locator('#root .page.active .ver').innerText()).trim()))
 ok('AI 摘要卡（供应商 + 模型 + 未配置态）', (await page.locator('#root .page.active .device-card .pdot').count()) === 1
   && (await page.locator('#root .page.active .device-card:has(.pdot) .st').innerText()).includes('未配置'))
-await page.locator('#root .page.active .btn-ghost', { hasText: '更换供应商' }).click()
+await page.locator('#root .page.active .btn-ghost', { hasText: '去配置' }).click()
 await page.waitForTimeout(400)
 ok('供应商选择网格（8 张预设卡）', (await page.locator('#root .sheet .prov-card').count()) === 8)
+ok('供应商网格无底部脚注（卡片内副标题保留）', (await page.locator('#root .prov-foot').count()) === 0
+  && (await page.locator('#root .sheet .prov-card .ps').count()) === 8)
 await page.locator('#root .sheet .prov-card', { hasText: 'opencode' }).click()
 await page.waitForTimeout(300)
 ok('opencode 表单列出预设自带的会话头 + 官方文档徽章', (await page.locator('#root .sheet .filled-box', { hasText: 'x-opencode-session' }).count()) === 1
@@ -259,6 +279,70 @@ await page.waitForTimeout(500)
 ok('保存后回摘要（opencode · 未测试）', (await page.locator('#root .sheet').count()) === 0
   && (await page.locator('#root .page.active .device-card:has(.pdot) .n').innerText()).includes('opencode'))
 ok('摘要状态变「未测试」', (await page.locator('#root .page.active .device-card:has(.pdot) .st').innerText()).includes('未测试'))
+
+/* ==== 编辑态 + 全屏模型选择器（design.md §0 2026-11-06 第 35 条）====
+   旧实现：AiConfigSheet 恒从「选供应商」起跳、AiPresetForm 是纯添加表单（不回填），
+   于是「换个模型必须重走选供应商，且保存会把 Key 一起弄丢」。下面这几条是回归锁。 */
+await page.locator('#root .page.active .btn-ghost', { hasText: '编辑配置' }).click()
+await page.waitForTimeout(400)
+ok('已配置直接进编辑态（不再从选供应商起跳）',
+  (await page.locator('#root .sheet .aic-title', { hasText: '编辑 AI 配置' }).count()) === 1
+  && (await page.locator('#root .sheet .prov-row').count()) === 1
+  && (await page.locator('#root .sheet .prov-grid').count()) === 0)
+ok('Key 不回显，留空即保留旧值',
+  (await page.locator('#root .sheet .key-wrap input').inputValue()) === ''
+  && (await page.locator('#root .sheet .key-wrap input').getAttribute('placeholder')).includes('留空保留旧 Key'))
+ok('编辑态回填模型（可点行）',
+  (await page.locator('#root .sheet .model-field .val').innerText()).includes('qwen3-coder'))
+ok('预设详情已收进高级（默认不铺满）', (await page.locator('#root .sheet .filled-box').count()) === 0)
+await page.locator('#root .sheet .adv-toggle').click()
+await page.waitForTimeout(200)
+ok('高级展开可见预设详情', (await page.locator('#root .sheet .filled-box').count()) === 1)
+await page.locator('#root .sheet .adv-toggle').click()
+
+/* 模型选择器：全屏子页从右侧滑入，不是上伸抽屉（AGENTS.md UI 硬规则） */
+await page.locator('#root .sheet .model-field').click()
+await page.waitForTimeout(450)
+ok('模型选择器是全屏子页（铺满壳层，非抽屉）',
+  (await page.locator('#root .mp-full.open').count()) === 1
+  && (await page.locator('#root .mp-full').evaluate(el => {
+    const app = el.closest('.app')
+    if (!app) return false
+    const r = el.getBoundingClientRect(), a = app.getBoundingClientRect()
+    return Math.abs(r.top - a.top) < 2 && Math.abs(r.left - a.left) < 2 && Math.abs(r.height - a.height) < 2
+  })))
+/* 此时 /models 被拦成空清单 → 走搜索后手填 */
+await page.locator('#root .mp-full .mp-search input').fill('my-custom-model')
+await page.waitForTimeout(250)
+ok('清单拉不到时支持搜索后手填', (await page.locator('#root .mp-full .mp-manual').count()) === 1)
+await page.locator('#root .mp-full .mp-manual').click()
+await page.waitForTimeout(350)
+ok('选完自动退回并回填模型行', (await page.locator('#root .mp-full').count()) === 0
+  && (await page.locator('#root .sheet .model-field .val').innerText()).includes('my-custom-model'))
+await page.locator('#root .sheet .aic-foot .btn-primary').click()
+await page.waitForTimeout(450)
+const savedCfg = await page.evaluate(() => JSON.parse(localStorage.getItem('pm.aiConfig') || '{}'))
+ok('★ 留空 Key 保存不丢旧 Key（旧实现的真缺陷）', savedCfg.apiKey === 'sk-smoke-fake')
+ok('模型变更落盘', savedCfg.model === 'my-custom-model')
+
+/* 换供应商：预填默认模型 + 清空 Key，且不重填 Key 不许保存（防静默 401） */
+await page.locator('#root .page.active .btn-ghost', { hasText: '编辑配置' }).click()
+await page.waitForTimeout(350)
+await page.locator('#root .sheet .prov-row').click()
+await page.waitForTimeout(200)
+ok('编辑态换供应商展开 8 张预设卡', (await page.locator('#root .sheet .prov-grid .prov-card').count()) === 8)
+await page.locator('#root .sheet .prov-grid .prov-card', { hasText: 'DeepSeek' }).click()
+await page.waitForTimeout(250)
+ok('换供应商预填默认模型且 Key 清空',
+  (await page.locator('#root .sheet .model-field .val').innerText()).includes('deepseek-chat')
+  && (await page.locator('#root .sheet .key-wrap input').inputValue()) === '')
+await page.locator('#root .sheet .aic-foot .btn-primary').click()
+await page.waitForTimeout(250)
+ok('换供应商不重填 Key 被拦（防静默 401）', (await page.locator('#root .sheet .test-out.bad').count()) === 1
+  && (await page.locator('#root .sheet .test-out.bad').innerText()).includes('重填 Key'))
+await page.locator('#root .sheet .aic-head .icon-btn').last().click()
+await page.waitForTimeout(300)
+
 /* 收尾：清掉假配置，恢复未配置默认（保持设备状态干净） */
 await page.evaluate(() => localStorage.removeItem('pm.aiConfig'))
 
