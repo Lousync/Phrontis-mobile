@@ -101,6 +101,14 @@ interface Store {
   markCached: (title: string) => void
   phoneNotes: PhoneNote[]
   addPhoneNote: (title: string, body: string) => void
+  /** 备忘录式即建即编：本地建空笔记返回 id（不入同步队列，退出编辑时统一入队/丢弃） */
+  createPhoneNote: () => string
+  /** 编辑中实时更新本地内容（列表首行标题跟手；内容随时落 localStorage 防丢） */
+  updatePhoneNote: (id: string, title: string, body: string) => void
+  /** 空笔记丢弃：本地移除，不入队列不产生垃圾 */
+  discardPhoneNote: (id: string) => void
+  /** 编辑完成：内容入上行队列（op id = 笔记 uuid，与 v1.2 notes 域契约一致） */
+  syncPhoneNote: (id: string, title: string, body: string) => void
 
   /* AI */
   aiMode: AiMode
@@ -591,6 +599,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     markPending(label, id)
   }, [markPending])
 
+  /* 备忘录式即建即编（平板拍板，弃抽屉表单）：新建=本地空笔记直接进编辑器，
+   * 首行即标题、编辑实时落本地（localStorage 兜底防丢），退出时统一入队/丢弃 */
+  const createPhoneNote = useCallback(() => {
+    const id = uuid()
+    setPhoneNotes(list => [{ id, title: '', body: '', synced: false }, ...list])
+    return id
+  }, [])
+  const updatePhoneNote = useCallback((id: string, title: string, body: string) => {
+    setPhoneNotes(list => list.map(n => n.id === id ? { ...n, title, body, synced: false } : n))
+  }, [])
+  const discardPhoneNote = useCallback((id: string) => {
+    setPhoneNotes(list => list.filter(n => n.id !== id))
+  }, [])
+  const syncPhoneNote = useCallback((id: string, title: string, body: string) => {
+    const label = '笔记「' + (title || '无标题').slice(0, 20) + '」'
+    enqueueOp({ id, domain: 'notes', updatedAt: new Date().toISOString(), data: buildNoteData(title, body), label })
+    markPending(label, id)
+  }, [markPending])
+
   /* ---------- AI ---------- */
 
   const newSession = useCallback(() => {
@@ -957,6 +984,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, deleteTodo, habits, toggleHabit,
     entries, txs, saveTx, updateTx, deleteTx, editTxId, openTxEdit,
     folders, toggleFolder, markCached, phoneNotes, addPhoneNote,
+    createPhoneNote, updatePhoneNote, discardPhoneNote, syncPhoneNote,
     aiMode, setAiMode, aiConfig, updateAiConfig, sessions, curSession, newSession, switchSession, deleteSession, renameSession, togglePin,
     streaming, streamText, sendChat, stopStream, confirmCard, dismissCard,
     voicePhase, voiceElapsed, toggleVoice,

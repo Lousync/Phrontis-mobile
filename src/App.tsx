@@ -5,7 +5,7 @@ import { TabletChrome } from './components/TabletChrome'
 import { AiPage, SessionSheet } from './components/pages/AiPage'
 import { SchedulePage, TodoSheet } from './components/pages/SchedulePage'
 import { LedgerPage, TxSheet } from './components/pages/LedgerPage'
-import { NoteSheet, NotesPage } from './components/pages/NotesPage'
+import { NotesPage } from './components/pages/NotesPage'
 import { UsagePage } from './components/pages/UsagePage'
 import { SettingsPage, AiConfigSheet } from './components/pages/SettingsPage'
 
@@ -29,7 +29,6 @@ function Shell() {
         {ff === 'tablet' ? null : <ShellChrome />}
         {(sheet === 'tx' || sheet === 'tx-edit') && <TxSheet />}
         {sheet === 'todo' && <TodoSheet selDate={selDate} />}
-        {sheet === 'note' && <NoteSheet />}
         {sheet === 'sessions' && <SessionSheet />}
         {sheet === 'ai-config' && <AiConfigSheet />}
         <Toasts />

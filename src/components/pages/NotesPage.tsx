@@ -7,29 +7,16 @@ import {
   fetchNoteContent, fetchNoteTree, loadNoteCache, loadNoteTree, saveNoteCache, saveNoteTree,
 } from '../../lib/sync'
 import { IBack, IBars, IChevR, IFolder, IPen, ISearch } from '../../components/icons'
-import { Grip, Sheet } from '../../components/Sheet'
 import { PageHead } from '../../components/chrome'
 
-function NoteSheet() {
-  const { closeSheet, addPhoneNote, toast } = useApp()
-  const [title, setTitle] = useState('')
-  const [body, setBody] = useState('')
-  const save = () => {
-    if (!title.trim()) { toast('先起个标题', 'warn'); return }
-    addPhoneNote(title.trim(), body.trim() || '（无正文）')
-    toast('已存入手机笔记 · 待上行', 'ok')
-    closeSheet()
-  }
-  return (
-    <Sheet>
-      <Grip />
-      <h3>新建笔记</h3>
-      <div className="field"><label>标题</label><input autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder="想到什么记什么" onKeyDown={e => { if (e.key === 'Enter') save() }} /></div>
-      <div className="field"><textarea rows={6} value={body} onChange={e => setBody(e.target.value)} placeholder="正文支持 Markdown…" /></div>
-      <button className="btn-primary" onClick={save}>保存到手机</button>
-      <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', marginTop: 10 }}>将作为普通 .md 笔记上行并入电脑收件箱</div>
-    </Sheet>
-  )
+/* 备忘录式内容→条目：首行为标题（去掉 markdown # 前缀），其余为正文 */
+function splitTitleBody(text: string): { title: string; body: string } {
+  const t = text.trim()
+  if (!t) return { title: '', body: '' }
+  const lines = t.split('\n')
+  const title = (lines[0].replace(/^#\s*/, '').trim() || '无标题').slice(0, 60)
+  const body = lines.length > 1 ? lines.slice(1).join('\n').trim() : ''
+  return { title, body }
 }
 
 /** 电脑笔记目录树：按 path 顶层目录分组（.knowbase/ 内 → 收件箱），根级散页归「根目录」 */
@@ -52,7 +39,7 @@ type TocItem = { id: string; text: string; level: number }
 const FONT_KEY = 'tb-reader-font'
 
 export function NotesPage({ active }: { active: boolean }) {
-  const { phoneNotes, openSheet, toast, paired } = useApp()
+  const { phoneNotes, toast, paired, createPhoneNote, updatePhoneNote, discardPhoneNote, syncPhoneNote } = useApp()
   const [kw, setKw] = useState('')
   const [tree, setTree] = useState(() => loadNoteTree())
   const [loadingTree, setLoadingTree] = useState(false)
@@ -88,6 +75,33 @@ export function NotesPage({ active }: { active: boolean }) {
 
   const jumpTo = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  /* ---------- 备忘录式即建即编（弃抽屉表单） ----------
+   * 新建 → 本地空笔记直接进编辑器，光标就位即写；
+   * 首行即标题（列表实时跟手），内容实时落本地防丢；
+   * 退出时：有内容 → 入上行队列，空 → 静默丢弃不留垃圾。 */
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+
+  const startNewNote = () => {
+    setReader(null)
+    setEditingId(createPhoneNote())
+    setDraft('')
+  }
+  const onDraft = (v: string) => {
+    setDraft(v)
+    if (!editingId) return
+    const { title, body } = splitTitleBody(v)
+    updatePhoneNote(editingId, title, body)
+  }
+  const exitEditor = () => {
+    if (!editingId) return
+    const { title, body } = splitTitleBody(draft)
+    if (!title || title === '无标题') { discardPhoneNote(editingId); toast('空笔记已丢弃', 'ok') }
+    else { updatePhoneNote(editingId, title, body); syncPhoneNote(editingId, title, body) }
+    setEditingId(null)
+    setDraft('')
   }
 
   /* 拉目录树（进页自动一次；vault-line 点击可手动重拉，失败退回本地缓存树 + toast） */
@@ -155,7 +169,7 @@ export function NotesPage({ active }: { active: boolean }) {
     <>
       {/* 新建入口（tb-only=平板显示）：对照 iPad 备忘录——页头右侧工具栏钮，不用悬浮球 */}
       <PageHead title="笔记">
-        <button className="icon-btn tb-only" onClick={e => openSheet('note', e.currentTarget)} title="新建笔记"><IPen size={17} /></button>
+        <button className="icon-btn tb-only" onClick={startNewNote} title="新建笔记"><IPen size={17} /></button>
       </PageHead>
       <div className="search-box">
         <ISearch />
@@ -233,7 +247,7 @@ export function NotesPage({ active }: { active: boolean }) {
         <button className="icon-btn fs-btn" onClick={() => setFontSz(s => Math.max(12, s - 1))} title="缩小字号">A-</button>
         <button className="icon-btn fs-btn" onClick={() => setFontSz(s => Math.min(22, s + 1))} title="放大字号">A+</button>
         {/* 对照备忘录：阅读态也能直接新建（平板显示，手机保持 v1 无此钮） */}
-        <button className="icon-btn tb-only" onClick={e => openSheet('note', e.currentTarget)} title="新建笔记"><IPen size={17} /></button>
+        <button className="icon-btn tb-only" onClick={startNewNote} title="新建笔记"><IPen size={17} /></button>
         <span className={'badge-sync ' + (readerState === 'cached' ? 'synced' : 'pending')} style={{ marginLeft: 'auto' }}>
           {readerState === 'cached' ? '已缓存' : readerState === 'loading' ? '下载中…' : '加载失败'}
         </span>
@@ -262,10 +276,25 @@ export function NotesPage({ active }: { active: boolean }) {
   return (
     <section className={'page' + (active ? ' active' : '')}>
       {listEl}
-      <button className="fab" onClick={e => openSheet('note', e.currentTarget)}><IPen /></button>
+      <button className="fab" onClick={startNewNote}><IPen /></button>
+      {/* 编辑器（备忘录式）：即建即编，无表单无保存钮——返回/完成即入库，空笔记静默丢弃 */}
+      {editingId && (
+        <div className="reader open note-editor">
+          <div className="reader-top">
+            <button className="icon-btn" onClick={exitEditor} title="完成并返回列表"><IBack /></button>
+            <span className="path">新笔记 · 首行即标题</span>
+            <button className="btn-done" onClick={exitEditor}>完成</button>
+          </div>
+          <textarea
+            className="editor-area"
+            autoFocus
+            value={draft}
+            onChange={e => onDraft(e.target.value)}
+            placeholder="想到什么写什么…（第一行会成为标题）"
+          />
+        </div>
+      )}
       <div className={'reader' + (reader ? ' open' : '')}>{readerEl}</div>
     </section>
   )
 }
-
-export { NoteSheet }

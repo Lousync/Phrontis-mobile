@@ -924,6 +924,21 @@ button.vault-line:disabled { cursor: default; }
 /* 字号按钮（文字型 icon-btn） */
 .fs-btn { font-size: 12px; font-weight: 600; letter-spacing: .5px; }
 
+/* ============ 备忘录式编辑器（即建即编，弃抽屉表单） ============ */
+.note-editor .btn-done {
+  height: 30px; padding: 0 14px; border-radius: 15px; margin-left: auto;
+  background: var(--accent-soft); color: var(--accent-hover); font-size: 13px; font-weight: 600;
+  transition: background .15s, transform .12s;
+}
+.note-editor .btn-done:active { transform: scale(.95); }
+.editor-area {
+  flex: 1; resize: none; border: none; outline: none; background: transparent;
+  padding: 18px 20px 40px; font-size: 15px; line-height: 1.85; color: var(--text-primary);
+  font-family: inherit; caret-color: var(--accent);
+}
+.editor-area::placeholder { color: var(--text-muted); }
+.app.tablet .note-editor .editor-area { max-width: 720px; width: 100%; align-self: center; padding: 24px 20px 40px; }
+
 /* 阅读字号可调：.md 以 --rfs 为字号源（阅读器容器内联注入），标题/行内代码随动 */
 .md { --rfs: 14px; }
 .md p, .md li { font-size: var(--rfs); }
