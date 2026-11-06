@@ -1137,6 +1137,39 @@ button.vault-line:disabled { cursor: default; }
 /* 空态引导铺满内容区（非浮层，但同样不要限宽） */
 .app.tablet .page > .notes-empty { max-width: none; width: auto; align-self: auto; }
 
+/* 平板日程快捷添加（真机反馈 2026-11-06）：通栏输入条改右下圆钮 + 就地浮起面板（内联展开，非抽屉）。
+ * 两个绝对定位直接子元素——WebKit 翻回 width/align-self（§实现坑） */
+.app.tablet .page > .tb-add {
+  width: 54px; max-width: 54px; align-self: auto;
+  position: absolute; right: 24px; bottom: calc(24px + env(safe-area-inset-bottom));
+  height: 54px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent); color: #fff; border: none; cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .22); z-index: 5;
+  transition: transform .18s, filter .15s;
+}
+.app.tablet .page > .tb-add:hover { filter: brightness(1.08); }
+.app.tablet .page > .tb-add.open { transform: rotate(45deg); }
+.app.tablet .page > .tb-quick-add {
+  width: min(380px, 86vw); max-width: none; align-self: auto;
+  position: absolute; right: 24px; bottom: calc(88px + env(safe-area-inset-bottom));
+  padding: 14px;
+  background: var(--bg-secondary); border: 1px solid var(--border-soft); border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .25); z-index: 5;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.tb-quick-add .qa-row { display: flex; gap: 8px; align-items: center; }
+.tb-quick-add input {
+  flex: 1; min-width: 0; height: 38px; padding: 0 12px;
+  background: var(--bg-tertiary); border: 1px solid var(--border-soft); border-radius: 10px;
+  outline: none; color: var(--text-primary); font-size: 14px;
+}
+.tb-quick-add input:focus { border-color: var(--accent); }
+.tb-quick-add input[type='time'] { flex: none; width: 110px; }
+.tb-quick-add .qa-go { flex: none; width: auto; height: 38px; padding: 0 18px; }
+.tb-quick-add .seg { display: flex; gap: 4px; }
+.tb-quick-add .qa-hint { font-size: 10.5px; color: var(--text-muted); flex: 1; text-align: right; }
+
 /* 贴底控件：不再给浮坞让位，直接贴近底缘（toasts 亦然） */
 .app.tablet .add-bar { bottom: calc(20px + env(safe-area-inset-bottom)); }
 .app.tablet .fab { bottom: calc(20px + env(safe-area-inset-bottom)); }
