@@ -883,6 +883,11 @@ button.vault-line:disabled { cursor: default; }
 .app.tablet .page > * { max-width: 760px; width: 100%; align-self: center; }
 /* FAB 是悬浮钮不是内容块，限宽规则会把它拉成通栏条——恢复原尺寸并贴右 */
 .app.tablet .page > .fab { width: 54px; max-width: 54px; align-self: flex-end; }
+/* WebKit（iPad Safari）会把 width/align-self 应用到绝对定位子元素上（Chromium 按规范忽略），
+   阅读器/添加条因此被压成「内容高的浮块」——覆盖层类子元素必须显式翻回 auto，
+   让 base 规则的 inset:0 + left/right 重新生效铺满全页 */
+.app.tablet .page > .reader,
+.app.tablet .page > .add-bar { width: auto; max-width: none; align-self: auto; }
 .app.tablet .dock, .app.tablet .c-bar { display: none; }
 
 /* 贴底控件：不再给浮坞让位，直接贴近底缘（toasts 亦然） */
