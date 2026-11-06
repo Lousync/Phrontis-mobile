@@ -150,10 +150,13 @@ export function NotesPage({ active }: { active: boolean }) {
 
   const isFresh = (page: NoteTreePage) => !!cache[page.id] && cache[page.id].mtimeMs === page.mtimeMs
 
-  /* 列表块：搜索 + 仓库目录 + 手机笔记（手机整页 / 平板左栏共用） */
+  /* 列表块：搜索 + 仓库目录 + 手机笔记（手机整页 / 平板内容区共用） */
   const listEl = (
     <>
-      <PageHead title="笔记" />
+      {/* 新建入口（tb-only=平板显示）：对照 iPad 备忘录——页头右侧工具栏钮，不用悬浮球 */}
+      <PageHead title="笔记">
+        <button className="icon-btn tb-only" onClick={e => openSheet('note', e.currentTarget)} title="新建笔记"><IPen size={17} /></button>
+      </PageHead>
       <div className="search-box">
         <ISearch />
         <input value={kw} onChange={e => setKw(e.target.value)} placeholder="搜索笔记标题" />
@@ -229,6 +232,8 @@ export function NotesPage({ active }: { active: boolean }) {
         )}
         <button className="icon-btn fs-btn" onClick={() => setFontSz(s => Math.max(12, s - 1))} title="缩小字号">A-</button>
         <button className="icon-btn fs-btn" onClick={() => setFontSz(s => Math.min(22, s + 1))} title="放大字号">A+</button>
+        {/* 对照备忘录：阅读态也能直接新建（平板显示，手机保持 v1 无此钮） */}
+        <button className="icon-btn tb-only" onClick={e => openSheet('note', e.currentTarget)} title="新建笔记"><IPen size={17} /></button>
         <span className={'badge-sync ' + (readerState === 'cached' ? 'synced' : 'pending')} style={{ marginLeft: 'auto' }}>
           {readerState === 'cached' ? '已缓存' : readerState === 'loading' ? '下载中…' : '加载失败'}
         </span>
