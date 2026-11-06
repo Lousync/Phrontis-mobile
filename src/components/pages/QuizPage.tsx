@@ -29,20 +29,34 @@ export function QuizPage({ active }: { active: boolean }) {
   const [score, setScore] = useState({ ok: 0, total: 0 })
 
   const unmastered = useMemo(() => quizRecords.filter(isUnmastered), [quizRecords])
+
+  /* 分类颗粒度：档位筛选（全部/未掌握/顽固≥4/中2-3/轻1）——书架展示与刷题范围都跟着走 */
+  const [tier, setTier] = useState<'all' | 'um' | 't4' | 't2' | 't1'>('all')
+  const tierOf = (r: QuizRecord) => r.wrongCount >= 4 ? 't4' : r.wrongCount >= 2 ? 't2' : r.wrongCount >= 1 ? 't1' : 't0'
+  const filtered = useMemo(() => {
+    if (tier === 'all') return quizRecords
+    if (tier === 'um') return quizRecords.filter(isUnmastered)
+    return quizRecords.filter(r => tierOf(r) === tier)
+  }, [quizRecords, tier])
+
   const books = useMemo(() => {
     const map = new Map<string, QuizRecord[]>()
-    for (const r of quizRecords) {
+    for (const r of filtered) {
       const list = map.get(r.pageTitle)
       if (list) list.push(r)
       else map.set(r.pageTitle, [r])
     }
     return [...map.entries()].map(([title, rs]) => ({ title, records: rs }))
-  }, [quizRecords])
+  }, [filtered])
 
-  const startRun = () => {
-    const pool = shuffle(quizRecords.filter(r => !(r.wrongCount > 0 && r.streakCorrect >= 2))) // 已掌握的移出本轮
+  /* 刷题范围：显式传 pool（按书）> 筛选后的未掌握 > 筛选后的全部；已掌握恒移出 */
+  const startRun = (scope?: QuizRecord[]) => {
+    const base = scope ?? filtered
+    let pool = base.filter(isUnmastered)
+    if (!pool.length) pool = base.filter(r => !(r.wrongCount > 0 && r.streakCorrect >= 2))
+    if (!pool.length) pool = base
     if (!pool.length) return
-    setQueue(pool)
+    setQueue(shuffle(pool))
     setIdx(0); setPicked(null); setShortText(''); setRevealed(false); setSelfOk(null)
     setScore({ ok: 0, total: 0 })
     setMode('run')
@@ -138,27 +152,37 @@ export function QuizPage({ active }: { active: boolean }) {
     )
   }
 
-  /* 书架态：错题书架（按来源分书 + 错次档位）+ 统计 + 开始刷题 */
+  /* 书架态：错题书架（按来源分书 + 错次档位）+ 档位筛选 + 按书/全局刷题 */
   return (
     <section className={'page' + (active ? ' active' : '')}>
       <PageHead title="错题本">
-        {unmastered.length > 0 && <button className="btn-primary quiz-go" onClick={startRun}>开始刷题 · {unmastered.length} 道未掌握</button>}
+        <button className="btn-primary quiz-go" onClick={() => startRun()} disabled={!filtered.length}>
+          刷题 · {filtered.filter(isUnmastered).length || filtered.length} 道
+        </button>
       </PageHead>
       <div className="quiz-stats">
         <div className="qs"><b>{quizRecords.length}</b><span>总题数</span></div>
         <div className="qs warn"><b>{unmastered.length}</b><span>未掌握</span></div>
         <div className="qs ok"><b>{quizRecords.length - unmastered.length}</b><span>已掌握/未错</span></div>
       </div>
+      <div className="quiz-filters">
+        {[['all', '全部'], ['um', '未掌握'], ['t4', '顽固 ≥4'], ['t2', '中 2-3'], ['t1', '轻 1']].map(([id, label]) => (
+          <button key={id} className={'qf-chip' + (tier === id ? ' on' : '')} onClick={() => setTier(id as typeof tier)}>
+            {label as string}
+          </button>
+        ))}
+      </div>
       {books.map(b => {
         const worst = b.records.reduce((t, r) => Math.max(t, r.wrongCount), 0)
-        const tier = worst >= 4 ? '顽固' : worst >= 2 ? '中' : worst >= 1 ? '轻' : '未错'
+        const tierLabel = worst >= 4 ? '顽固' : worst >= 2 ? '中' : worst >= 1 ? '轻' : '未错'
         const um = b.records.filter(isUnmastered).length
         return (
           <div key={b.title} className="quiz-book">
             <div className="qb-head">
-              <span className={'qb-tier t' + (worst >= 4 ? '4' : worst >= 2 ? '2' : worst >= 1 ? '1' : '0')}>{tier}</span>
+              <span className={'qb-tier t' + (worst >= 4 ? '4' : worst >= 2 ? '2' : worst >= 1 ? '1' : '0')}>{tierLabel}</span>
               <span className="qb-title">{b.title}</span>
               <span className="qb-count">{b.records.length} 题{um ? ` · ${um} 未掌握` : ''}</span>
+              <button className="qb-run" onClick={() => startRun(b.records)}>刷此书</button>
             </div>
             <div className="qb-list">
               {b.records.map(r => (

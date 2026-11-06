@@ -1029,6 +1029,21 @@ button.vault-line:disabled { cursor: default; }
 .quiz-go { margin-left: auto; }
 .pg-head .quiz-go { margin-left: auto; }
 
+/* 档位筛选条：书架展示与刷题范围跟随 */
+.quiz-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.qf-chip {
+  height: 32px; padding: 0 14px; border-radius: 16px; font-size: 12.5px;
+  color: var(--text-secondary); background: var(--bg-primary); border: 1px solid var(--border-soft);
+  transition: background .15s, color .15s, border-color .15s;
+}
+.qf-chip.on { color: var(--accent-hover); background: var(--accent-soft); border-color: transparent; font-weight: 600; }
+.qb-run {
+  flex: none; height: 30px; padding: 0 12px; border-radius: 15px; font-size: 12px; font-weight: 600;
+  color: var(--accent-hover); background: var(--accent-soft);
+  transition: transform .12s, background .15s;
+}
+.qb-run:active { transform: scale(.95); }
+
 /* 刷题态：一题一屏 */
 .quiz-progress { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--text-muted); }
 .quiz-progress .qp-bar { flex: 1; height: 4px; border-radius: 2px; background: var(--bg-tertiary); overflow: hidden; }
