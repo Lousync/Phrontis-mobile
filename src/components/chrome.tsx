@@ -14,7 +14,7 @@ const TABS: Array<{ id: string; label: string; icon: (p: { size?: number }) => R
 
 /** 页面大标题（含非页签页：用量走二级入口，小顶栏同样要显示它的名字） */
 const PAGE_TITLES: Record<string, string> = {
-  ai: 'AI 助手', schedule: '日程', ledger: '记账', notes: '笔记', usage: 'AI 用量', settings: '设置',
+  ai: 'AI 助手', schedule: '日程', ledger: '记账', notes: '笔记', quiz: '刷题', usage: 'AI 用量', settings: '设置',
 }
 
 /** 标题下元信息行（备忘录式）：同步状态进排版，不再做漂浮胶囊；异常态变色 */

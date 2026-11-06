@@ -224,3 +224,22 @@ export interface AiChatMsg {
 export type AiMode = 'direct' | 'pc'
 export type VoicePhase = 'idle' | 'recording' | 'transcribing'
 export type SchedView = 'list' | 'grid' | 'habit'
+
+/* ---------- 刷题（桌面 .knowbase/modules/quiz 移植的移动子集，真相源暂为本地，协议 v1.3 接桌面） ---------- */
+export interface QuizOption { key: string; text: string }
+export interface QuizRecord {
+  id: string
+  pageId: string      // 来源笔记/试卷（桌面 page_id）
+  pageTitle: string   // 来源名：错题书架按它分「书」
+  no: number          // 卷内题号
+  type: 'choice' | 'short'
+  question: string
+  options: QuizOption[]
+  answer: string      // 选择题=选项 key；简答题=参考答案
+  explanation: string
+  wrongCount: number
+  correctCount: number
+  streakCorrect: number
+  lastResult: '' | 'correct' | 'wrong'
+  updatedAt: number
+}

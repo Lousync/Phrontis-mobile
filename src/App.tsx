@@ -6,6 +6,7 @@ import { AiPage, SessionSheet } from './components/pages/AiPage'
 import { SchedulePage, TodoSheet } from './components/pages/SchedulePage'
 import { LedgerPage, TxSheet } from './components/pages/LedgerPage'
 import { NotesPage } from './components/pages/NotesPage'
+import { QuizPage } from './components/pages/QuizPage'
 import { UsagePage } from './components/pages/UsagePage'
 import { SettingsPage, AiConfigSheet, ThemePickerSheet } from './components/pages/SettingsPage'
 import { QrScanSheet } from './components/QrScanSheet'
@@ -24,6 +25,7 @@ function Shell() {
           <SchedulePage active={p('schedule')} />
           <LedgerPage active={p('ledger')} />
           <NotesPage active={p('notes')} />
+          <QuizPage active={p('quiz')} />
           <UsagePage active={p('usage')} />
           <SettingsPage active={p('settings')} />
         </main>

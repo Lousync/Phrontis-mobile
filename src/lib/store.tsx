@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { ReactNode } from 'react'
-import type { AiChatMsg, AiConfig, AiMode, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteProposal, PairedDevice, PhoneNote, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
+import type { AiChatMsg, AiConfig, AiMode, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteProposal, PairedDevice, PhoneNote, QuizRecord, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
 import { THEME_IDS } from './types'
 import { seedFolders, seedHabits, seedSessions, seedTodos, seedEntries, TODAY, VOICE_PHRASES, welcomeText, dayIso, fmtMoney, monthOf, monthStats, txToDisplay } from './data'
 import {
@@ -22,11 +22,58 @@ const K_TODOS = 'pm.todos'
 /** v0.3 起账本存同步形态（pm.txs 是旧版展示形态键，弃用不迁移——当时只有演示数据） */
 const K_LEDGER = 'pm.ledger'
 const K_NOTES = 'pm.notes'
+const K_QUIZ = 'pm.quiz'
 const K_THEME = 'pm.theme'
 
 /** 手机笔记种子（首次启动；上行走 notes 域进电脑收件箱） */
 const seedPhoneNotes: PhoneNote[] = [
   { id: 'p1', title: '咖啡馆随想', body: '手机版的记账要不要支持语音快速记？先想想。', synced: false },
+]
+
+/* 刷题种子（验证 UI 手感；真数据待协议 v1.3 从桌面 .knowbase/modules/quiz 同步） */
+const seedQuizRecords: QuizRecord[] = [
+  { id: 'q1', pageId: 'os-final', pageTitle: '操作系统期末试卷', no: 1, type: 'choice',
+    question: '进程的三种基本状态不包括以下哪一项？',
+    options: [{ key: 'A', text: '就绪' }, { key: 'B', text: '运行' }, { key: 'C', text: '阻塞' }, { key: 'D', text: '挂起' }],
+    answer: 'D', explanation: '进程三态：就绪、运行、阻塞；挂起是引入中级调度后的扩展态，不属于基本三态。',
+    wrongCount: 3, correctCount: 1, streakCorrect: 0, lastResult: 'wrong', updatedAt: Date.now() - 86400000 },
+  { id: 'q2', pageId: 'os-final', pageTitle: '操作系统期末试卷', no: 2, type: 'choice',
+    question: '下列哪种调度算法有利于短作业？',
+    options: [{ key: 'A', text: '先来先服务' }, { key: 'B', text: '短作业优先' }, { key: 'C', text: '时间片轮转' }, { key: 'D', text: '高响应比优先' }],
+    answer: 'B', explanation: 'SJF 直接以作业长短为优先依据，平均等待时间最短。',
+    wrongCount: 0, correctCount: 2, streakCorrect: 2, lastResult: 'correct', updatedAt: Date.now() - 7200000 },
+  { id: 'q3', pageId: 'os-final', pageTitle: '操作系统期末试卷', no: 3, type: 'choice',
+    question: '死锁的四个必要条件是互斥、占有且等待、不可剥夺和？',
+    options: [{ key: 'A', text: '循环等待' }, { key: 'B', text: '优先级反转' }, { key: 'C', text: '饥饿' }, { key: 'D', text: '竞态' }],
+    answer: 'A', explanation: '四条件：互斥、占有且等待、不可剥夺、循环等待，缺一不可。',
+    wrongCount: 1, correctCount: 0, streakCorrect: 0, lastResult: 'wrong', updatedAt: Date.now() - 172800000 },
+  { id: 'q4', pageId: 'os-final', pageTitle: '操作系统期末试卷', no: 4, type: 'short',
+    question: '简述虚拟内存的定义及其依托的核心机制。',
+    options: [],
+    answer: '虚拟内存：程序装入时只装入部分页面即可运行，地址空间可大于物理内存；核心机制是请求分页（缺页中断 + 页面置换）。',
+    explanation: '局部性原理是其可行性基础；请求调页 + 置换实现逻辑地址空间到物理内存的映射。',
+    wrongCount: 2, correctCount: 0, streakCorrect: 0, lastResult: 'wrong', updatedAt: Date.now() - 259200000 },
+  { id: 'q5', pageId: 'net-wrong', pageTitle: '计算机网络错题集', no: 1, type: 'choice',
+    question: 'TCP 三次握手中，第二个报文的标志位是？',
+    options: [{ key: 'A', text: 'SYN' }, { key: 'B', text: 'ACK' }, { key: 'C', text: 'SYN+ACK' }, { key: 'D', text: 'FIN' }],
+    answer: 'C', explanation: '服务端收到 SYN 后回 SYN+ACK，第三次客户端单独发 ACK。',
+    wrongCount: 4, correctCount: 1, streakCorrect: 0, lastResult: 'wrong', updatedAt: Date.now() - 3600000 },
+  { id: 'q6', pageId: 'net-wrong', pageTitle: '计算机网络错题集', no: 2, type: 'choice',
+    question: 'IP 地址 192.168.1.0/26 的可用主机数是？',
+    options: [{ key: 'A', text: '62' }, { key: 'B', text: '64' }, { key: 'C', text: '30' }, { key: 'D', text: '126' }],
+    answer: 'A', explanation: '/26 主机位 6 位，2^6-2=62（去掉网络地址与广播地址）。',
+    wrongCount: 1, correctCount: 1, streakCorrect: 0, lastResult: 'wrong', updatedAt: Date.now() - 86400000 * 2 },
+  { id: 'q7', pageId: 'net-wrong', pageTitle: '计算机网络错题集', no: 3, type: 'short',
+    question: '简述 DNS 递归查询与迭代查询的区别。',
+    options: [],
+    answer: '递归：客户端只发一次请求，服务器必须替它查出最终结果；迭代：服务器返回下一步应查询的地址，由请求方继续追。',
+    explanation: '主机到本地域名服务器通常递归，本地服务器到根/顶级通常迭代。',
+    wrongCount: 0, correctCount: 0, streakCorrect: 0, lastResult: '', updatedAt: Date.now() - 86400000 * 3 },
+  { id: 'q8', pageId: 'net-wrong', pageTitle: '计算机网络错题集', no: 4, type: 'choice',
+    question: 'HTTP 与 HTTPS 的默认端口分别是？',
+    options: [{ key: 'A', text: '80 / 443' }, { key: 'B', text: '8080 / 443' }, { key: 'C', text: '80 / 8443' }, { key: 'D', text: '22 / 80' }],
+    answer: 'A', explanation: 'HTTP 80，HTTPS 443；8080/8443 常作测试备选。',
+    wrongCount: 0, correctCount: 0, streakCorrect: 0, lastResult: '', updatedAt: Date.now() - 86400000 * 4 },
 ]
 
 /** 在途删除操作的条目 id：远端回流时跳过这些 id（本地已删，等队列 push 落墓碑） */
@@ -110,6 +157,10 @@ interface Store {
   discardPhoneNote: (id: string) => void
   /** 编辑完成：内容入上行队列（op id = 笔记 uuid，与 v1.2 notes 域契约一致） */
   syncPhoneNote: (id: string, title: string, body: string) => void
+
+  /* 刷题（桌面 quiz 模块移动子集；真相源暂为本地，协议 v1.3 接桌面 quiz 域） */
+  quizRecords: QuizRecord[]
+  answerQuiz: (id: string, correct: boolean) => void
 
   /* AI */
   aiMode: AiMode
@@ -628,6 +679,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     markPending(label, id)
   }, [markPending])
 
+  /* ---------- 刷题（桌面 quiz 模块移动子集） ----------
+   * 掌握判定对齐桌面：连续答对 ≥2 自动移出错题本（streak 累加），答错清零回流。
+   * 作答即时落本地（pm.quiz）；回流桌面待协议 v1.3 quiz 域。 */
+  const [quizRecords, setQuizRecords] = useState<QuizRecord[]>(() => loadJson<QuizRecord[]>(K_QUIZ, seedQuizRecords))
+  useEffect(() => { saveJson(K_QUIZ, quizRecords) }, [quizRecords])
+  const answerQuiz = useCallback((id: string, correct: boolean) => {
+    setQuizRecords(list => list.map(r => r.id !== id ? r : {
+      ...r,
+      correctCount: r.correctCount + (correct ? 1 : 0),
+      wrongCount: r.wrongCount + (correct ? 0 : 1),
+      streakCorrect: correct ? r.streakCorrect + 1 : 0,
+      lastResult: correct ? 'correct' : 'wrong',
+      updatedAt: Date.now(),
+    }))
+  }, [])
+
   /* ---------- AI ---------- */
 
   const newSession = useCallback(() => {
@@ -995,6 +1062,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     entries, txs, saveTx, updateTx, deleteTx, editTxId, openTxEdit,
     folders, toggleFolder, markCached, phoneNotes, addPhoneNote,
     createPhoneNote, updatePhoneNote, discardPhoneNote, syncPhoneNote,
+    quizRecords, answerQuiz,
     aiMode, setAiMode, aiConfig, updateAiConfig, sessions, curSession, newSession, switchSession, deleteSession, renameSession, togglePin,
     streaming, streamText, sendChat, stopStream, confirmCard, dismissCard,
     voicePhase, voiceElapsed, toggleVoice,
