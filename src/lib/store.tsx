@@ -176,7 +176,8 @@ interface Store {
   vaultReader: VaultReader | null
   setVaultReader: (r: VaultReader | null) => void
   vaultBody: string
-  vaultState: 'cached' | 'loading' | 'error'
+  /** cached=与目录一致；stale=离线回落旧版缓存（联网对账后自动刷新）；loading/error 同名 */
+  vaultState: 'cached' | 'loading' | 'error' | 'stale'
   syncSel: SyncSel
   toggleSyncDir: (path: string) => void
   toggleSyncNote: (id: string) => void
@@ -282,7 +283,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [vaultCache, setVaultCache] = useState<NoteCache>(() => loadNoteCache())
   const [vaultReader, setVaultReader] = useState<VaultReader | null>(null)
   const [vaultBody, setVaultBody] = useState('')
-  const [vaultState, setVaultState] = useState<'cached' | 'loading' | 'error'>('cached')
+  const [vaultState, setVaultState] = useState<'cached' | 'loading' | 'error' | 'stale'>('cached')
   const [syncSel, setSyncSel] = useState<SyncSel>(() => {
     try {
       const v = JSON.parse(localStorage.getItem(K_SYNC_SEL) || '')
@@ -324,6 +325,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const vaultTreeRef = useRef(vaultTree); vaultTreeRef.current = vaultTree
   const syncSelRef = useRef(syncSel); syncSelRef.current = syncSel
   const vaultCacheRef = useRef(vaultCache); vaultCacheRef.current = vaultCache
+  const vaultReaderRef = useRef(vaultReader); vaultReaderRef.current = vaultReader
+  const vaultStateRef = useRef(vaultState); vaultStateRef.current = vaultState
   const runSyncRef = useRef<() => void>(() => {})
 
   useEffect(() => { document.documentElement.dataset.theme = theme; saveJson(K_THEME, theme) }, [theme])
@@ -812,8 +815,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         })
       })
       .catch((e: Error) => {
-        setVaultState('error')
-        toast(e.message, 'warn')
+        /* 离线/伴侣不可达 → 有旧缓存就回落显示旧版（stale），联网对账后自动刷新；完全没缓存才报错 */
+        if (hit) {
+          setVaultBody(hit.body)
+          setVaultState('stale')
+          toast('离线，显示旧版缓存', 'info')
+        } else {
+          setVaultState('error')
+          toast(e.message, 'warn')
+        }
       })
   }, [toast])
 
@@ -851,6 +861,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
             saveNoteCache(next)
             return next
           })
+          /* 正在读的笔记若处于旧版回落态：原地刷新成新版（离线→联网闭环） */
+          if (vaultReaderRef.current?.path === p.path && vaultStateRef.current === 'stale') {
+            setVaultBody(c.body)
+            setVaultState('cached')
+          }
         } catch { /* 静默：下一轮对账再试 */ }
       }
       vaultRefreshingRef.current = false

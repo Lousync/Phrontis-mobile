@@ -105,7 +105,9 @@ export function NotesPage({ active }: { active: boolean }) {
         {/* 对照备忘录：阅读态也能直接新建（平板显示，手机保持 v1 无此钮） */}
         <button className="icon-btn tb-only" onClick={startNewNote} title="新建笔记"><IPen size={17} /></button>
         <span className={'badge-sync ' + (vaultState === 'cached' ? 'synced' : 'pending')} style={{ marginLeft: 'auto' }}>
-          {vaultState === 'cached' ? '已缓存' : vaultState === 'loading' ? '下载中…' : '加载失败'}
+          {vaultState === 'cached' ? '已缓存'
+            : vaultState === 'stale' ? '旧版缓存 · 联网后自动更新'
+            : vaultState === 'loading' ? '下载中…' : '加载失败'}
         </span>
       </div>
       {tocOpen && toc.length > 0 && (
