@@ -879,3 +879,56 @@ button.vault-line:disabled { cursor: default; }
 .app.tablet .add-bar { bottom: calc(20px + env(safe-area-inset-bottom)); }
 .app.tablet .fab { bottom: calc(20px + env(safe-area-inset-bottom)); }
 .app.tablet .toast-wrap { bottom: calc(20px + env(safe-area-inset-bottom)); }
+
+/* ============ 平板笔记双栏（T1）：左列表 | 右阅读常驻 ============ */
+.app.tablet .notes-duo { padding: 0; flex-direction: row; gap: 0; }
+/* 覆盖 T0 的正文限宽（.page > * 的 width:100% + align-self:center 会把双栏撑满/垂直居中，
+ * 必须连 width 与 align-self 一起翻回来；特异性 (0,4,0) > (0,3,0) */
+.app.tablet .notes-duo > .duo-list { max-width: none; width: 320px; align-self: stretch; }
+.app.tablet .notes-duo > .duo-reader { max-width: none; width: auto; align-self: stretch; }
+.duo-list {
+  flex: none; position: relative;
+  overflow-y: auto; padding: 24px 14px calc(32px + env(safe-area-inset-bottom));
+  border-right: 1px solid var(--border-soft);
+}
+.duo-list .pg-head { padding: 0 6px; }
+.duo-list .file-row.on { color: var(--accent-hover); background: var(--accent-soft); }
+.duo-reader {
+  flex: 1; min-width: 0; position: relative;
+  display: flex; flex-direction: column; background: var(--bg-secondary);
+}
+.duo-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  color: var(--text-muted); font-size: 12px;
+}
+.duo-empty p { margin: 0; font-size: 14.5px; color: var(--text-secondary); }
+/* 阅读正文在右栏里限宽居中（行长与 T0 的 760px 口径一致） */
+.app.tablet .reader-body .md { max-width: 720px; margin: 0 auto; }
+
+/* 目录浮层：手机覆盖层与平板右栏通用（定位上下文分别是 .reader / .duo-reader，均已 positioned） */
+.tb-toc {
+  position: absolute; top: 54px; right: 16px; width: 252px; max-height: calc(100% - 130px);
+  overflow-y: auto; z-index: 8; padding: 8px;
+  background: var(--glass); border: 1px solid var(--border-soft); border-radius: 12px;
+  -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .4);
+}
+.tb-toc-t { font-size: 11px; color: var(--text-muted); padding: 4px 8px 6px; }
+.tb-toc button {
+  display: block; width: 100%; text-align: left; font-size: 12.5px; color: var(--text-secondary);
+  padding: 6px 8px; border-radius: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tb-toc button:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.tb-toc .toc-lv2 { padding-left: 20px; }
+.tb-toc .toc-lv3 { padding-left: 32px; }
+.icon-btn.on { color: var(--accent-hover); background: var(--accent-soft); }
+
+/* 字号按钮（文字型 icon-btn） */
+.fs-btn { font-size: 12px; font-weight: 600; letter-spacing: .5px; }
+
+/* 阅读字号可调：.md 以 --rfs 为字号源（阅读器容器内联注入），标题/行内代码随动 */
+.md { --rfs: 14px; }
+.md p, .md li { font-size: var(--rfs); }
+.md h1 { font-size: calc(var(--rfs) * 1.5); }
+.md h2 { font-size: calc(var(--rfs) * 1.18); }
+.md code { font-size: calc(var(--rfs) * 0.85); }

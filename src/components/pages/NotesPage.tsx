@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import type { NoteCache, NoteTreePage } from '../../lib/types'
 import { mdRender } from '../../lib/data'
 import { useApp } from '../../lib/store'
+import { useFormFactor } from '../../lib/useFormFactor'
 import {
   fetchNoteContent, fetchNoteTree, loadNoteCache, loadNoteTree, saveNoteCache, saveNoteTree,
 } from '../../lib/sync'
-import { IBack, IChevR, IFolder, IPen, ISearch } from '../../components/icons'
+import { IBack, IBars, IBook, IChevR, IFolder, IPen, ISearch } from '../../components/icons'
 import { Grip, Sheet } from '../../components/Sheet'
 import { PageHead } from '../../components/chrome'
 
@@ -46,8 +48,14 @@ function buildFolders(pages: NoteTreePage[]): Array<{ name: string; pages: NoteT
     .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'))
 }
 
+type TocItem = { id: string; text: string; level: number }
+
+const FONT_KEY = 'tb-reader-font'
+
 export function NotesPage({ active }: { active: boolean }) {
   const { phoneNotes, openSheet, toast, paired } = useApp()
+  const ff = useFormFactor()
+  const tablet = ff === 'tablet'
   const [kw, setKw] = useState('')
   const [tree, setTree] = useState(() => loadNoteTree())
   const [loadingTree, setLoadingTree] = useState(false)
@@ -56,6 +64,34 @@ export function NotesPage({ active }: { active: boolean }) {
   const [reader, setReader] = useState<{ title: string; path: string; kind: 'vault' | 'phone' } | null>(null)
   const [readerBody, setReaderBody] = useState('')
   const [readerState, setReaderState] = useState<'cached' | 'loading' | 'error'>('cached')
+  /* T1 阅读体验：字号可调（localStorage 持久化）+ 标题目录跳转 */
+  const [fontSz, setFontSz] = useState(() => {
+    const v = Number(localStorage.getItem(FONT_KEY))
+    return v >= 12 && v <= 22 ? v : 15
+  })
+  const [tocOpen, setTocOpen] = useState(false)
+  const [toc, setToc] = useState<TocItem[]>([])
+  const bodyRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => { localStorage.setItem(FONT_KEY, String(fontSz)) }, [fontSz])
+
+  /* 渲染后从真实 DOM 收集 h1–h3：编号写入 id，同时产出目录数据 */
+  useEffect(() => {
+    const el = bodyRef.current
+    if (!el || !reader) { setToc([]); return }
+    const items: TocItem[] = []
+    el.querySelectorAll('h1, h2, h3').forEach((h, i) => {
+      const id = 'md-h-' + i
+      ;(h as HTMLElement).id = id
+      items.push({ id, text: (h.textContent || '').slice(0, 48), level: Number(h.tagName[1]) })
+    })
+    setToc(items)
+    setTocOpen(false)
+  }, [readerBody, reader])
+
+  const jumpTo = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   /* 拉目录树（进页自动一次；vault-line 点击可手动重拉，失败退回本地缓存树 + toast） */
   const fetchTreeNow = () => {
@@ -117,8 +153,9 @@ export function NotesPage({ active }: { active: boolean }) {
 
   const isFresh = (page: NoteTreePage) => !!cache[page.id] && cache[page.id].mtimeMs === page.mtimeMs
 
-  return (
-    <section className={'page' + (active ? ' active' : '')}>
+  /* 列表块：搜索 + 仓库目录 + 手机笔记（手机整页 / 平板左栏共用） */
+  const listEl = (
+    <>
       <PageHead title="笔记" />
       <div className="search-box">
         <ISearch />
@@ -146,7 +183,7 @@ export function NotesPage({ active }: { active: boolean }) {
             </div>
             <div className="folder-files">
               {files.map(x => (
-                <div key={x.id} className="file-row" onClick={() => openVaultNote(x)}>
+                <div key={x.id} className={'file-row' + (tablet && reader?.path === x.path ? ' on' : '')} onClick={() => openVaultNote(x)}>
                   <span className={'c ' + (isFresh(x) ? 'cached' : 'uncached')} />
                   {x.title}
                   <span className="arrow"><IChevR /></span>
@@ -178,22 +215,76 @@ export function NotesPage({ active }: { active: boolean }) {
           {!phoneNotes.filter(x => !kwTrim || x.title.includes(kwTrim)).length && <div className="empty" style={{ padding: '16px 0' }}>还没有手机笔记</div>}
         </div>
       </div>
+    </>
+  )
 
-      <button className="fab" onClick={e => openSheet('note', e.currentTarget)}><IPen /></button>
-
-      <div className={'reader' + (reader ? ' open' : '')}>
-        <div className="reader-top">
-          <button className="icon-btn" onClick={() => setReader(null)}><IBack /></button>
-          <span className="path">{reader?.path}</span>
-          <span className={'badge-sync ' + (readerState === 'cached' ? 'synced' : 'pending')} style={{ marginLeft: 'auto' }}>
-            {readerState === 'cached' ? '已缓存' : readerState === 'loading' ? '下载中…' : '加载失败'}
-          </span>
-        </div>
-        <div className="reader-body"><div className="md" dangerouslySetInnerHTML={{ __html: mdRender(readerBody) }} /></div>
-        <div className="reader-foot">
-          <span className="note">{reader?.kind === 'phone' ? '手机笔记上行后在电脑收件箱继续整理' : '手机端 v1 只读电脑笔记，编辑回电脑进行'}</span>
-        </div>
+  /* 阅读块：手机覆盖层 / 平板右栏共用同一份 markup（含目录、字号、缓存徽标） */
+  const readerEl = (
+    <>
+      <div className="reader-top">
+        {!tablet && <button className="icon-btn" onClick={() => setReader(null)} title="返回列表"><IBack /></button>}
+        <span className="path">{reader?.path}</span>
+        {toc.length > 0 && (
+          <button className={'icon-btn' + (tocOpen ? ' on' : '')} onClick={() => setTocOpen(o => !o)} title="目录">
+            <IBars />
+          </button>
+        )}
+        <button className="icon-btn fs-btn" onClick={() => setFontSz(s => Math.max(12, s - 1))} title="缩小字号">A-</button>
+        <button className="icon-btn fs-btn" onClick={() => setFontSz(s => Math.min(22, s + 1))} title="放大字号">A+</button>
+        <span className={'badge-sync ' + (readerState === 'cached' ? 'synced' : 'pending')} style={{ marginLeft: 'auto' }}>
+          {readerState === 'cached' ? '已缓存' : readerState === 'loading' ? '下载中…' : '加载失败'}
+        </span>
       </div>
+      {tocOpen && toc.length > 0 && (
+        <div className="tb-toc">
+          <div className="tb-toc-t">目录 · {toc.length} 节</div>
+          {toc.map(t => (
+            <button key={t.id} className={'toc-lv' + t.level} onClick={() => { jumpTo(t.id); if (!tablet) setTocOpen(false) }}>
+              {t.text}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="reader-body" ref={bodyRef}>
+        <div className="md" style={{ '--rfs': fontSz + 'px' } as CSSProperties} dangerouslySetInnerHTML={{ __html: mdRender(readerBody) }} />
+      </div>
+      <div className="reader-foot">
+        <span className="note">
+          {reader?.kind === 'phone'
+            ? '手机笔记上行后在电脑收件箱继续整理'
+            : tablet ? '平板端 v1 只读电脑笔记，编辑回电脑进行' : '手机端 v1 只读电脑笔记，编辑回电脑进行'}
+        </span>
+      </div>
+    </>
+  )
+
+  /* 平板：双栏（左列表 | 右阅读常驻），选中即读，不用覆盖层 */
+  if (tablet) {
+    return (
+      <section className={'page notes-duo' + (active ? ' active' : '')}>
+        <div className="duo-list">
+          {listEl}
+          <button className="fab" onClick={e => openSheet('note', e.currentTarget)}><IPen /></button>
+        </div>
+        <div className="duo-reader">
+          {reader ? readerEl : (
+            <div className="duo-empty">
+              <IBook size={30} />
+              <p>从左侧选一篇笔记开始阅读</p>
+              <span>目录跳转 · 字号调节 · 增量缓存离线可读</span>
+            </div>
+          )}
+        </div>
+      </section>
+    )
+  }
+
+  /* 手机：保持 v1 的覆盖层阅读器 */
+  return (
+    <section className={'page' + (active ? ' active' : '')}>
+      {listEl}
+      <button className="fab" onClick={e => openSheet('note', e.currentTarget)}><IPen /></button>
+      <div className={'reader' + (reader ? ' open' : '')}>{readerEl}</div>
     </section>
   )
 }
