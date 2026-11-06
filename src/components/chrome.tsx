@@ -53,28 +53,23 @@ export function PageHead({ title, sub, children, onBack }: {
 }
 
 /**
- * 壳层 chrome：收拢顶栏（滚动 >46px 淡入）+ 浮动玻璃坞（5 页签，滚动收缩成当前页胶囊）+ 桌面键盘模拟按钮。
+ * 壳层 chrome：收拢顶栏（滚动 >46px 淡入）+ 常驻浮坞（5 页签）+ 桌面键盘模拟按钮。
+ * 浮坞不再随滚动收缩（2026-11-06 用户拍板）：收缩后只剩当前页一个胶囊，底部反而空出一大片，
+ * 且「下滚收起 / 上滑展开」的操作预期很难猜。现在恒定展开，5 个页签一直在。
  * 滚动监听走捕获：scroll 不冒泡，一个监听器接住所有页面/聊天区的滚动，只认当前激活页。
  */
 export function ShellChrome() {
   const { activeTab, setActiveTab } = useApp()
   const barRef = useRef<HTMLElement>(null)
-  const dockRef = useRef<HTMLElement>(null)
-  const lastSt = useRef(0)
 
   useEffect(() => {
     const onScroll = (e: Event) => {
       const t = e.target
       if (!(t instanceof HTMLElement)) return
       const isActivePage = t.classList.contains('page') && t.classList.contains('active')
-      /* AI 页的滚动区是内层 .chat（composer 常驻），也驱动浮坞收缩 */
+      /* AI 页的滚动区是内层 .chat（composer 常驻），也参与顶栏淡入 */
       if (!isActivePage && !t.classList.contains('chat')) return
-      const st = t.scrollTop
-      const last = lastSt.current
-      if (st > last + 6 && st > 90) dockRef.current?.classList.add('min')
-      else if (st < last - 4 || st < 90) dockRef.current?.classList.remove('min')
-      lastSt.current = st
-      if (isActivePage) barRef.current?.classList.toggle('on', st > 46)
+      if (isActivePage) barRef.current?.classList.toggle('on', t.scrollTop > 46)
     }
     document.addEventListener('scroll', onScroll, true)
     return () => document.removeEventListener('scroll', onScroll, true)
@@ -82,21 +77,19 @@ export function ShellChrome() {
 
   /* 切页复位：新页从顶部开始，收拢态不跟随 */
   useEffect(() => {
-    lastSt.current = 0
     barRef.current?.classList.remove('on')
-    dockRef.current?.classList.remove('min')
   }, [activeTab])
 
   return (
     <>
       <header ref={barRef} className="c-bar"><span className="c-t">{PAGE_TITLES[activeTab] ?? ''}</span></header>
-      <nav className="dock" ref={dockRef} aria-label="主导航">
+      <nav className="dock" aria-label="主导航">
         {TABS.map(t => (
           <button
             key={t.id}
             className={activeTab === t.id ? 'on' : ''}
             onClick={e => {
-              if (activeTab === t.id) { dockRef.current?.classList.remove('min'); return }
+              if (activeTab === t.id) return
               setActiveTab(t.id, e.currentTarget)
             }}
           >

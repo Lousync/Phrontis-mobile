@@ -261,14 +261,14 @@ button.c-meta:active { opacity: .7; }
 .page.all-done { background: linear-gradient(180deg, rgba(137, 209, 133, .055), transparent 260px); transition: background .4s ease-out; }
 
 /* ============ 浮动玻璃坞（Liquid Glass，5 页签） ============
- * 浮在内容上（z 30），下滚收缩成当前页小胶囊、上滑或点当前胶囊展开。
+ * 浮在内容上（z 30），恒定展开——不再随滚动收缩（2026-11-06 用户拍板：收缩后只剩一个胶囊，
+ * 底部空出一大片，且「下滚收起 / 上滑展开」的预期很难猜）。
  * 贴底控件（FAB / 添加条）因此抬到坞上方。 */
 .dock {
   position: absolute; left: 12px; right: 12px; bottom: calc(14px + var(--safe-bottom)); z-index: 30;
   display: flex; gap: 2px; padding: 6px; border-radius: 24px; background: var(--glass);
   -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
   box-shadow: 0 14px 34px rgba(0, 0, 0, .5), inset 0 0 0 1px rgba(255, 255, 255, .07);
-  transition: left .3s cubic-bezier(.23, 1, .32, 1), right .3s cubic-bezier(.23, 1, .32, 1);
 }
 .dock button {
   flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 5px;
@@ -279,11 +279,6 @@ button.c-meta:active { opacity: .7; }
 .dock button:active { transform: scale(.92); }
 .dock button.on { color: var(--accent-hover); background: var(--accent-soft); }
 .dock .dk-lb { font-size: 10.5px; white-space: nowrap; max-width: 34px; opacity: 1; transition: max-width .28s cubic-bezier(.23, 1, .32, 1), opacity .16s ease-out; }
-.dock.min { left: auto; right: 14px; }
-.dock.min button { flex: none; padding: 0; }
-.dock.min button .dk-lb { max-width: 0; opacity: 0; }
-.dock.min button:not(.on) { max-width: 0; opacity: 0; pointer-events: none; }
-.dock.min button.on { max-width: 46px; padding: 0 12px; }
 
 /* ============ 卡片与通用 ============ */
 .card { background: var(--bg-primary); border: 1px solid var(--border-soft); border-radius: 14px; padding: 14px; }

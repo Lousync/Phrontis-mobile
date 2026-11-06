@@ -51,10 +51,16 @@ await page.waitForTimeout(250)
 await page.locator('#root .page.active').evaluate(el => { el.scrollTop = 300 })
 await page.waitForTimeout(250)
 ok('滚动 >46px：小顶栏淡入', (await page.locator('#root .c-bar.on').count()) === 1)
-ok('滚动下潜：浮坞收缩成当前页胶囊', (await page.locator('#root .dock.min').count()) === 1)
+/* 2026-11-06 用户拍板：浮坞不再随滚动收缩（收缩后只剩一个胶囊、底部空一大片）。
+   这里锁住反向契约——滚到底也必须 5 个页签全在、宽度正常。 */
+ok('滚动下潜：浮坞不收缩（5 页签常驻）', await page.locator('#root .dock').evaluate(el => {
+  if (el.classList.contains('min')) return false
+  const bs = [...el.querySelectorAll('button')]
+  return bs.length === 5 && bs.every(b => b.getBoundingClientRect().width > 20)
+}))
 await page.locator('#root .page.active').evaluate(el => { el.scrollTop = 0 })
 await page.waitForTimeout(250)
-ok('回顶：小顶栏与浮坞复位', (await page.locator('#root .c-bar.on').count()) === 0 && (await page.locator('#root .dock.min').count()) === 0)
+ok('回顶：小顶栏复位', (await page.locator('#root .c-bar.on').count()) === 0)
 
 /* 二级入口：设置 → 工具 → AI 用量 → 返回 */
 await page.locator('#root .tool-row', { hasText: 'AI 用量' }).click()
