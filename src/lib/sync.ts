@@ -123,6 +123,119 @@ export function unpair(): void {
   try { localStorage.removeItem(K_PAIRED) } catch { /* 忽略 */ }
 }
 
+/* ================= 配对 v1.5：局域网发现 + 桌面确认 ================= */
+
+/** 发现命中的电脑（手机扫段后由 /api/discover 回） */
+export interface DiscoveredPc {
+  baseUrl: string
+  pcName: string
+  protocol: number
+  /** 电脑是否支持请求式配对（false → 只能走 8 位配对码） */
+  canRequest: boolean
+}
+
+const K_SCAN_PREFIX = 'pm.lastScanPrefix'
+
+/**
+ * WebView 拿不到本机 IP（无原生桥），只能按经验网段枚举；上次命中的网段排最前（下次秒回）。
+ * 常见家用网段：192.168.1（多数光猫）/ .0（老路由）/ .31（小米）/ .3（华为）/ .50（TP-Link 默认）
+ * + 10.0.0 / 10.0.1（公司网）+ 172.20.10.1（iPhone 热点）。
+ */
+const COMMON_PREFIXES = ['192.168.1', '192.168.0', '192.168.31', '192.168.3', '192.168.2', '192.168.50', '10.0.0', '10.0.1', '172.20.10']
+
+function scanPrefixes(): string[] {
+  const last = lsGet<string>(K_SCAN_PREFIX, '')
+  if (!last || !COMMON_PREFIXES.includes(last)) return COMMON_PREFIXES
+  return [last, ...COMMON_PREFIXES.filter(p => p !== last)]
+}
+
+/** 探一台：/api/discover 通且 ok 才算命中；超时/被拒/跨域一律当没有 */
+async function probeHost(host: string, timeoutMs: number): Promise<DiscoveredPc | null> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch('http://' + host + ':8770/api/discover', { signal: ctrl.signal })
+    if (!res.ok) return null
+    const body = await res.json() as { ok?: boolean; protocol?: number; pc?: { name?: string }; pairing?: string[] }
+    if (!body.ok) return null
+    return {
+      baseUrl: 'http://' + host + ':8770',
+      pcName: body.pc?.name || '我的电脑',
+      protocol: body.protocol || 1,
+      canRequest: Array.isArray(body.pairing) && body.pairing.includes('request'),
+    }
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * 扫段发现：按网段顺序，每段并发探 .1–.254，命中即记住该段并停止。
+ * 单段 254 台 ÷ 48 并发 × 350ms ≈ 2s；最常见的 192.168.1 排第一，通常一两秒出结果。
+ * 只探 8770 默认端口（电脑端换端口时退回手动配对）。
+ */
+export async function discoverCompanions(opts: { timeoutMs?: number; concurrency?: number } = {}): Promise<DiscoveredPc[]> {
+  const timeoutMs = opts.timeoutMs ?? 350
+  const concurrency = opts.concurrency ?? 48
+  const found: DiscoveredPc[] = []
+  for (const prefix of scanPrefixes()) {
+    const hosts = Array.from({ length: 254 }, (_, i) => prefix + '.' + (i + 1))
+    let cursor = 0
+    const workers = Array.from({ length: concurrency }, async () => {
+      while (cursor < hosts.length) {
+        const host = hosts[cursor++]
+        const hit = await probeHost(host, timeoutMs)
+        if (hit && !found.some(f => f.baseUrl === hit.baseUrl)) found.push(hit)
+      }
+    })
+    await Promise.all(workers)
+    if (found.length) {
+      lsSet(K_SCAN_PREFIX, prefix)
+      break
+    }
+  }
+  return found
+}
+
+/** 发起配对请求：电脑弹确认框，同屏显示 4 位码（手机与电脑一致才允许） */
+export async function requestPair(baseUrl: string, name: string): Promise<{ requestId: string; code: string; expiresAt: number }> {
+  const res = await fetch(baseUrl + '/api/pair/request', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceName: name }),
+  })
+  const body = await res.json().catch(() => ({})) as { ok?: boolean; error?: string; requestId?: string; code?: string; expiresAt?: number }
+  if (!res.ok || !body.ok || !body.requestId || !body.code) {
+    throw new Error(body.error || '电脑端没有响应配对请求（' + res.status + '）')
+  }
+  return { requestId: body.requestId, code: body.code, expiresAt: body.expiresAt || Date.now() + 180_000 }
+}
+
+export type PairPollStatus = 'pending' | 'approved' | 'rejected' | 'expired'
+
+/** 轮询结果；approved 时顺带落盘长期令牌（与旧路 pairWith 同一条存储） */
+export async function pollPair(baseUrl: string, requestId: string): Promise<{ status: PairPollStatus; device?: PairedDevice }> {
+  const res = await fetch(baseUrl + '/api/pair/status?id=' + encodeURIComponent(requestId))
+  const body = await res.json().catch(() => ({})) as {
+    ok?: boolean; status?: PairPollStatus; deviceToken?: string; pc?: { name?: string }; error?: string
+  }
+  if (!res.ok || !body.ok || !body.status) throw new Error(body.error || '查询配对状态失败')
+  if (body.status === 'approved' && body.deviceToken) {
+    const device: PairedDevice = {
+      baseUrl,
+      token: body.deviceToken,
+      pcName: body.pc?.name || '我的电脑',
+      deviceId: deviceId(),
+      pairedAt: Date.now(),
+    }
+    lsSet(K_PAIRED, device)
+    return { status: 'approved', device }
+  }
+  return { status: body.status }
+}
+
 /* ================= 待同步队列 ================= */
 
 export function getQueue(): QueueOp[] {

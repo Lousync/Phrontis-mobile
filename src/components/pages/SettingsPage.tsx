@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AiConfig, AiProvider, ThemeName } from '../../lib/types'
 import { AI_PRESETS, aiConfigReady, fetchModels, presetOf, testAiConfig, type AiPreset } from '../../lib/ai'
+import { discoverCompanions, pollPair, requestPair, type DiscoveredPc } from '../../lib/sync'
 import { useApp } from '../../lib/store'
 import { IBars, ICheck, IChevL, IChevR, IKeyboard, IMonitor, IRefresh, ISparkle, IX, IEye } from '../../components/icons'
 import { PageHead } from '../../components/chrome'
@@ -24,12 +25,21 @@ const THEME_PICKS: Array<{ id: ThemeName; name: string; bg: string; line: string
  * AI 区 = M4a 直连档配置（pm.aiConfig，Key 只在本机）。
  */
 export function SettingsPage({ active }: { active: boolean }) {
-  const { paired, online, syncing, syncPct, lastSync, runSync, pairWith, unpair, theme, setTheme, toast, aiConfig, setActiveTab, kbSim, toggleKbSim, openSheet } = useApp()
+  const { paired, online, syncing, syncPct, lastSync, runSync, pairWith, adoptPaired, unpair, theme, setTheme, toast, aiConfig, setActiveTab, kbSim, toggleKbSim, openSheet } = useApp()
   const [scope, setScope] = useState<Record<string, boolean>>({ 记账: true, 日程: true, 笔记: true, 'AI 会话记录': false })
   const [pairInput, setPairInput] = useState('')
   const [pairCode, setPairCode] = useState('')
   const [pairing, setPairing] = useState(false)
   const [confirmUnpair, setConfirmUnpair] = useState(false)
+  /* v1.5 发现 + 桌面确认式配对 */
+  const [discovering, setDiscovering] = useState(false)
+  const [found, setFound] = useState<DiscoveredPc[]>([])
+  const [pairMsg, setPairMsg] = useState('')
+  const [manualOpen, setManualOpen] = useState(false)
+  const [pairReq, setPairReq] = useState<{ baseUrl: string; pcName: string; requestId: string; code: string } | null>(null)
+  const pollRef = useRef<number | null>(null)
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
   /* 已存配置的连接测试状态（摘要卡上；表单内测试在抽屉里另有一份） */
   const [testSt, setTestSt] = useState<null | { ok: boolean; ms?: number }>(null)
@@ -48,6 +58,62 @@ export function SettingsPage({ active }: { active: boolean }) {
     setPairing(true)
     try {
       await pairWith(pairInput, pairCode)
+    } finally {
+      setPairing(false)
+    }
+  }
+
+  /* v1.5：扫段找电脑（WebView 拿不到本机 IP，只能按常见网段枚举） */
+  const doDiscover = async () => {
+    setDiscovering(true)
+    setPairMsg('')
+    setFound([])
+    try {
+      const list = await discoverCompanions()
+      setFound(list)
+      if (!list.length) {
+        setPairMsg('没搜到电脑。确认手机与电脑在同一 Wi-Fi（或热点）、电脑端「手机伴侣」已开启；也可以手动配对。')
+      }
+    } catch (e) {
+      setPairMsg(e instanceof Error ? e.message : '搜索失败')
+    } finally {
+      setDiscovering(false)
+    }
+  }
+
+  const stopPolling = () => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    setPairReq(null)
+  }
+
+  /* v1.5：点发现的电脑 → 电脑弹确认框 → 这里轮询结果（approved 即落盘并接首次对账） */
+  const doRequest = async (pc: DiscoveredPc) => {
+    setPairing(true)
+    setPairMsg('')
+    try {
+      const r = await requestPair(pc.baseUrl, 'Phrontis 手机')
+      setPairReq({ baseUrl: pc.baseUrl, pcName: pc.pcName, requestId: r.requestId, code: r.code })
+      if (pollRef.current) clearInterval(pollRef.current)
+      const startedAt = Date.now()
+      pollRef.current = window.setInterval(() => {
+        void (async () => {
+          try {
+            const p = await pollPair(pc.baseUrl, r.requestId)
+            if (p.status === 'approved' && p.device) {
+              stopPolling()
+              await adoptPaired(p.device)
+            } else if (p.status === 'rejected') {
+              stopPolling()
+              toast('电脑拒绝了这次配对', 'warn')
+            } else if (p.status === 'expired' || Date.now() - startedAt > 200_000) {
+              stopPolling()
+              toast('配对请求已过期，重新搜索', 'warn')
+            }
+          } catch { /* 单次查询失败继续轮询（电脑端可能正忙） */ }
+        })()
+      }, 1500)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '发起配对失败', 'warn')
     } finally {
       setPairing(false)
     }
@@ -77,31 +143,81 @@ export function SettingsPage({ active }: { active: boolean }) {
         <div className="set-label">同步</div>
         <div className="card">
           {!paired ? (
-            <>
-              <div className="device-card">
-                <div className="device-ico"><IMonitor /></div>
-                <div className="info">
-                  <div className="n">未配对电脑</div>
-                  <div className="s">配对后记账数据与电脑双向同步</div>
+            pairReq ? (
+              /* 已向电脑发起请求：同屏 4 位码核对，电脑点「允许」后自动落盘 */
+              <>
+                <div className="device-card">
+                  <div className="device-ico"><IMonitor /></div>
+                  <div className="info">
+                    <div className="n">{pairReq.pcName}</div>
+                    <div className="s">等待电脑确认 · 已发起配对请求</div>
+                  </div>
                 </div>
-              </div>
-              <div className="field" style={{ marginTop: 12 }}>
-                <label>电脑地址或配对链接</label>
-                <input value={pairInput} onChange={e => setPairInput(e.target.value)}
-                  placeholder="192.168.1.5:8770 或整条配对链接" />
-              </div>
-              <div className="field">
-                <label>配对码（电脑端 工具箱 → 手机伴侣 出示）</label>
-                <input value={pairCode} onChange={e => setPairCode(e.target.value)}
-                  placeholder="8 位数字" inputMode="numeric" />
-              </div>
-              <button className="btn-primary" disabled={pairing || !pairInput.trim()} onClick={() => void doPair()}>
-                {pairing ? '配对中…' : '配对'}
-              </button>
-              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 10 }}>
-                手机与电脑需在同一 Wi-Fi / 热点下；首次配对后两端长期互信，同网自动重连。
-              </div>
-            </>
+                <div style={{ textAlign: 'center', padding: '18px 0 4px' }}>
+                  <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: '0.22em', fontVariantNumeric: 'tabular-nums', color: 'var(--accent-hover)' }}>
+                    {pairReq.code}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.6 }}>
+                    核对电脑「工具箱 → 手机伴侣」里显示的验证码<br />一致就点「允许」，两边号码不同请点「拒绝」
+                  </div>
+                </div>
+                <button className="btn-ghost" style={{ height: 44, width: '100%', marginTop: 10 }} onClick={stopPolling}>取消</button>
+              </>
+            ) : (
+              <>
+                <div className="device-card">
+                  <div className="device-ico"><IMonitor /></div>
+                  <div className="info">
+                    <div className="n">未配对电脑</div>
+                    <div className="s">同一 Wi-Fi 下自动搜索，配对后双向同步</div>
+                  </div>
+                </div>
+                <button className="btn-primary" style={{ marginTop: 12 }} disabled={discovering || pairing} onClick={() => void doDiscover()}>
+                  {discovering ? '搜索中…（约几秒）' : '搜索电脑'}
+                </button>
+                {found.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    {found.map(pc => (
+                      <button key={pc.baseUrl} className="tool-row" disabled={pairing} onClick={() => void doRequest(pc)}>
+                        <span className="tool-ico"><IMonitor size={16} /></span>
+                        <span className="tool-body">
+                          <span className="n">{pc.pcName}</span>
+                          <span className="s">{pc.baseUrl.replace('http://', '')}{pc.canRequest ? ' · 请求配对' : ' · 需配对码'}</span>
+                        </span>
+                        <IChevR size={14} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {pairMsg && (
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 10 }}>{pairMsg}</div>
+                )}
+                <button className="adv-toggle" style={{ marginTop: 8 }} onClick={() => setManualOpen(v => !v)}>
+                  <IChevR size={12} style={{ transform: manualOpen ? 'rotate(90deg)' : 'none', transition: 'transform .16s' }} />
+                  手动配对（电脑端出示配对码）
+                </button>
+                {manualOpen && (
+                  <>
+                    <div className="field" style={{ marginTop: 4 }}>
+                      <label>电脑地址或配对链接</label>
+                      <input value={pairInput} onChange={e => setPairInput(e.target.value)}
+                        placeholder="192.168.1.5:8770 或整条配对链接" />
+                    </div>
+                    <div className="field">
+                      <label>配对码（电脑端 工具箱 → 手机伴侣 出示）</label>
+                      <input value={pairCode} onChange={e => setPairCode(e.target.value)}
+                        placeholder="8 位数字" inputMode="numeric" />
+                    </div>
+                    <button className="btn-primary" disabled={pairing || !pairInput.trim()} onClick={() => void doPair()}>
+                      {pairing ? '配对中…' : '配对'}
+                    </button>
+                  </>
+                )}
+                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 10 }}>
+                  电脑端先开启「工具箱 → 手机伴侣」；配对一次后长期互信，同网自动重连。
+                </div>
+              </>
+            )
           ) : (
             <>
               <div className="device-card">

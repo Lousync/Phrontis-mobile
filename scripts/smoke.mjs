@@ -113,6 +113,13 @@ ok('记一笔落账（出现 ¥38.50）', (await page.locator('#root .tx-amt', {
 await page.locator('#root .page.active .c-meta.unp').click()
 await page.waitForTimeout(250)
 ok('未配对点元信息行跳设置页', (await page.locator('#root .page.active .set-label').count()) >= 1)
+ok('配对卡：搜索电脑入口在位（v1.5 发现优先）', (await page.locator('#root .page.active .btn-primary', { hasText: '搜索电脑' }).count()) === 1)
+await page.locator('#root .page.active .adv-toggle').click()
+await page.waitForTimeout(200)
+ok('手动配对展开（地址 + 配对码两个输入仍在）', (await page.locator('#root .page.active .field input').count()) === 2)
+await page.locator('#root .page.active .adv-toggle').click()
+await page.waitForTimeout(200)
+ok('手动配对可收起', (await page.locator('#root .page.active .field input').count()) === 0)
 
 /* AI：会话抽屉 + 语音按钮状态机 */
 await page.locator('#root .dock button', { hasText: 'AI' }).click()
