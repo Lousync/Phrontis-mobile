@@ -149,6 +149,13 @@ function scanPrefixes(): string[] {
   return [last, ...COMMON_PREFIXES.filter(p => p !== last)]
 }
 
+/** 源提示：PWA 页面若直接从电脑的 IP 加载（如局域网 dev / 部署站），主机名就是电脑本身——零配置最先探它 */
+function originHintHost(): string | null {
+  const h = window.location.hostname
+  if (!h || h === 'localhost' || h === '127.0.0.1') return null
+  return h
+}
+
 /** 探一台：/api/discover 通且 ok 才算命中；超时/被拒/跨域一律当没有 */
 async function probeHost(host: string, timeoutMs: number): Promise<DiscoveredPc | null> {
   const ctrl = new AbortController()
@@ -180,6 +187,12 @@ export async function discoverCompanions(opts: { timeoutMs?: number; concurrency
   const timeoutMs = opts.timeoutMs ?? 350
   const concurrency = opts.concurrency ?? 48
   const found: DiscoveredPc[] = []
+  /* 源提示最先探：页面源即电脑 IP 的场景（dev/部署站）零配置秒回，扫不到经验网段外的情况 */
+  const hint = originHintHost()
+  if (hint) {
+    const hit = await probeHost(hint, 600)
+    if (hit) return [hit]
+  }
   for (const prefix of scanPrefixes()) {
     const hosts = Array.from({ length: 254 }, (_, i) => prefix + '.' + (i + 1))
     let cursor = 0
