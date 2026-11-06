@@ -452,8 +452,14 @@ button.c-meta:active { opacity: .7; }
 .habit-btn svg .ck2 { stroke-dasharray: 14; stroke-dashoffset: 14; transition: stroke-dashoffset .16s ease-out .1s; }
 .habit-btn.done svg .ck1, .habit-btn.done svg .ck2 { stroke-dashoffset: 0; }
 
+/* 贴底添加条：sticky 而非 absolute——absolute 锚在内容底、长列表滚动时会随内容漂移
+   （2026-11-06 实测：scrollTop 500 时漂到屏幕上沿），sticky bottom 钉在滚动视口上；
+   margin-top:auto 让短列表时依旧吸到页底（flex 列容器吸收剩余空间）。
+   偏移 4px = 原视口锚定距 100px − .page 底部 padding 96px（sticky 基准是内容盒底，
+   padding 里的 --safe-bottom 两边相消，故不重复写） */
 .add-bar {
-  position: absolute; left: 16px; right: 16px; bottom: calc(100px + var(--safe-bottom)); height: 46px; border-radius: 23px;
+  position: sticky; bottom: 4px; margin-top: auto;
+  height: 46px; border-radius: 23px;
   background: var(--bg-primary); border: 1px solid var(--border); display: flex; align-items: center; gap: 10px;
   padding: 0 18px; color: var(--text-secondary); font-size: 13.5px; box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
   transition: border-color .15s, transform .12s; z-index: 5;
@@ -481,8 +487,12 @@ button.c-meta:active { opacity: .7; }
 .tx-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 .tx-amt { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .tx-amt.income { color: var(--green); }
+/* 悬浮加号：sticky 化（同 add-bar，2026-11-06）——absolute 锚内容底、长列表滚动时随内容漂移；
+   sticky 基准是内容盒底，bottom 4px = 原视口锚定距 100 − .page 底部 padding 96（safe 相消）；
+   align-self:flex-end + margin-right:2px 复原原 right:18px（页 padding 已含 16px） */
 .fab {
-  position: absolute; right: 18px; bottom: calc(100px + var(--safe-bottom)); width: 54px; height: 54px; border-radius: 18px; z-index: 20;
+  position: sticky; bottom: 4px; margin-top: auto; align-self: flex-end; margin-right: 2px;
+  width: 54px; height: 54px; border-radius: 18px; z-index: 20;
   background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center;
   box-shadow: 0 10px 26px rgba(0, 122, 204, .4); transition: transform .15s, background .15s;
 }
