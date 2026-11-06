@@ -1,5 +1,14 @@
 apply plugin: 'com.android.application'
 
+/* 版本单一真相源 = 仓库根的 package.json（抬版只改那一处，Android 侧自动跟上）。
+ * versionCode 由 semver 派生：major*10000 + minor*100 + patch（0.6.0 → 600）。
+ * 两条都必须为真，否则应用内自动更新（docs/design.md §7.1）失真：
+ *   versionName 做 semver 对比「有没有新版」，versionCode 判「能不能覆盖安装」。
+ * ⚠ versionCode 只能增不能减 —— 版本号不许往回拨。 */
+def pkgVersion = (file('../../package.json').text =~ /"version"\s*:\s*"([^"]+)"/)[0][1]
+def vNums = pkgVersion.tokenize('.').collect { it.toInteger() }
+def pkgVersionCode = vNums[0] * 10000 + vNums[1] * 100 + (vNums.size() > 2 ? vNums[2] : 0)
+
 android {
     namespace "com.lousync.phrontis"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,8 +16,8 @@ android {
         applicationId "com.lousync.phrontis"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode pkgVersionCode
+        versionName pkgVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

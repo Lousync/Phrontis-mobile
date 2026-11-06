@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phrontis Mobile · 动效方案（完成反馈 / 圆形扩散 / 排期画线）</title>
+<style>
+/* ============ 设计令牌（与 App dark 主题同源） ============ */
+:root {
+  --bg-primary: #1e1e1e; --bg-secondary: #252526; --bg-tertiary: #2d2d2d;
+  --text-primary: #cccccc; --text-secondary: #969696; --text-muted: #6e6e6e;
+  --accent: #007acc; --accent-hover: #1a8ad4; --accent-soft: rgba(0, 122, 204, .14);
+  --border: #3c3c3c; --border-soft: rgba(60, 60, 60, .55);
+  --green: #89d185; --red: #f14c4c; --blue: #3794ff; --amber: #cca700;
+  --outside: #141516;
+  --glass: rgba(37, 37, 38, .78);
+  --spring: cubic-bezier(.23, 1, .32, 1);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body {
+  background: var(--outside); color: var(--text-primary);
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  overflow-x: hidden;
+}
+button { font-family: inherit; border: none; background: none; color: inherit; cursor: pointer; }
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.cap { max-width: 640px; margin: 84px auto 0; padding: 0 20px; }
+.cap h1 { font-size: 14px; font-weight: 700; letter-spacing: .5px; }
+.cap h1 em { font-style: normal; color: var(--accent-hover); margin-right: 8px; }
+.cap p { font-size: 12px; color: var(--text-secondary); line-height: 1.7; margin-top: 5px; }
+.cap .cost { color: var(--amber); }
+.cap .hint { color: var(--text-muted); margin-top: 2px; }
+
+.proto-phone {
+  position: relative; width: 390px; height: min(760px, calc(100dvh - 210px));
+  min-height: 560px; margin: 18px auto 40px;
+  border-radius: 26px; border: 1px solid var(--border); overflow: hidden;
+  background: var(--bg-primary); box-shadow: 0 18px 60px rgba(0, 0, 0, .35);
+  display: flex; flex-direction: column;
+}
+
+/* ============ 页面内容基础 ============ */
+.ppages {
+  position: absolute; top: 52px; bottom: 0; left: 0; right: 0;
+  overflow-y: auto; padding: 0 14px 130px; overscroll-behavior: contain;
+}
+.pg-head { display: flex; align-items: center; margin: 10px 2px 12px; }
+.pg-head .t { font-size: 16px; font-weight: 700; }
+.pg-card { background: var(--bg-secondary); border: 1px solid var(--border-soft); border-radius: 14px; padding: 4px 14px; margin-bottom: 10px; }
+.pg-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; position: relative; }
+.pg-row + .pg-row { border-top: 1px solid var(--border-soft); }
+.pg-t { font-size: 13.5px; transition: color .2s ease-out; }
+.pg-s { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+.pg-badge { margin-left: auto; font-size: 10.5px; padding: 2px 8px; border-radius: 999px; background: rgba(204, 167, 0, .16); color: var(--amber); }
+.pg-badge.ok { background: rgba(137, 209, 133, .14); color: var(--green); }
+.pg-bubble { max-width: 78%; padding: 9px 12px; border-radius: 14px; font-size: 13px; line-height: 1.55; margin-bottom: 10px; }
+.pg-bubble.ai { background: var(--bg-secondary); border: 1px solid var(--border-soft); border-top-left-radius: 4px; }
+.pg-bubble.user { background: var(--accent-soft); color: var(--accent-hover); margin-left: auto; border-bottom-right-radius: 4px; }
+.pg-compose { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.pg-compose .box { flex: 1; height: 38px; border-radius: 19px; background: var(--bg-secondary); border: 1px solid var(--border-soft); display: flex; align-items: center; padding: 0 14px; color: var(--text-muted); font-size: 12.5px; }
+.pg-compose .mic { width: 38px; height: 38px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; flex: none; }
+.pg-seg { display: inline-flex; background: var(--bg-tertiary); border-radius: 10px; padding: 2px; margin-left: auto; }
+.pg-seg button { padding: 4px 10px; font-size: 11px; border-radius: 8px; color: var(--text-muted); }
+.pg-seg button.on { background: var(--bg-primary); color: var(--text-primary); }
+.pg-fab { position: absolute; right: 16px; bottom: 112px; width: 48px; height: 48px; border-radius: 16px; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 24px rgba(0, 122, 204, .35); z-index: 4; transition: transform .15s ease-out; }
+.pg-fab:active { transform: scale(.9); }
+.pg-week { display: flex; gap: 4px; margin-bottom: 12px; }
+.pg-week b { flex: 1; text-align: center; font-weight: 400; font-size: 10px; color: var(--text-muted); padding: 6px 0; border-radius: 10px; }
+.pg-week b i { display: block; font-style: normal; font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-top: 2px; }
+.pg-week b.sel { background: var(--accent-soft); color: var(--accent-hover); }
+.pg-week b.sel i { color: var(--accent-hover); }
+.pg-label { font-size: 11px; color: var(--text-muted); margin: 14px 2px 8px; display: flex; align-items: center; gap: 8px; }
+.pg-label::after { content: ""; flex: 1; height: 1px; background: var(--border-soft); }
+.pg-input { height: 38px; border-radius: 11px; border: 1px solid var(--border-soft); background: var(--bg-tertiary); display: flex; align-items: center; padding: 0 12px; color: var(--text-muted); font-size: 12.5px; margin-bottom: 10px; }
+.pg-btn { height: 40px; border-radius: 12px; background: var(--accent); color: #fff; font-size: 13.5px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+.pg-empty { text-align: center; color: var(--text-muted); font-size: 12px; padding: 24px 0; }
+.pg-folder { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-muted); margin: 0 2px 12px; }
+
+/* ============ 底栏（固定「精修」） ============ */
+.tb { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; }
+.tb-glass {
+  display: flex; padding: 7px 8px 15px; position: relative;
+  background: rgba(30, 30, 30, .82);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4);
+  border-top: 1px solid rgba(255, 255, 255, .055);
+}
+.tb-glass button {
+  position: relative; z-index: 1; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 6px 0 3px; color: var(--text-muted); font-size: 10.5px; border-radius: 12px;
+  transition: color .18s ease-out;
+}
+.tb-glass button svg { transition: transform .18s var(--spring); }
+.tb-glass button:active svg { transform: scale(.86); }
+.tb-glass button.on { color: var(--accent-hover); }
+.tb-glass button.on svg { transform: translateY(-1px); }
+.g-pill {
+  position: absolute; top: 11px; left: 0; width: 48px; height: 31px; border-radius: 999px;
+  background: var(--accent-soft); will-change: transform;
+  transition: transform .26s var(--spring);
+}
+
+/* ============ 动效 1+2：勾选反馈组合拳 ============ */
+.tcheck {
+  width: 24px; height: 24px; border-radius: 50%; flex: none; position: relative;
+  border: 1.5px solid var(--border); color: transparent;
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color .18s ease-out, background .18s ease-out, transform .18s var(--spring), color .18s ease-out;
+}
+.tcheck svg { width: 13px; height: 13px; }
+.tcheck svg path {
+  fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 24; stroke-dashoffset: 24;
+  transition: stroke-dashoffset .16s ease-out;
+}
+.tcheck svg path.ck2 { transition-delay: .1s; }
+.tcheck.on { border-color: var(--green); background: var(--green); color: #141414; transform: scale(1.06); }
+.tcheck.on svg path { stroke-dashoffset: 0; }
+.tcheck:active { transform: scale(.82); }
+.row-done .pg-t { text-decoration: line-through; color: var(--text-muted); }
+
+/* 粒子：勾选时从按钮中心迸出 */
+.parts { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.parts i {
+  position: absolute; left: 50%; top: 50%; width: 5px; height: 5px; margin: -2.5px;
+  border-radius: 50%; background: var(--accent-hover);
+  animation: part .42s cubic-bezier(.2, .7, .3, 1) forwards;
+}
+@keyframes part {
+  from { transform: translate(0, 0) scale(1); opacity: 1; }
+  to { transform: translate(var(--tx), var(--ty)) scale(.2); opacity: 0; }
+}
+
+/* 进度环 + 数字滚动 */
+.ring { position: relative; width: 30px; height: 30px; flex: none; margin-left: auto; }
+.ring svg { transform: rotate(-90deg); display: block; }
+.ring .rbg { fill: none; stroke: var(--bg-tertiary); stroke-width: 3; }
+.ring .rfg {
+  fill: none; stroke: var(--accent-hover); stroke-width: 3; stroke-linecap: round;
+  stroke-dasharray: 75.4; stroke-dashoffset: 60.3;
+  transition: stroke-dashoffset .34s var(--spring), stroke .2s;
+}
+.ring.full .rfg { stroke: var(--green); }
+.ring .rtx {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 700; color: var(--text-secondary); font-variant-numeric: tabular-nums;
+}
+.roll { display: inline-block; height: 12px; overflow: hidden; vertical-align: baseline; }
+.roll-col { display: block; transition: transform .34s var(--spring); }
+.roll-col b { display: block; height: 12px; line-height: 12px; font-weight: 700; }
+.pg-progress { height: 4px; border-radius: 2px; background: var(--bg-tertiary); margin: 0 2px 14px; overflow: hidden; }
+.pg-progress i { display: block; height: 100%; width: 20%; background: var(--accent); border-radius: 2px; }
+.pg-prog-line { display: flex; align-items: center; gap: 8px; margin: 10px 2px 12px; }
+.pg-prog-line .t { font-size: 15px; font-weight: 700; white-space: nowrap; }
+.pg-prog-line .sub { font-size: 11.5px; color: var(--text-muted); }
+.pg-prog-line .cnt { font-size: 11.5px; color: var(--text-muted); margin-left: auto; transition: color .2s; }
+.pg-prog-line .cnt.ok { color: var(--green); }
+.pg-prog-track { flex: 1; height: 4px; border-radius: 2px; background: var(--bg-tertiary); overflow: hidden; }
+.pg-prog-track i { display: block; height: 100%; width: 20%; background: var(--accent); border-radius: 2px; transition: width .34s var(--spring), background .2s; }
+.pg-prog-track.ok i { background: var(--green); }
+
+/* 全部完成：页面色温极淡变暖 + 环补满 */
+.ppages { transition: background .4s ease-out; }
+.ppages.all-done { background: linear-gradient(180deg, rgba(137, 209, 133, .05), transparent 240px), var(--bg-primary); }
+
+/* ============ 动效 6：圆形扩散转场 ============ */
+.pgpage { position: absolute; top: 52px; bottom: 0; left: 0; right: 0; overflow-y: auto; padding: 0 14px 130px; background: var(--bg-primary); }
+.pgpage[hidden] { display: none; }
+.mini-sheet-bg { position: absolute; inset: 0; z-index: 7; background: rgba(0, 0, 0, .4); opacity: 0; transition: opacity .18s ease-out; }
+.mini-sheet-bg.on { opacity: 1; }
+.mini-sheet {
+  position: absolute; left: 14px; right: 14px; bottom: 90px; z-index: 8;
+  background: var(--bg-secondary); border: 1px solid var(--border-soft); border-radius: 18px; padding: 16px;
+}
+.mini-sheet h3 { font-size: 15px; margin-bottom: 12px; }
+.mini-sheet .amt { font-size: 30px; font-weight: 700; margin-bottom: 14px; }
+.mini-sheet .amt small { font-size: 15px; color: var(--text-muted); font-weight: 400; }
+
+/* ============ 动效 4：排期时间线逐段绘制 ============ */
+.day-grid { position: relative; height: 470px; margin-bottom: 6px; }
+.hour-row { position: absolute; left: 44px; right: 0; height: 1px; background: var(--border-soft); transform-origin: left; animation: drawX .3s var(--spring) both; }
+.hour-label { position: absolute; left: 0; width: 36px; text-align: right; font-size: 10px; color: var(--text-muted); transform: translateY(-6px); animation: fadeUp .3s ease-out both; }
+@keyframes drawX { from { transform: scaleX(0); } }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(-4px); } }
+.gblock {
+  position: absolute; left: 52px; right: 8px; border-radius: 8px; padding: 5px 9px;
+  border-left: 3px solid var(--blue); background: rgba(55, 148, 255, .13); overflow: hidden;
+  animation: blockIn .34s var(--spring) both;
+}
+.gblock .gt { display: block; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gblock .gm { display: block; font-size: 10.5px; margin-top: 1px; }
+@keyframes blockIn { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+.now-line { position: absolute; left: 44px; right: 0; height: 2px; background: var(--red); animation: drawX .4s .5s var(--spring) both; }
+.now-line::before { content: ""; position: absolute; left: -4px; top: -2px; width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+/* ============ Picker（harness 规范） ============ */
+.proto-picker {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  z-index: 2147483647; display: flex; align-items: center; gap: 2px; padding: 4px;
+  border-radius: 999px; background: rgba(10, 10, 10, 0.82);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4); backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 8px 24px rgba(0, 0, 0, 0.24), 0 2px 6px rgba(0, 0, 0, 0.12);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; line-height: 1;
+  -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none;
+}
+.proto-picker-highlight {
+  position: absolute; top: 4px; left: 0; height: 28px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12); will-change: transform;
+}
+.proto-picker[data-ready] .proto-picker-highlight {
+  transition: transform 250ms cubic-bezier(0.23, 1, 0.32, 1), width 250ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@media (prefers-reduced-motion: reduce) { .proto-picker[data-ready] .proto-picker-highlight { transition: none; } }
+.proto-picker-item {
+  position: relative; display: flex; align-items: center; height: 28px; padding: 0 12px;
+  border: 0; border-radius: 999px; background: transparent; color: rgba(255, 255, 255, 0.55);
+  font: inherit; cursor: pointer; transition: color 150ms ease-out;
+}
+.proto-picker-item:hover { color: rgba(255, 255, 255, 0.85); }
+.proto-picker-item:active { transform: scale(0.97); }
+.proto-picker-item:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.4); outline-offset: 2px; }
+.proto-picker-item[data-active] { color: #fff; }
+.proto-picker-divider { width: 1px; height: 16px; margin: 0 4px; background: rgba(255, 255, 255, 0.12); }
+.proto-picker-replay { padding: 0 10px; font-size: 14px; }
+.proto-picker[data-position="top"] { bottom: auto; top: 24px; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<nav class="proto-picker" data-position="top" aria-label="Prototype variants">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item" data-active aria-current="true">对照</button>
+  <button class="proto-picker-item">完成反馈</button>
+  <button class="proto-picker-item">圆形扩散</button>
+  <button class="proto-picker-item">排期画线</button>
+  <span class="proto-picker-divider" aria-hidden="true"></span>
+  <button class="proto-picker-item proto-picker-replay" aria-label="Replay animation (R)">↻</button>
+</nav>
+
+<script>
+/* ================= 图标 ================= */
+const P = {
+  sparkle: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"/><path d="M19 15l.9 2.4L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.6L19 15z"/>',
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  wallet: '<path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/>',
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+  bars: '<path d="M18 20V10M12 20V4M6 20v-6"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/>',
+  send: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+  folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  pen: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
+  chevL: '<path d="M15 18l-6-6 6-6"/>',
+  chevR: '<path d="M9 6l6 6-6 6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  monitor: '<rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21h8M12 16v5"/>',
+}
+const ic = (n, s = 20, sw = 1.8) =>
+  `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${P[n]}</svg>`
+
+const TABS = [
+  { id: 'ai', ic: 'sparkle', lb: 'AI' },
+  { id: 'schedule', ic: 'calendar', lb: '日程' },
+  { id: 'ledger', ic: 'wallet', lb: '记账' },
+  { id: 'notes', ic: 'book', lb: '笔记' },
+  { id: 'usage', ic: 'bars', lb: '用量' },
+  { id: 'settings', ic: 'gear', lb: '设置' },
+]
+
+/* ================= 可交互日程数据（勾选反馈的主舞台） ================= */
+let todos = [
+  { id: 't1', title: '交周报', type: 'deadline', time: '09:30', done: true },
+  { id: 't2', title: 'Phrontis 手机版原型讨论', type: 'plan', time: '14:00', meta: '☑ 1/3', done: false },
+  { id: 't3', title: '跑步 30 分钟', type: 'daily', time: '19:00', done: false },
+  { id: 't4', title: '回复合作邮件', type: 'plan', time: '', done: false },
+  { id: 't5', title: '回顾与明日规划', type: 'daily', time: '21:30', done: false },
+]
+const TYPE_LB = { deadline: ['截止', 'var(--red)'], plan: ['计划', 'var(--blue)'], daily: ['日常', 'var(--green)'] }
+const doneN = () => todos.filter(t => t.done).length
+
+function scheduleHeader() {
+  const n = doneN(), full = n === todos.length
+  return `
+  <div class="pg-prog-line">
+    <span class="t">11月1日</span><span class="sub">周六 · 今天</span>
+    <div class="pg-prog-track${full ? ' ok' : ''}"><i style="width:${n / todos.length * 100}%"></i></div>
+    <span class="cnt${full ? ' ok' : ''}">已完成 <span class="roll"><span class="roll-col" style="transform:translateY(-${n * 12}px)">${todos.map((_, i) => `<b>${i}</b>`).join('')}</span></span>/${todos.length}</span>
+    <span class="ring${full ? ' full' : ''}"><svg width="30" height="30"><circle class="rbg" cx="15" cy="15" r="12"/><circle class="rfg" cx="15" cy="15" r="12" style="stroke-dashoffset:${75.4 * (1 - n / todos.length)}"/></svg><span class="rtx">${n}/${todos.length}</span></span>
+  </div>`
+}
+
+/** 对照/转场方案用：现状头部（无环、无滚动数字），保持变量隔离 */
+function oldScheduleHead() {
+  const n = doneN()
+  return `
+  <div class="pg-head"><span class="t">11月1日</span><span style="color:var(--text-muted);font-size:12px;margin-left:6px">周六 · 今天</span>
+    <span style="margin-left:auto;font-size:11.5px;color:var(--text-muted)">已完成 ${n}/${todos.length}</span></div>
+  <div class="pg-progress"><i style="width:${n / todos.length * 100}%"></i></div>`
+}
+
+function scheduleList() {
+  const groups = [['deadline', '截止'], ['plan', '计划'], ['daily', '日常']]
+  const html = []
+  for (const [type, label] of groups) {
+    const items = todos.filter(t => t.type === type && !t.done)
+    if (!items.length) continue
+    html.push(`<div class="pg-label">${label} ${items.length}</div><div class="pg-card">${
+      items.map(t => todoRow(t)).join('')}</div>`)
+  }
+  const done = todos.filter(t => t.done)
+  if (done.length) html.push(`<div class="pg-label">已完成 ${done.length}</div><div class="pg-card">${
+    done.map(t => todoRow(t)).join('')}</div>`)
+  return html.join('')
+}
+
+function todoRow(t) {
+  const [lb, color] = TYPE_LB[t.type]
+  return `
+  <div class="pg-row ${t.done ? 'row-done' : ''}" data-row="${t.id}">
+    <button class="tcheck${t.done ? ' on' : ''}" data-check="${t.id}" aria-label="完成 ${t.title}">
+      <svg viewBox="0 0 24 24"><path class="ck1" d="M5 12.5l4.5 4.5"/><path class="ck2" d="M9.5 17L19 7.5"/></svg>
+    </button>
+    <div><div class="pg-t">${t.title}</div><div class="pg-s">${t.time ? t.time + ' · ' : ''}${lb}${t.meta ? ' · ' + t.meta : ''}</div></div>
+  </div>`
+}
+
+/* 静态页快照（转场演示用） */
+const PAGES = {
+  ai: () => `
+    <div class="pg-head"><span class="t">AI 助手</span>
+      <div class="pg-seg"><button class="on">手机直连</button><button>电脑 AI</button></div></div>
+    <div class="pg-bubble ai">晚上好。手机端就我一个 AI，<b>记账、改日程、写笔记都找我</b>。</div>
+    <div class="pg-bubble user">记一下今天的午饭 45</div>
+    <div class="pg-bubble ai">已入账：支出 <b>¥45.00</b> · 餐饮 · 午饭（微信）。下次同步进电脑。</div>
+    <div class="pg-compose"><button class="mic">${ic('mic', 18)}</button><div class="box">问点什么…</div><button class="mic" style="background:var(--bg-tertiary);color:var(--text-muted)">${ic('send', 17)}</button></div>`,
+  ledger: () => `
+    <div class="pg-head"><button style="color:var(--text-muted)">${ic('chevL', 15, 2)}</button><span class="t" style="margin:0 auto">2026年11月</span><button style="color:var(--text-muted)">${ic('chevR', 15, 2)}</button></div>
+    <div class="pg-card" style="display:flex;padding:12px 6px">
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">支出</div><div style="font-size:16px;font-weight:700;margin-top:3px">¥32.00</div></div>
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">收入</div><div style="font-size:16px;font-weight:700;margin-top:3px;color:var(--green)">¥800.00</div></div>
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">结余</div><div style="font-size:16px;font-weight:700;margin-top:3px;color:var(--green)">¥768.00</div></div></div>
+    <div class="pg-label">今天</div>
+    <div class="pg-card">
+      <div class="pg-row"><span class="pg-ico" style="color:#e2a336;background:rgba(226,163,54,.13)">餐</span><div><div class="pg-t">午餐 · 公司食堂</div><div class="pg-s">11月1日 · 12:02 · 微信</div></div><span class="pg-amt" style="margin-left:auto;font-weight:600">-¥28.00</span></div>
+      <div class="pg-row"><span class="pg-ico" style="color:#3794ff;background:rgba(55,148,255,.13)">交</span><div><div class="pg-t">地铁</div><div class="pg-s">11月1日 · 09:05 · 交通卡</div></div><span class="pg-amt" style="margin-left:auto;font-weight:600">-¥4.00</span></div></div>
+    <button class="pg-fab" id="ledgerFab">${ic('plus', 22, 2)}</button>`,
+  notes: () => `
+    <div class="pg-head" style="margin-bottom:8px"><div class="pg-input" style="flex:1;margin:0">${ic('search', 15)}<span style="margin-left:8px">搜索笔记标题</span></div></div>
+    <div class="pg-folder"><span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>已连接 Phrontis-PC · 128 篇 · 增量缓存</div>
+    <div class="pg-card">
+      <div class="pg-row">${ic('folder', 16)}<div><div class="pg-t">AI教学模块笔记</div><div class="pg-s">学习/AI教学模块笔记.md</div></div><span class="pg-badge ok">已缓存</span></div>
+      <div class="pg-row">${ic('folder', 16)}<div><div class="pg-t">Phrontis 手机版方案</div><div class="pg-s">项目/Phrontis 手机版方案.md</div></div><span class="pg-badge">未缓存</span></div></div>`,
+  usage: () => `
+    <div class="pg-head"><span class="t">AI 用量</span><div class="pg-seg"><button class="on">今日</button><button>近 7 天</button><button>近 30 天</button></div></div>
+    <div class="pg-card" style="display:flex;padding:12px 6px">
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">Tokens</div><div style="font-size:16px;font-weight:700;margin-top:3px">12.6万</div></div>
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">花费</div><div style="font-size:16px;font-weight:700;margin-top:3px">¥3.87</div></div>
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">请求</div><div style="font-size:16px;font-weight:700;margin-top:3px">23</div></div></div>`,
+  settings: () => `
+    <div class="pg-head"><span class="t">设置</span></div>
+    <div class="pg-card">
+      <div class="pg-row">${ic('monitor', 20)}<div><div class="pg-t">未配对电脑</div><div class="pg-s">配对后记账数据与电脑双向同步</div></div></div></div>
+    <div class="pg-label">外观</div>
+    <div class="pg-card"><div class="pg-seg" style="margin:0"><button class="on">深色</button><button>浅色</button></div></div>`,
+}
+
+/* ================= 底栏（固定精修） ================= */
+const tabbar = (reveal) => `
+  <nav class="tb"><div class="tb-glass" id="gbar">
+    <span class="g-pill" aria-hidden="true"></span>
+    ${TABS.map(t => `<button data-nav="${t.id}" class="${t.id === page ? 'on' : ''}">${ic(t.ic, 21)}<span>${t.lb}</span></button>`).join('')}
+  </div></nav>`
+
+/* ================= 变体一「对照」：现状（瞬时切换 + 即时换色） ================= */
+function vBase() {
+  return {
+    cap: { name: '对照', axis: '现状基线——瞬时切换、勾选即时换色、线性进度条', when: '用来和后面三个方案对比，感受「多出来的那部分」值不值', cost: '——', hint: '切到「日程」页随便勾几个试试，再翻到方案 2 对比同一个动作' },
+    html: `
+      <div class="ppages" id="ppages">${PAGES[page]()}</div>${tabbar()}`,
+    init() {
+      bindNav(null)
+      bindChecks(false)
+    },
+    after() { renderPage() ; bindChecks(false) },
+  }
+}
+
+/* ================= 变体二「完成反馈」：对勾逐笔+粒子+进度环+数字滚动+全完成色温 ================= */
+function vCheck() {
+  return {
+    cap: { name: '完成反馈', axis: '勾选组合拳——对勾逐笔绘制 + 粒子迸发 + 进度环前进 + 数字滚动 + 全完成页面色温', when: '勾选是本 app 最高频的「满足感时刻」，一个动作三层反馈', cost: '全部 ≤420ms、只动 transform/opacity；低端机粒子层要做减法（真机验证）', hint: '到「日程」页勾掉剩下的 4 条——注意环、数字和最后一下的页面变化' },
+    html: `
+      <div class="ppages" id="ppages">${PAGES[page]()}</div>${tabbar()}`,
+    init() {
+      bindNav(null)
+      bindChecks(true)
+    },
+    after() { renderPage(); bindChecks(true) },
+  }
+}
+
+/* ================= 变体三「圆形扩散」：Tab 切换 + FAB 记一笔从触点展开 ================= */
+function vReveal() {
+  return {
+    cap: { name: '圆形扩散', axis: '转场模型——新页面从手指按下点圆形铺开，FAB 抽屉从按钮中心展开', when: '壳层质感最大的一项；转场锚定在「你按的那一下」，空间连续性最强', cost: '低端 WebView 有满屏重绘风险（clip-path），降级路径 = 瞬时切换；转场期 260ms 内连点要取消前一段', hint: '点底栏各 Tab、再到「记账」页点右下 FAB' },
+    html: `
+      <div id="pgstack"></div>${tabbar()}`,
+    init() {
+      bindNav('reveal')
+      renderPage()
+      const fab = document.getElementById('ledgerFab')
+      if (fab) fab.addEventListener('click', e => openMiniSheet(e.currentTarget))
+    },
+    after() { renderPage(); closeMiniSheet(true) },
+  }
+}
+
+/* ================= 变体四「排期画线」：时间线逐段绘制 ================= */
+let drawDay = 5 // 周条第几天（5=周六31）
+function vDraw() {
+  return {
+    cap: { name: '排期画线', axis: '进场动效——排期视图小时线逐段画出、时间块随后浮起、红线最后落位', when: '排期是日程页最有「图表感」的视图，画线强化时间轴的空间隐喻', cost: '只在进入视图/切日时播一次（不做滚动重画）；连切日子时动画会互相打断，要按当前日收敛', hint: '点周条上不同的日子，看时间线重画' },
+    html: `
+      <div class="ppages" id="ppages">${drawPage()}</div>${tabbar()}`,
+    init() {
+      bindNav(null)
+      stage.querySelectorAll('[data-day]').forEach(b => b.addEventListener('click', () => {
+        drawDay = Number(b.dataset.day)
+        renderPage()
+      }))
+    },
+    after() { renderPage() },
+  }
+}
+
+function drawPage() {
+  const days = ['一 26', '二 27', '三 28', '四 29', '五 30', '六 31', '日 1']
+  const blocks = drawDay <= 4 ? [
+    { t: '写周报框架', s: 570, e: 660, c: 'var(--blue)' },
+    { t: '方案评审', s: 840, e: 930, c: 'var(--red)' },
+    { t: '跑步', s: 1140, e: 1170, c: 'var(--green)' },
+  ] : drawDay === 5 ? [
+    { t: '交周报', s: 570, e: 610, c: 'var(--red)' },
+    { t: 'Phrontis 手机版原型讨论', s: 840, e: 930, c: 'var(--blue)' },
+    { t: '跑步 30 分钟', s: 1140, e: 1170, c: 'var(--green)' },
+    { t: '回顾与明日规划', s: 1290, e: 1320, c: 'var(--green)' },
+  ] : [
+    { t: '睡到自然醒', s: 540, e: 600, c: 'var(--green)' },
+    { t: '给妈妈打电话', s: 1200, e: 1260, c: 'var(--blue)' },
+  ]
+  const START = 8 * 60, END = 23 * 60, H = 30
+  const hours = []
+  for (let m = START; m <= END; m += 60) hours.push(m)
+  const fmt = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0')
+  return `
+    <div class="pg-head"><span class="t">排期 · ${days[drawDay].split(' ')[1]}日</span>
+      <div class="pg-seg"><button>待办</button><button class="on">排期</button><button>打卡</button></div></div>
+    <div class="pg-week">${days.map((d, i) => { const [wd, dn] = d.split(' '); return `<b data-day="${i}" class="${i === drawDay ? 'sel' : ''}">${wd}<i>${dn}</i></b>` }).join('')}</div>
+    <div class="pg-card" style="padding:10px 6px 14px">
+      <div class="day-grid">
+        ${hours.map((m, i) => `
+          <div class="hour-row" style="top:${(m - START) / 60 * H + 8}px; animation-delay:${i * 28}ms"></div>
+          <div class="hour-label" style="top:${(m - START) / 60 * H + 2}px; animation-delay:${i * 28}ms">${fmt(m)}</div>`).join('')}
+        ${blocks.map((b, i) => `
+          <div class="gblock" style="top:${(b.s - START) / 60 * H + 8}px; height:${(b.e - b.s) / 60 * H - 4}px; border-left-color:${b.c}; background:color-mix(in srgb, ${b.c} 13%, transparent); animation-delay:${240 + i * 45}ms">
+            <span class="gt">${b.t}</span><span class="gm" style="color:${b.c}">${fmt(b.s)}–${fmt(b.e)}</span>
+          </div>`).join('')}
+        ${drawDay === 5 ? '<div class="now-line" style="top:242px"></div>' : ''}
+      </div>
+    </div>`
+}
+
+/* ================= 装配与共享行为 ================= */
+const variants = [vBase, vCheck, vReveal, vDraw]
+const stage = document.getElementById('stage')
+const picker = document.querySelector('.proto-picker')
+const highlight = picker.querySelector('.proto-picker-highlight')
+const items = [...picker.querySelectorAll('.proto-picker-item:not(.proto-picker-replay)')]
+const replay = picker.querySelector('.proto-picker-replay')
+let cur = 0
+let revealAnim = null
+
+function renderPage() {
+  if (cur === 3) {
+    const host = document.getElementById('ppages')
+    if (host) host.innerHTML = drawPage()
+    return
+  }
+  if (cur === 2) {
+    // 圆形扩散：多页堆叠，当前页可见；日程用旧头部（变量隔离）
+    const stack = document.getElementById('pgstack')
+    if (!stack) return
+    stack.innerHTML = TABS.map(t => {
+      const body = t.id === 'schedule' ? oldScheduleHead() + scheduleList() : PAGES[t.id]()
+      return `<div class="pgpage" data-page="${t.id}" ${t.id === page ? '' : 'hidden'}>${body}</div>`
+    }).join('')
+    stage.querySelectorAll('[data-check]').forEach(b => b.addEventListener('click', () => toggleCheck(b, false)))
+    const fab = document.getElementById('ledgerFab')
+    if (fab) fab.addEventListener('click', e => openMiniSheet(e.currentTarget))
+    return
+  }
+  const host = document.getElementById('ppages')
+  if (host) {
+    host.classList.remove('all-done')
+    host.innerHTML = page === 'schedule'
+      ? (cur === 1 ? scheduleHeader() : oldScheduleHead()) + `<div id="slist">${scheduleList()}</div>`
+      : PAGES[page]()
+    if (page === 'schedule') bindChecks(cur === 1)
+  }
+}
+
+function placePill() {
+  const bar = stage.querySelector('#gbar')
+  if (!bar) return
+  const pill = bar.querySelector('.g-pill')
+  const btn = bar.querySelector('button.on')
+  if (!pill || !btn) return
+  pill.style.transform = `translateX(${btn.offsetLeft + (btn.offsetWidth - pill.offsetWidth) / 2}px)`
+}
+
+function bindNav(revealMode) {
+  stage.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', e => {
+    const id = b.dataset.nav
+    if (id === page) return
+    page = id
+    stage.querySelectorAll('[data-nav]').forEach(x => x.classList.toggle('on', x.dataset.nav === page))
+    placePill()
+    if (revealMode === 'reveal') revealTo(b)
+    else renderPage()
+  }))
+}
+
+/* 勾选：即时换色（对照） or 组合拳（方案2） */
+function bindChecks(animated) {
+  stage.querySelectorAll('[data-check]').forEach(b => b.addEventListener('click', () => toggleCheck(b, animated)))
+}
+
+function toggleCheck(btn, animated) {
+  const t = todos.find(x => x.id === btn.dataset.check)
+  if (!t) return
+  t.done = !t.done
+  if (!animated) { renderPage(); return }
+  const row = btn.closest('.pg-row')
+  btn.classList.toggle('on', t.done)
+  row.classList.toggle('row-done', t.done)
+  if (t.done) burst(btn)
+  updateHeader()
+  // 分组归位：等对勾画完、粒子散尽再重挂列表（环/数字在头部，不受重挂影响）
+  setTimeout(() => {
+    const list = document.getElementById('slist')
+    if (!list || page !== 'schedule' || cur !== 1) return
+    list.innerHTML = scheduleList()
+    bindChecks(true)
+  }, 480)
+}
+
+/* 粒子迸发：8 颗沿随机角度飞出 */
+function burst(btn) {
+  const holder = document.createElement('span')
+  holder.className = 'parts'
+  btn.appendChild(holder)
+  const colors = ['var(--green)', 'var(--accent-hover)', '#ffffff', 'var(--amber)']
+  for (let i = 0; i < 9; i++) {
+    const p = document.createElement('i')
+    const a = (Math.PI * 2 * i) / 9 + Math.random() * .5
+    const r = 16 + Math.random() * 14
+    p.style.setProperty('--tx', Math.cos(a) * r + 'px')
+    p.style.setProperty('--ty', Math.sin(a) * r + 'px')
+    p.style.background = colors[i % colors.length]
+    holder.appendChild(p)
+  }
+  setTimeout(() => holder.remove(), 520)
+}
+
+/* 头部环 + 数字 + 全完成色温（只动数值元素，不重挂列表——保住勾选动画） */
+function updateHeader() {
+  const n = doneN(), full = n === todos.length
+  const fg = stage.querySelector('.rfg')
+  if (fg) fg.style.strokeDashoffset = 75.4 * (1 - n / todos.length)
+  const ring = stage.querySelector('.ring')
+  if (ring) ring.classList.toggle('full', full)
+  const col = stage.querySelector('.roll-col')
+  if (col) col.style.transform = `translateY(-${n * 12}px)`
+  const rtx = stage.querySelector('.rtx')
+  if (rtx) rtx.textContent = n + '/' + todos.length
+  const cnt = stage.querySelector('.cnt')
+  if (cnt) cnt.classList.toggle('ok', full)
+  const track = stage.querySelector('.pg-prog-track')
+  if (track) { track.classList.toggle('ok', full); track.querySelector('i').style.width = n / todos.length * 100 + '%' }
+  const host = document.getElementById('ppages')
+  if (host) host.classList.toggle('all-done', full)
+  const lbl = stage.querySelector('.pg-prog-line .t')
+  if (lbl && full && !document.getElementById('donetip')) {
+    lbl.insertAdjacentHTML('afterend', '<span class="sub" id="donetip" style="color:var(--green)">· 全部完成，漂亮</span>')
+  }
+  const tip = document.getElementById('donetip')
+  if (tip && !full) tip.remove()
+}
+
+/* 圆形扩散转场：从触发按钮中心铺开 */
+function revealTo(btn) {
+  const stack = document.getElementById('pgstack')
+  const from = stack.querySelector(`[data-page="${page}"]`)
+  const old = stack.querySelector('.pgpage:not([hidden])')
+  if (!from || !old) { renderPage(); return }
+  // 打断恢复：把上次转场遗留的可见页收敛到 from/old 两个
+  stack.querySelectorAll('.pgpage').forEach(p => { if (p !== from && p !== old) p.hidden = true })
+  const b = btn.getBoundingClientRect()
+  const s = stack.getBoundingClientRect()
+  const x = b.left + b.width / 2 - s.left
+  const y = b.top + b.height / 2 - s.top
+  const r = Math.hypot(Math.max(x, s.width - x), Math.max(y, s.height - y)) + 20
+  from.hidden = false
+  if (revealAnim) revealAnim.cancel()
+  from.style.zIndex = 2
+  revealAnim = from.animate(
+    [
+      { clipPath: `circle(0px at ${x}px ${y}px)` },
+      { clipPath: `circle(${r}px at ${x}px ${y}px)` },
+    ],
+    { duration: 260, easing: 'cubic-bezier(.23,1,.32,1)' },
+  )
+  revealAnim.finished.then(() => {
+    if (old !== from) old.hidden = true
+    from.style.zIndex = ''
+    from.style.clipPath = ''
+    // 换页后重绑页内交互（勾选/FAB）
+    stage.querySelectorAll('[data-check]').forEach(x => x.addEventListener('click', () => toggleCheck(x, false)))
+    const fab = document.getElementById('ledgerFab')
+    if (fab && !fab.dataset.bound) { fab.dataset.bound = '1'; fab.addEventListener('click', e => openMiniSheet(e.currentTarget)) }
+  }).catch(() => {})
+}
+
+/* FAB 记一笔：从 FAB 中心圆展开的小抽屉 */
+function openMiniSheet(fab) {
+  closeMiniSheet(true)
+  const b = fab.getBoundingClientRect()
+  const s = fab.closest('.proto-phone').getBoundingClientRect()
+  const x = b.left + b.width / 2 - s.left
+  const y = b.top + b.height / 2 - s.top
+  const r = Math.hypot(Math.max(x, s.width - x), Math.max(y, s.height - y)) + 20
+  const bg = document.createElement('div')
+  bg.className = 'mini-sheet-bg'
+  bg.id = 'msbg'
+  const sh = document.createElement('div')
+  sh.className = 'mini-sheet'
+  sh.id = 'mssh'
+  sh.innerHTML = `<h3>记一笔</h3><div class="amt"><small>¥</small>38.50</div>
+    <div style="display:flex;gap:8px"><div class="pg-btn" style="flex:1">保存</div><div class="pg-btn" style="flex:1;background:var(--bg-tertiary);color:var(--text-primary)" id="mscancel">取消</div></div>`
+  const phone = stage.querySelector('.proto-phone')
+  phone.appendChild(bg); phone.appendChild(sh)
+  requestAnimationFrame(() => {
+    bg.classList.add('on')
+    sh.animate(
+      [{ clipPath: `circle(0px at ${x}px ${y}px)` }, { clipPath: `circle(${r}px at ${x}px ${y}px)` }],
+      { duration: 280, easing: 'cubic-bezier(.23,1,.32,1)' },
+    )
+  })
+  bg.addEventListener('click', () => closeMiniSheet())
+  document.getElementById('mscancel').addEventListener('click', () => closeMiniSheet())
+}
+function closeMiniSheet(instant) {
+  const bg = document.getElementById('msbg'), sh = document.getElementById('mssh')
+  if (!bg) return
+  if (instant) { bg.remove(); sh.remove(); return }
+  bg.classList.remove('on')
+  setTimeout(() => { bg.remove(); sh.remove() }, 180)
+}
+
+/* Picker 行为（常量已在装配区声明） */
+
+function moveHighlight() {
+  const el = items[cur]
+  highlight.style.width = el.offsetWidth + 'px'
+  highlight.style.transform = `translateX(${el.offsetLeft}px)`
+}
+
+function mount(i) {
+  page = 'ai'
+  todos = [
+    { id: 't1', title: '交周报', type: 'deadline', time: '09:30', done: true },
+    { id: 't2', title: 'Phrontis 手机版原型讨论', type: 'plan', time: '14:00', meta: '☑ 1/3', done: false },
+    { id: 't3', title: '跑步 30 分钟', type: 'daily', time: '19:00', done: false },
+    { id: 't4', title: '回复合作邮件', type: 'plan', time: '', done: false },
+    { id: 't5', title: '回顾与明日规划', type: 'daily', time: '21:30', done: false },
+  ]
+  revealAnim = null
+  stage.innerHTML = ''
+  requestAnimationFrame(() => {
+    const v = variants[i]()
+    stage.innerHTML = `
+      <div class="cap">
+        <h1><em>${v.cap.name}</em>${v.cap.axis}</h1>
+        <p>${v.cap.when}</p>
+        <p class="cost">代价与边界：${v.cap.cost}</p>
+        <p class="hint">${v.cap.hint} · R 重播</p>
+      </div>
+      <div class="proto-phone has-tb">${v.html}</div>`
+    v.init?.()
+    requestAnimationFrame(placePill)
+  })
+}
+
+function setActive(i) {
+  if (i < 0 || i >= variants.length) return
+  cur = i
+  items.forEach((el, j) => {
+    el.toggleAttribute('data-active', j === i)
+    if (j === i) el.setAttribute('aria-current', 'true')
+    else el.removeAttribute('aria-current')
+  })
+  moveHighlight()
+  const url = new URL(location)
+  url.searchParams.set('v', i + 1)
+  history.replaceState(null, '', url)
+  mount(i)
+}
+
+items.forEach((el, i) => el.addEventListener('click', () => setActive(i)))
+replay.addEventListener('click', () => mount(cur))
+window.addEventListener('resize', () => { moveHighlight(); placePill() })
+
+document.addEventListener('keydown', (e) => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return
+  if (e.metaKey || e.ctrlKey || e.altKey) return
+  const num = parseInt(e.key, 10)
+  if (num >= 1 && num <= variants.length) setActive(num - 1)
+  else if (e.key === 'ArrowRight') setActive((cur + 1) % variants.length)
+  else if (e.key === 'ArrowLeft') setActive((cur - 1 + variants.length) % variants.length)
+  else if (e.key === 'r' || e.key === 'R') mount(cur)
+})
+
+setActive((parseInt(new URLSearchParams(location.search).get('v'), 10) || 1) - 1)
+requestAnimationFrame(() => requestAnimationFrame(() => picker.setAttribute('data-ready', '')))
+</script>
+</body>
+</html>

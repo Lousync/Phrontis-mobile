@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phrontis Mobile · 隐藏式导航栏方案</title>
+<style>
+/* ============ 设计令牌（与 App dark 主题同源） ============ */
+:root {
+  --bg-primary: #1e1e1e; --bg-secondary: #252526; --bg-tertiary: #2d2d2d;
+  --text-primary: #cccccc; --text-secondary: #969696; --text-muted: #6e6e6e;
+  --accent: #007acc; --accent-hover: #1a8ad4; --accent-soft: rgba(0, 122, 204, .14);
+  --border: #3c3c3c; --border-soft: rgba(60, 60, 60, .55);
+  --green: #89d185; --red: #f14c4c; --blue: #3794ff; --amber: #cca700;
+  --outside: #141516;
+  --glass: rgba(37, 37, 38, .78);
+  --spring: cubic-bezier(.23, 1, .32, 1);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body {
+  background: var(--outside); color: var(--text-primary);
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  overflow-x: hidden;
+}
+button { font-family: inherit; border: none; background: none; color: inherit; cursor: pointer; }
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ============ 方案说明条（harness 附注，非参评对象） ============ */
+.cap { max-width: 640px; margin: 84px auto 0; padding: 0 20px; }
+.cap h1 { font-size: 14px; font-weight: 700; letter-spacing: .5px; }
+.cap h1 em { font-style: normal; color: var(--accent-hover); margin-right: 8px; }
+.cap p { font-size: 12px; color: var(--text-secondary); line-height: 1.7; margin-top: 5px; }
+.cap .cost { color: var(--amber); }
+.cap .hint { color: var(--text-muted); margin-top: 2px; }
+
+/* ============ 手机壳（复刻 App letterbox） ============ */
+.proto-phone {
+  position: relative; width: 390px; height: min(760px, calc(100dvh - 210px));
+  min-height: 560px; margin: 18px auto 40px;
+  border-radius: 26px; border: 1px solid var(--border); overflow: hidden;
+  background: var(--bg-primary); box-shadow: 0 18px 60px rgba(0, 0, 0, .35);
+  display: flex; flex-direction: column;
+}
+.ptop {
+  flex: none; height: 52px; display: flex; align-items: center; gap: 8px;
+  padding: 0 14px; background: var(--bg-primary); position: relative; z-index: 6;
+}
+.pbrand { font-size: 17px; font-weight: 700; letter-spacing: .4px; }
+.pbrand small { font-size: 10px; font-weight: 400; color: var(--text-muted); letter-spacing: 1px; }
+.pspacer { flex: 1; }
+.ppill {
+  display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px;
+  border-radius: 16px; background: var(--bg-tertiary); border: 1px solid var(--border-soft);
+  font-size: 11.5px; color: var(--text-secondary);
+}
+.ppill-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px rgba(137, 209, 133, .7); }
+
+/* ============ 页面内容（可滚动，衬托栏的玻璃质感） ============ */
+.ppages {
+  position: absolute; top: 52px; bottom: 0; left: 0; right: 0;
+  overflow-y: auto; padding: 0 14px 130px; overscroll-behavior: contain;
+}
+.pg-head { display: flex; align-items: center; margin: 10px 2px 12px; }
+.pg-head .t { font-size: 16px; font-weight: 700; }
+.pg-card { background: var(--bg-secondary); border: 1px solid var(--border-soft); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
+.pg-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; }
+.pg-row + .pg-row { border-top: 1px solid var(--border-soft); }
+.pg-ico { width: 34px; height: 34px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-hover); display: flex; align-items: center; justify-content: center; flex: none; }
+.pg-t { font-size: 13.5px; }
+.pg-s { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+.pg-amt { margin-left: auto; font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pg-amt.income { color: var(--green); }
+.pg-badge { margin-left: auto; font-size: 10.5px; padding: 2px 8px; border-radius: 999px; background: rgba(204, 167, 0, .16); color: var(--amber); }
+.pg-badge.ok { background: rgba(137, 209, 133, .14); color: var(--green); }
+.pg-empty { text-align: center; color: var(--text-muted); font-size: 12px; padding: 24px 0; }
+.pg-chip { font-size: 10.5px; color: var(--text-muted); padding: 2px 8px; border: 1px solid var(--border-soft); border-radius: 999px; }
+.pg-progress { height: 4px; border-radius: 2px; background: var(--bg-tertiary); margin: 0 2px 14px; overflow: hidden; }
+.pg-progress i { display: block; height: 100%; width: 20%; background: var(--accent); border-radius: 2px; }
+.pg-bubble { max-width: 78%; padding: 9px 12px; border-radius: 14px; font-size: 13px; line-height: 1.55; margin-bottom: 10px; }
+.pg-bubble.ai { background: var(--bg-secondary); border: 1px solid var(--border-soft); border-top-left-radius: 4px; }
+.pg-bubble.user { background: var(--accent-soft); color: var(--accent-hover); margin-left: auto; border-bottom-right-radius: 4px; }
+.pg-compose { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.pg-compose .box { flex: 1; height: 38px; border-radius: 19px; background: var(--bg-secondary); border: 1px solid var(--border-soft); display: flex; align-items: center; padding: 0 14px; color: var(--text-muted); font-size: 12.5px; }
+.pg-compose .mic { width: 38px; height: 38px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; flex: none; }
+.pg-seg { display: inline-flex; background: var(--bg-tertiary); border-radius: 10px; padding: 2px; margin-left: auto; }
+.pg-seg button { padding: 4px 10px; font-size: 11px; border-radius: 8px; color: var(--text-muted); }
+.pg-seg button.on { background: var(--bg-primary); color: var(--text-primary); }
+.pg-fab { position: absolute; right: 16px; bottom: 24px; width: 48px; height: 48px; border-radius: 16px; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 24px rgba(0, 122, 204, .35); z-index: 4; }
+.has-tb .pg-fab { bottom: 112px; }
+.pg-week { display: flex; gap: 4px; margin-bottom: 12px; }
+.pg-week b { flex: 1; text-align: center; font-weight: 400; font-size: 10px; color: var(--text-muted); padding: 6px 0; border-radius: 10px; }
+.pg-week b i { display: block; font-style: normal; font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-top: 2px; }
+.pg-week b.sel { background: var(--accent-soft); color: var(--accent-hover); }
+.pg-week b.sel i { color: var(--accent-hover); }
+.pg-week b.today i { color: var(--accent-hover); }
+.pg-label { font-size: 11px; color: var(--text-muted); margin: 14px 2px 8px; display: flex; align-items: center; gap: 8px; }
+.pg-label::after { content: ""; flex: 1; height: 1px; background: var(--border-soft); }
+.pg-ubars { display: flex; align-items: flex-end; gap: 3px; height: 74px; padding: 8px 2px 0; }
+.pg-ubars i { flex: 1; background: var(--accent); opacity: .55; border-radius: 2px 2px 0 0; min-height: 3px; }
+.pg-ubars i.hot { opacity: 1; }
+.pg-input { height: 38px; border-radius: 11px; border: 1px solid var(--border-soft); background: var(--bg-tertiary); display: flex; align-items: center; padding: 0 12px; color: var(--text-muted); font-size: 12.5px; margin-bottom: 10px; }
+.pg-btn { height: 40px; border-radius: 12px; background: var(--accent); color: #fff; font-size: 13.5px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+
+/* ============ 变体一「精修」：常驻玻璃栏 + 滑动药丸（基线对照） ============ */
+.tb { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; animation: barIn .24s var(--spring) both; }
+@keyframes barIn { from { transform: translateY(14px); opacity: 0; } }
+.tb-glass {
+  display: flex; padding: 7px 8px 15px; position: relative;
+  background: rgba(30, 30, 30, .82);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4);
+  border-top: 1px solid rgba(255, 255, 255, .055);
+}
+.tb-glass button {
+  position: relative; z-index: 1; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 6px 0 3px; color: var(--text-muted); font-size: 10.5px; border-radius: 12px;
+  transition: color .18s ease-out;
+}
+.tb-glass button svg { transition: transform .18s var(--spring); }
+.tb-glass button:active svg { transform: scale(.86); }
+.tb-glass button.on { color: var(--accent-hover); }
+.tb-glass button.on svg { transform: translateY(-1px); }
+.g-pill {
+  position: absolute; top: 11px; left: 0; width: 48px; height: 31px; border-radius: 999px;
+  background: var(--accent-soft); will-change: transform;
+  transition: transform .26s var(--spring);
+}
+
+/* ============ 变体二「屏息」：同款精修栏 + 滚动自动沉浮 ============ */
+.tb-breathe { transition: transform .26s var(--spring); }
+.tb-breathe.hid { transform: translateY(115%); transition: transform .24s ease-in; }
+.breathe-hint {
+  position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 4;
+  font-size: 10px; color: var(--text-muted); letter-spacing: 1px;
+  padding: 3px 10px; border-radius: 999px; background: rgba(30, 30, 30, .6);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  pointer-events: none; transition: opacity .3s;
+}
+.tb-breathe.hid ~ .breathe-hint, .breathe-hid .breathe-hint { opacity: 0; }
+
+/* ============ 变体三「一粒」：常驻缩成一粒，点开玻璃坞 ============ */
+.grain-btn {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 5;
+  display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 15px;
+  border-radius: 999px; background: var(--glass); color: var(--text-secondary); font-size: 12.5px; font-weight: 600;
+  -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .5), inset 0 0 0 1px rgba(255, 255, 255, .07);
+  transition: transform .22s var(--spring), opacity .18s ease-out;
+}
+.grain-btn svg { color: var(--accent-hover); }
+.grain-btn:active { transform: translateX(-50%) scale(.92); }
+.grain-open .grain-btn { transform: translateX(-50%) scale(.7); opacity: 0; pointer-events: none; }
+.grain-dock {
+  position: absolute; left: 12px; right: 12px; bottom: 14px; z-index: 5;
+  display: flex; gap: 2px; padding: 6px; border-radius: 22px; background: var(--glass);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .5), inset 0 0 0 1px rgba(255, 255, 255, .07);
+  transform: translateY(20px) scale(.92); opacity: 0; pointer-events: none;
+  transition: transform .28s var(--spring), opacity .2s ease-out;
+  transform-origin: bottom center;
+}
+.grain-open .grain-dock { transform: none; opacity: 1; pointer-events: auto; }
+.grain-dock button {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 8px 0 6px; border-radius: 16px; color: var(--text-muted); font-size: 10px;
+  transition: color .16s ease-out, background .16s ease-out, transform .12s ease-out;
+}
+.grain-dock button:active { transform: scale(.9); }
+.grain-dock button.on { color: var(--accent-hover); background: var(--accent-soft); }
+.grain-shade { position: absolute; inset: 0; z-index: 4; display: none; }
+.grain-open .grain-shade { display: block; }
+
+/* ============ 变体四「暗门」：零常驻，小把手唤出 ============ */
+.door-handle {
+  position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 5;
+  width: 96px; height: 26px; display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 7px;
+}
+.door-handle i { display: block; width: 52px; height: 4px; border-radius: 999px; background: rgba(255, 255, 255, .26); transition: background .2s, transform .2s var(--spring); }
+.door-handle:hover i { background: rgba(255, 255, 255, .45); }
+.door-handle:active i { transform: scaleX(.8); }
+.door-shade { position: absolute; inset: 0; z-index: 5; background: rgba(0, 0, 0, .38); opacity: 0; pointer-events: none; transition: opacity .22s ease-out; }
+.door-open .door-shade { opacity: 1; pointer-events: auto; }
+.door-dock {
+  position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 6;
+  display: flex; gap: 2px; padding: 6px; border-radius: 22px; background: var(--glass);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .55), inset 0 0 0 1px rgba(255, 255, 255, .07);
+  transform: translateY(110%); transition: transform .3s var(--spring);
+}
+.door-open .door-dock { transform: none; }
+.door-dock button {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 9px 0 7px; border-radius: 16px; color: var(--text-muted); font-size: 10px;
+  opacity: 0; transform: translateY(8px);
+  transition: color .16s ease-out, background .16s ease-out, transform .12s ease-out;
+}
+.door-open .door-dock button { animation: doorItem .3s var(--spring) forwards; }
+.door-open .door-dock button:nth-child(2) { animation-delay: 25ms; }
+.door-open .door-dock button:nth-child(3) { animation-delay: 50ms; }
+.door-open .door-dock button:nth-child(4) { animation-delay: 75ms; }
+.door-open .door-dock button:nth-child(5) { animation-delay: 100ms; }
+.door-open .door-dock button:nth-child(6) { animation-delay: 125ms; }
+@keyframes doorItem { to { opacity: 1; transform: none; } }
+.door-dock button:active { transform: scale(.9); }
+.door-dock button.on { color: var(--accent-hover); background: var(--accent-soft); }
+
+/* ============ 变体五「划屏」：无栏手势切页，指示点自动淡出 ============ */
+.swipe-pages { touch-action: pan-y; }
+.swipe-strip {
+  position: absolute; left: 0; right: 0; bottom: 12px; z-index: 5;
+  display: flex; justify-content: center; align-items: center; gap: 6px;
+  pointer-events: none; transition: opacity .5s ease-out;
+}
+.swipe-strip.fade { opacity: 0; }
+.swipe-strip button { pointer-events: auto; width: 7px; height: 7px; border-radius: 999px; background: rgba(255, 255, 255, .22); padding: 0; transition: width .24s var(--spring), background .2s; }
+.swipe-strip button.on { width: 18px; background: var(--accent-hover); }
+.swipe-name {
+  position: absolute; left: 0; right: 0; bottom: 30px; text-align: center; z-index: 5;
+  font-size: 10.5px; letter-spacing: 2px; color: var(--text-muted); pointer-events: none;
+  transition: opacity .5s ease-out;
+}
+.swipe-name.fade { opacity: 0; }
+.pp-slipe { animation: slideIn .26s var(--spring) both; }
+@keyframes slideIn { from { transform: translateX(var(--slide-from, 40px)); opacity: .4; } }
+.pp-slide-l { --slide-from: -40px; }
+
+/* ============ 变体六「顶签」：导航搬到顶部，底部零占用 ============ */
+.tt {
+  position: absolute; top: 52px; left: 0; right: 0; height: 44px; display: flex; padding: 0 10px;
+  background: var(--bg-primary); border-bottom: 1px solid var(--border-soft); z-index: 6;
+  animation: barIn .24s var(--spring) both;
+}
+.tt button { flex: 1; height: 100%; font-size: 13px; color: var(--text-muted); position: relative; letter-spacing: 1px; transition: color .18s ease-out; }
+.tt button.on { color: var(--accent-hover); font-weight: 600; }
+.tt button:active { transform: scale(.95); }
+.tt-line { position: absolute; bottom: -1px; left: 0; height: 2.5px; width: 40px; border-radius: 2px; background: var(--accent-hover); transition: transform .26s var(--spring), width .26s var(--spring); }
+.tt-pages { top: 96px; padding-bottom: 40px; }
+
+/* ============ 变体七「号令」：底栏只剩 AI 命令行，目的地收进全屏启动器 ============ */
+.cmd-pages { padding-bottom: 96px; }
+.cmd { position: absolute; left: 12px; right: 12px; bottom: 14px; z-index: 5; display: flex; gap: 8px; align-items: center; animation: barIn .24s var(--spring) both; }
+.cmd-mic, .cmd-grid {
+  width: 40px; height: 40px; border-radius: 50%; background: var(--glass); color: var(--text-secondary);
+  display: flex; align-items: center; justify-content: center; flex: none;
+  -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(255, 255, 255, .07);
+  transition: transform .15s ease-out;
+}
+.cmd-mic { background: var(--accent); color: #fff; }
+.cmd-mic:active, .cmd-grid:active { transform: scale(.9); }
+.cmd-box {
+  flex: 1; height: 40px; border-radius: 20px; background: var(--glass);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(255, 255, 255, .07);
+  display: flex; align-items: center; padding: 0 16px; color: var(--text-muted); font-size: 12.5px;
+}
+.lnch { position: absolute; inset: 0; z-index: 8; opacity: 0; pointer-events: none; transition: opacity .2s ease-out; }
+.lnch-open .lnch { opacity: 1; pointer-events: auto; }
+.lnch-bg { position: absolute; inset: 0; background: rgba(20, 21, 22, .55); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+.lnch-grid { position: absolute; left: 24px; right: 24px; top: 90px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.lnch-tile {
+  background: var(--glass); border-radius: 18px; padding: 14px; text-align: left;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .07);
+  transform: translateY(16px) scale(.96); opacity: 0;
+  transition: transform .3s var(--spring), opacity .2s ease-out;
+}
+.lnch-open .lnch-tile { transform: none; opacity: 1; }
+.lnch-open .lnch-tile:nth-child(2) { transition-delay: 30ms; }
+.lnch-open .lnch-tile:nth-child(3) { transition-delay: 60ms; }
+.lnch-open .lnch-tile:nth-child(4) { transition-delay: 90ms; }
+.lnch-open .lnch-tile:nth-child(5) { transition-delay: 120ms; }
+.lnch-open .lnch-tile:nth-child(6) { transition-delay: 150ms; }
+.lnch-tile:active { transform: scale(.96); }
+.lt-ic { width: 38px; height: 38px; border-radius: 12px; background: var(--accent-soft); color: var(--accent-hover); display: flex; align-items: center; justify-content: center; }
+.lt-t { display: block; font-size: 14px; font-weight: 600; margin-top: 9px; }
+.lt-s { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+/* ============ 变体八「轮盘」：中央玻璃钮按下后扇形展开 ============ */
+.dial-pages { padding-bottom: 120px; }
+.dial-wrap { position: absolute; left: 50%; bottom: 18px; z-index: 6; }
+.dial-btn {
+  position: relative; z-index: 2; width: 56px; height: 56px; border-radius: 50%;
+  background: var(--glass); color: var(--accent-hover); display: flex; align-items: center; justify-content: center; margin: 0 auto;
+  -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .5), inset 0 0 0 1px rgba(255, 255, 255, .08);
+  transition: transform .2s var(--spring), background .2s, color .2s;
+}
+.dial-btn:active { transform: scale(.9); }
+.dial-open .dial-btn { background: var(--accent); color: #fff; }
+.dial-items { position: absolute; left: 50%; bottom: 28px; width: 0; height: 0; z-index: 1; }
+.dial-item {
+  position: absolute; left: -22px; top: -22px; width: 44px; height: 44px; border-radius: 50%;
+  background: var(--glass); color: var(--text-secondary); display: flex; align-items: center; justify-content: center;
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .4), inset 0 0 0 1px rgba(255, 255, 255, .07);
+  transform: translate(0, 0) scale(.3); opacity: 0; pointer-events: none; transition-delay: 0ms;
+  transition: transform .32s var(--spring), opacity .18s ease-out;
+}
+.dial-open .dial-item { transform: translate(var(--tx), var(--ty)) scale(1); opacity: 1; pointer-events: auto; transition-delay: var(--d); }
+.dial-item:active { transform: translate(var(--tx), var(--ty)) scale(.88); }
+.dial-item.on { color: var(--accent-hover); box-shadow: 0 8px 22px rgba(0, 0, 0, .4), inset 0 0 0 1.5px var(--accent); }
+.dial-shade { position: absolute; inset: 0; z-index: 5; background: rgba(0, 0, 0, .3); opacity: 0; pointer-events: none; transition: opacity .22s ease-out; }
+.dial-open .dial-shade { opacity: 1; pointer-events: auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+/* ============ Picker（harness 规范，逐字复制） ============ */
+.proto-picker {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  z-index: 2147483647; display: flex; align-items: center; gap: 2px; padding: 4px;
+  border-radius: 999px; background: rgba(10, 10, 10, 0.82);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4); backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 8px 24px rgba(0, 0, 0, 0.24), 0 2px 6px rgba(0, 0, 0, 0.12);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; line-height: 1;
+  -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none;
+}
+.proto-picker-highlight {
+  position: absolute; top: 4px; left: 0; height: 28px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12); will-change: transform;
+}
+.proto-picker[data-ready] .proto-picker-highlight {
+  transition: transform 250ms cubic-bezier(0.23, 1, 0.32, 1), width 250ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@media (prefers-reduced-motion: reduce) { .proto-picker[data-ready] .proto-picker-highlight { transition: none; } }
+.proto-picker-item {
+  position: relative; display: flex; align-items: center; height: 28px; padding: 0 12px;
+  border: 0; border-radius: 999px; background: transparent; color: rgba(255, 255, 255, 0.55);
+  font: inherit; cursor: pointer; transition: color 150ms ease-out;
+}
+.proto-picker-item:hover { color: rgba(255, 255, 255, 0.85); }
+.proto-picker-item:active { transform: scale(0.97); }
+.proto-picker-item:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.4); outline-offset: 2px; }
+.proto-picker-item[data-active] { color: #fff; }
+.proto-picker-divider { width: 1px; height: 16px; margin: 0 4px; background: rgba(255, 255, 255, 0.12); }
+.proto-picker-replay { padding: 0 10px; font-size: 14px; }
+.proto-picker[data-position="top"] { bottom: auto; top: 24px; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<nav class="proto-picker" data-position="top" aria-label="Prototype variants">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item" data-active aria-current="true">精修</button>
+  <button class="proto-picker-item">屏息</button>
+  <button class="proto-picker-item">一粒</button>
+  <button class="proto-picker-item">暗门</button>
+  <button class="proto-picker-item">划屏</button>
+  <button class="proto-picker-item">顶签</button>
+  <button class="proto-picker-item">号令</button>
+  <button class="proto-picker-item">轮盘</button>
+  <span class="proto-picker-divider" aria-hidden="true"></span>
+  <button class="proto-picker-item proto-picker-replay" aria-label="Replay animation (R)">↻</button>
+</nav>
+
+<script>
+/* ================= 图标（与 App icons.tsx 同源路径） ================= */
+const P = {
+  sparkle: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"/><path d="M19 15l.9 2.4L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.6L19 15z"/>',
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  wallet: '<path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/>',
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+  bars: '<path d="M18 20V10M12 20V4M6 20v-6"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/>',
+  send: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+  folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  pen: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
+  check: '<path d="M20 6L9 17l-5-5"/>',
+  chevR: '<path d="M9 6l6 6-6 6"/>',
+  chevL: '<path d="M15 18l-6-6 6-6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  monitor: '<rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21h8M12 16v5"/>',
+  history: '<path d="M3 3v5h5"/><path d="M3.05 13a9 9 0 1 0 .5-5L3 8"/><path d="M12 7v5l4 2"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+}
+const ic = (n, s = 20, sw = 1.8) =>
+  `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${P[n]}</svg>`
+
+const TABS = [
+  { id: 'ai', ic: 'sparkle', lb: 'AI' },
+  { id: 'schedule', ic: 'calendar', lb: '日程' },
+  { id: 'ledger', ic: 'wallet', lb: '记账' },
+  { id: 'notes', ic: 'book', lb: '笔记' },
+  { id: 'usage', ic: 'bars', lb: '用量' },
+  { id: 'settings', ic: 'gear', lb: '设置' },
+]
+
+/* ================= 页面快照（真实产品内容，衬托栏的状态） ================= */
+const PAGES = {
+  ai: () => `
+    <div class="pg-head"><span class="t">AI 助手</span>
+      <div class="pg-seg"><button class="on">手机直连</button><button>电脑 AI</button></div></div>
+    <div class="pg-bubble ai">晚上好。手机端就我一个 AI，<b>记账、改日程、写笔记都找我</b> —— 点左下角麦克风说一句，或直接打字。</div>
+    <div class="pg-bubble user">记一下今天的午饭 45</div>
+    <div class="pg-bubble ai">已入账：支出 <b>¥45.00</b> · 餐饮 · 午饭（微信）。下次同步进电脑。</div>
+    <div class="pg-bubble user">今天还有什么安排？</div>
+    <div class="pg-bubble ai">今天还有 4 条：14:00 原型讨论、19:00 跑步、回复合作邮件、21:30 回顾规划。</div>
+    <div class="pg-compose"><button class="mic">${ic('mic', 18)}</button><div class="box">问点什么…</div><button class="mic" style="background:var(--bg-tertiary);color:var(--text-muted)">${ic('send', 17)}</button></div>`,
+  schedule: () => `
+    <div class="pg-head"><span class="t">11月1日</span><span style="color:var(--text-muted);font-size:12px;margin-left:6px">周六 · 今天</span>
+      <span style="margin-left:auto;font-size:11.5px;color:var(--text-muted)">已完成 1/5</span></div>
+    <div class="pg-progress"><i></i></div>
+    <div class="pg-week"><b>一<i>26</i></b><b>二<i>27</i></b><b>三<i>28</i></b><b>四<i>29</i></b><b>五<i>30</i></b><b>六<i>31</i></b><b class="sel today"><i>1</i></b></div>
+    <div class="pg-label">截止 1</div>
+    <div class="pg-card"><div class="pg-row"><span class="pg-ico" style="color:var(--red);background:rgba(241,76,76,.12)">${ic('check', 15, 3)}</span>
+      <div><div class="pg-t" style="text-decoration:line-through;color:var(--text-muted)">交周报</div><div class="pg-s">09:30 · 工作</div></div></div></div>
+    <div class="pg-label">计划 2</div>
+    <div class="pg-card">
+      <div class="pg-row"><span class="pg-ico">${ic('calendar', 16)}</span><div><div class="pg-t">Phrontis 手机版原型讨论</div><div class="pg-s">14:00 · 项目 · ☑ 1/3</div></div></div>
+      <div class="pg-row"><span class="pg-ico" style="opacity:.5">${ic('calendar', 16)}</span><div><div class="pg-t">回复合作邮件</div><div class="pg-s">工作</div></div></div></div>
+    <div class="pg-label">日常 2</div>
+    <div class="pg-card">
+      <div class="pg-row"><span class="pg-ico" style="color:var(--green);background:rgba(137,209,133,.12)">${ic('sparkle', 16)}</span><div><div class="pg-t">跑步 30 分钟</div><div class="pg-s">19:00 · 健康</div></div></div>
+      <div class="pg-row"><span class="pg-ico" style="opacity:.5;color:var(--green);background:rgba(137,209,133,.12)">${ic('sparkle', 16)}</span><div><div class="pg-t">回顾与明日规划</div><div class="pg-s">21:30 · 成长</div></div></div></div>
+    <div class="pg-label">明天</div>
+    <div class="pg-card">
+      <div class="pg-row"><span class="pg-ico" style="opacity:.5">${ic('calendar', 16)}</span><div><div class="pg-t">准备周一的周报框架</div><div class="pg-s">10:00 · 工作</div></div></div>
+      <div class="pg-row"><span class="pg-ico" style="opacity:.5;color:var(--green);background:rgba(137,209,133,.12)">${ic('sparkle', 16)}</span><div><div class="pg-t">给妈妈打电话</div><div class="pg-s">20:00 · 家庭</div></div></div></div>`,
+  ledger: () => `
+    <div class="pg-head"><button style="color:var(--text-muted)">${ic('chevL', 15, 2)}</button><span class="t" style="margin:0 auto">2026年11月</span><button style="color:var(--text-muted)">${ic('chevR', 15, 2)}</button></div>
+    <div class="pg-card" style="display:flex;padding:12px 6px">
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">支出</div><div style="font-size:16px;font-weight:700;margin-top:3px">¥32.00</div></div>
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">收入</div><div style="font-size:16px;font-weight:700;margin-top:3px;color:var(--green)">¥800.00</div></div>
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">结余</div><div style="font-size:16px;font-weight:700;margin-top:3px;color:var(--green)">¥768.00</div></div></div>
+    <div class="pg-label">今天 <span style="color:var(--green)">+¥32.00</span></div>
+    <div class="pg-card">
+      <div class="pg-row"><span class="pg-ico" style="color:#e2a336;background:rgba(226,163,54,.13)">餐</span><div><div class="pg-t">午餐 · 公司食堂</div><div class="pg-s">11月1日 · 12:02 · 微信</div></div><span class="pg-amt">-¥28.00</span></div>
+      <div class="pg-row"><span class="pg-ico" style="color:#3794ff;background:rgba(55,148,255,.13)">交</span><div><div class="pg-t">地铁</div><div class="pg-s">11月1日 · 09:05 · 交通卡</div></div><span class="pg-amt">-¥4.00</span></div></div>
+    <div class="pg-label">昨天 <span style="color:var(--text-muted)">-¥71.00</span></div>
+    <div class="pg-card">
+      <div class="pg-row"><span class="pg-ico" style="color:#e2a336;background:rgba(226,163,54,.13)">餐</span><div><div class="pg-t">瑞幸咖啡</div><div class="pg-s">10月31日 · 15:40 · 微信</div></div><span class="pg-amt">-¥15.00</span></div>
+      <div class="pg-row"><span class="pg-ico" style="color:#89d185;background:rgba(137,209,133,.13)">日</span><div><div class="pg-t">超市日用品</div><div class="pg-s">10月31日 · 19:22 · 支付宝</div></div><span class="pg-amt">-¥56.00</span></div></div>
+    <div class="pg-label">10月28日 <span style="color:var(--green)">+¥800.00</span></div>
+    <div class="pg-card"><div class="pg-row"><span class="pg-ico" style="color:#89d185;background:rgba(137,209,133,.13)">稿</span><div><div class="pg-t">十月稿费</div><div class="pg-s">10月28日 · 10:00 · 银行卡</div></div><span class="pg-amt income">+¥800.00</span></div></div>
+    <button class="pg-fab">${ic('plus', 22, 2)}</button>`,
+  notes: () => `
+    <div class="pg-head" style="margin-bottom:8px"><div class="pg-input" style="flex:1;margin:0">${ic('search', 15)}<span style="margin-left:8px">搜索笔记标题</span></div></div>
+    <div style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text-muted);margin:0 2px 12px"><span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>已连接 Phrontis-PC · 128 篇 · 增量缓存</div>
+    <div class="pg-card" style="padding:4px 14px">
+      <div class="pg-row" style="font-weight:600;font-size:13px">${ic('folder', 16)}学习<span class="pg-badge ok" style="background:var(--bg-tertiary);color:var(--text-muted)">2</span></div>
+      <div class="pg-row"><div><div class="pg-t">AI教学模块笔记</div><div class="pg-s">学习/AI教学模块笔记.md</div></div><span class="pg-badge ok">已缓存</span></div>
+      <div class="pg-row"><div><div class="pg-t">线性代数 · 特征值</div><div class="pg-s">学习/线性代数 · 特征值.md</div></div><span class="pg-badge ok">已缓存</span></div></div>
+    <div class="pg-card" style="padding:4px 14px">
+      <div class="pg-row" style="font-weight:600;font-size:13px">${ic('folder', 16)}项目<span class="pg-badge ok" style="background:var(--bg-tertiary);color:var(--text-muted)">1</span></div>
+      <div class="pg-row"><div><div class="pg-t">Phrontis 手机版方案</div><div class="pg-s">项目/Phrontis 手机版方案.md</div></div><span class="pg-badge">未缓存</span></div></div>
+    <div class="pg-label">手机笔记 · 上行同步进电脑收件箱</div>
+    <div class="pg-card" style="padding:4px 14px">
+      <div class="pg-row"><span class="pg-ico" style="color:var(--amber);background:rgba(204,167,0,.13)">${ic('pen', 15)}</span><div><div class="pg-t">咖啡馆随想</div><div class="pg-s">手机创建</div></div><span class="pg-badge">待同步</span></div></div>
+    <button class="pg-fab">${ic('pen', 19)}</button>`,
+  usage: () => `
+    <div class="pg-head"><span class="t">AI 用量</span><div class="pg-seg"><button class="on">今日</button><button>近 7 天</button><button>近 30 天</button></div></div>
+    <div class="pg-card" style="display:flex;padding:12px 6px">
+      <div style="flex:1.4;text-align:center"><div style="font-size:11px;color:var(--text-muted)">Tokens</div><div style="font-size:16px;font-weight:700;margin-top:3px">12.6万</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px">输入 8.3万 · 输出 4.3万</div></div>
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">花费</div><div style="font-size:16px;font-weight:700;margin-top:3px">¥3.87</div></div>
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">请求</div><div style="font-size:16px;font-weight:700;margin-top:3px">23</div></div></div>
+    <div class="pg-card"><div class="pg-s" style="margin-bottom:4px">趋势 · 点柱看单日</div>
+      <div class="pg-ubars">${Array.from({ length: 24 }, (_, i) => `<i class="${i === 12 ? 'hot' : ''}" style="height:${8 + Math.abs(Math.sin(i * 1.7)) * 88}%"></i>`).join('')}</div></div>
+    <div class="pg-card">
+      <div class="pg-row"><div style="width:86px"><div class="pg-t" style="font-size:12.5px">DeepSeek V3</div></div><div style="flex:1;height:5px;border-radius:3px;background:var(--bg-tertiary);overflow:hidden"><i style="display:block;width:68%;height:100%;background:var(--accent)"></i></div><span class="pg-s" style="margin:0">8.6万 · ¥1.2</span></div>
+      <div class="pg-row"><div style="width:86px"><div class="pg-t" style="font-size:12.5px">GLM-4.6</div></div><div style="flex:1;height:5px;border-radius:3px;background:var(--bg-tertiary);overflow:hidden"><i style="display:block;width:32%;height:100%;background:#b180d7"></i></div><span class="pg-s" style="margin:0">4.0万 · ¥2.67</span></div></div>`,
+  settings: () => `
+    <div class="pg-head"><span class="t">设置</span></div>
+    <div class="pg-label">同步</div>
+    <div class="pg-card">
+      <div class="pg-row">${ic('monitor', 20)}<div><div class="pg-t">未配对电脑</div><div class="pg-s">配对后记账数据与电脑双向同步</div></div></div>
+      <div class="pg-input" style="margin-top:6px">192.168.1.5:8770 或整条配对链接</div>
+      <div class="pg-input">配对码（电脑端 工具箱 → 手机伴侣 出示）</div>
+      <div class="pg-btn" style="margin-top:4px">配对</div></div>
+    <div class="pg-label">同步范围</div>
+    <div class="pg-card" style="padding:4px 14px">
+      <div class="pg-row"><span class="pg-ico" style="color:var(--green);background:rgba(137,209,133,.14)">${ic('check', 12, 3)}</span>记账 · 双向按条目合并（含删除）</div>
+      <div class="pg-row"><span class="pg-ico" style="color:var(--green);background:rgba(137,209,133,.14)">${ic('check', 12, 3)}</span>日程 · 双向按条目合并（含删除）</div>
+      <div class="pg-row"><span class="pg-ico" style="color:var(--green);background:rgba(137,209,133,.14)">${ic('check', 12, 3)}</span>笔记 · 手机上行 + 电脑只读缓存</div></div>
+    <div class="pg-label">AI 模型（手机直连）</div>
+    <div class="pg-card">
+      <div class="pg-input">DeepSeek ▾</div>
+      <div class="pg-input">API Key（sk-…）</div>
+      <div style="display:flex;gap:10px"><div class="pg-btn" style="flex:1">保存</div><div class="pg-btn" style="flex:1;background:var(--bg-tertiary);color:var(--text-primary)">测试连接</div></div></div>
+    <div class="pg-label">外观</div>
+    <div class="pg-card"><div class="pg-seg" style="margin:0"><button class="on">深色</button><button>浅色</button></div></div>
+    <div class="pg-empty">Phrontis Mobile 0.3.0 · 与桌面 3.15.1 配套</div>`,
+}
+
+/* ================= 共享骨架 ================= */
+let page = 'ai'
+
+const topbar = () => `
+  <header class="ptop"><div class="pbrand">Phrontis <small>MOBILE</small></div><div class="pspacer"></div>
+  <button class="ppill"><span class="ppill-dot"></span>已连接电脑</button></header>`
+
+const pagesHost = (cls = '') => `<div class="ppages ${cls}" id="ppages">${PAGES[page]()}</div>`
+
+const dockBtns = (iconS = 19) => TABS.map(t =>
+  `<button data-nav="${t.id}" class="${t.id === page ? 'on' : ''}">${ic(t.ic, iconS)}<span>${t.lb}</span></button>`).join('')
+
+/* ================= 变体一「精修」：常驻玻璃栏 + 滑动药丸（基线） ================= */
+function vRefine() {
+  return {
+    cap: { name: '精修', axis: '基线对照——导航栏不隐藏，把质感一次做满', when: '想要最稳的方案：所有页面一眼可达，又不牺牲质感', cost: '常驻占掉约 64px 高度，六格密度不变', hint: '按 1-8 切方案 · 每个方案里都可以点导航' },
+    tb: true,
+    html: `
+      ${topbar()}${pagesHost()}
+      <nav class="tb"><div class="tb-glass" id="gbar">
+        <span class="g-pill" aria-hidden="true"></span>
+        ${TABS.map(t => `<button data-nav="${t.id}" class="${t.id === page ? 'on' : ''}">${ic(t.ic, 21)}<span>${t.lb}</span></button>`).join('')}
+      </div></nav>`,
+    init() { placePill('#gbar', '.g-pill') },
+    after() { placePill('#gbar', '.g-pill') },
+  }
+}
+
+/* ================= 变体二「屏息」：滚动让位，停下即回 ================= */
+function vBreathe() {
+  return {
+    cap: { name: '屏息', axis: '隐藏触发——滚动驱动：下滑让位、上滑即回', when: '内容优先（刷账单、读笔记长文时最受益），操作习惯零迁移', cost: '要切页时若页面已滚到底，得先上滑一下把栏唤回来', hint: '试试在页面里上下滚动' },
+    tb: true,
+    html: `
+      ${topbar()}${pagesHost()}
+      <nav class="tb tb-breathe" id="bbar"><div class="tb-glass">
+        <span class="g-pill" aria-hidden="true"></span>
+        ${TABS.map(t => `<button data-nav="${t.id}" class="${t.id === page ? 'on' : ''}">${ic(t.ic, 21)}<span>${t.lb}</span></button>`).join('')}
+      </div></nav>
+      <div class="breathe-hint">↓ 滚动试试：栏会自动让位</div>`,
+    init() {
+      placePill('#bbar', '.g-pill')
+      const pages = document.getElementById('ppages')
+      const bar = document.getElementById('bbar')
+      let last = 0
+      pages.addEventListener('scroll', () => {
+        const st = pages.scrollTop
+        if (st > last + 6 && st > 70) bar.classList.add('hid')
+        else if (st < last - 4 || st < 70) bar.classList.remove('hid')
+        last = st
+      }, { passive: true })
+    },
+    after() { placePill('#bbar', '.g-pill'); document.getElementById('bbar').classList.remove('hid') },
+  }
+}
+
+/* ================= 变体三「一粒」：常驻只有一粒，点开再选 ================= */
+function vGrain() {
+  return {
+    cap: { name: '一粒', axis: '隐藏形态——导航收缩成一颗常驻胶囊，点开浮出玻璃坞', when: '追求极简又想保留一次点击到达；底部只剩当前页一颗「种子」', cost: '每次跨页切换都是两步（点开 → 再选）；玻璃坞展开会盖住内容一角', hint: '点底部的胶囊展开导航，选中后自动收回' },
+    html: `
+      ${topbar()}${pagesHost()}
+      <div class="grain-shade" id="gshade"></div>
+      <button class="grain-btn" id="gbtn">${ic(TABS.find(t => t.id === page).ic, 16)}<span id="glb">${TABS.find(t => t.id === page).lb}</span></button>
+      <nav class="grain-dock" id="gdock">${dockBtns(19)}</nav>`,
+    init() {
+      const phone = stage.querySelector('.proto-phone')
+      document.getElementById('gbtn').addEventListener('click', () => phone.classList.add('grain-open'))
+      document.getElementById('gshade').addEventListener('click', () => phone.classList.remove('grain-open'))
+    },
+    after() {
+      const phone = stage.querySelector('.proto-phone')
+      phone.classList.remove('grain-open')
+      const t = TABS.find(x => x.id === page)
+      const b = document.getElementById('gbtn')
+      b.innerHTML = `${ic(t.ic, 16)}<span id="glb">${t.lb}</span>`
+    },
+  }
+}
+
+/* ================= 变体四「暗门」：零常驻，小把手唤出 ================= */
+function vDoor() {
+  return {
+    cap: { name: '暗门', axis: '空间占用——底部零常驻，只剩一根 4px 把手，点按唤出玻璃坞', when: '极致简洁：内容全部让位给正文，导航变成「要用才出现」', cost: '可发现性最差（新用户可能找不到入口）；Android 全面屏手势从底部上滑是返回桌面，唤出手势只能用点按', hint: '点屏幕底部的小横条唤出导航' },
+    html: `
+      ${topbar()}${pagesHost()}
+      <div class="door-shade" id="dshade"></div>
+      <nav class="door-dock" id="ddock">${dockBtns(19)}</nav>
+      <button class="door-handle" id="dhandle" title="唤出导航"><i></i></button>`,
+    init() {
+      const phone = stage.querySelector('.proto-phone')
+      document.getElementById('dhandle').addEventListener('click', () => phone.classList.add('door-open'))
+      document.getElementById('dshade').addEventListener('click', () => phone.classList.remove('door-open'))
+    },
+    after() { stage.querySelector('.proto-phone').classList.remove('door-open') },
+  }
+}
+
+/* ================= 变体五「划屏」：无栏，左右滑切页，指示点自动淡出 ================= */
+function vSwipe() {
+  return {
+    cap: { name: '划屏', axis: '交互模型——导航栏整体退役：左右滑动切页，只剩一排会自动淡出的指示点', when: '单手拇指不离屏的高频使用；界面干净到只剩内容', cost: '学习成本最高；横滑手势与页面内横向控件（周条、月切换）天然抢手势；指示点过 1.6s 自动淡出，想切页靠肌肉记忆', hint: '在页面上按住左右拖动切页 · 或直接点指示点' },
+    html: `
+      ${topbar()}${pagesHost('swipe-pages')}
+      <div class="swipe-name" id="sname">${TABS.find(t => t.id === page).lb}</div>
+      <div class="swipe-strip" id="sstrip">${TABS.map(t => `<button data-nav="${t.id}" class="${t.id === page ? 'on' : ''}" aria-label="${t.lb}"></button>`).join('')}</div>`,
+    init() {
+      const pages = document.getElementById('ppages')
+      let sx = 0, sy = 0, dx = 0, dragging = false, horiz = false
+      pages.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; dx = 0; dragging = true; horiz = false })
+      pages.addEventListener('pointermove', e => {
+        if (!dragging) return
+        const mx = e.clientX - sx, my = e.clientY - sy
+        if (!horiz && Math.abs(mx) > 10 && Math.abs(mx) > Math.abs(my) * 1.4) horiz = true
+        if (horiz) { dx = mx; pages.style.transition = 'none'; pages.style.transform = `translateX(${rubber(dx)}px)` }
+      })
+      const up = () => {
+        if (!dragging) return
+        dragging = false
+        pages.style.transition = 'transform .24s var(--spring)'
+        if (Math.abs(dx) > 70) {
+          const dir = dx < 0 ? 1 : -1
+          const i = TABS.findIndex(t => t.id === page)
+          const next = TABS[(i + dir + TABS.length) % TABS.length]
+          pages.style.transform = `translateX(${-dir * 80}px)`
+          setTimeout(() => { go(next.id, dir) }, 120)
+        } else pages.style.transform = ''
+        dx = 0
+      }
+      pages.addEventListener('pointerup', up)
+      pages.addEventListener('pointerleave', up)
+      wakeStrip()
+    },
+    after() { wakeStrip() },
+  }
+}
+function rubber(x) { const max = 120; if (x > max) return max + (x - max) * .25; if (x < -max) return -max + (x + max) * .25; return x }
+function wakeStrip() {
+  const strip = document.getElementById('sstrip')
+  if (!strip) return
+  strip.classList.remove('fade')
+  document.getElementById('sname').classList.remove('fade')
+  clearTimeout(wakeStrip.t)
+  wakeStrip.t = setTimeout(() => { strip.classList.add('fade'); document.getElementById('sname').classList.add('fade') }, 1600)
+}
+
+/* ================= 变体六「顶签」：导航搬到顶部，底部零占用 ================= */
+function vTop() {
+  return {
+    cap: { name: '顶签', axis: '位置——导航整体搬到顶部下沿，底部一个元素都不剩', when: '中文两字页签天然适合顶签（微信/B站同款心智）；底部完全让位给内容', cost: '拇指到顶部要够/换手；顶区叠层变挤（AI 页自带模式切换会再占一层）', hint: '点顶部页签切换 · 底部已无任何栏' },
+    html: `
+      ${topbar()}
+      <nav class="tt" id="tt"><span class="tt-line" aria-hidden="true"></span>
+        ${TABS.map(t => `<button data-nav="${t.id}" class="${t.id === page ? 'on' : ''}">${t.lb}</button>`).join('')}
+      </nav>
+      <div class="ppages tt-pages" id="ppages">${PAGES[page]()}</div>`,
+    init() { placeUnderline('#tt', '.tt-line') },
+    after() { placeUnderline('#tt', '.tt-line') },
+  }
+}
+
+/* ================= 变体七「号令」：底栏只剩 AI 命令行，目的地收进全屏启动器 ================= */
+const SUB = { ai: '问答 · 记录', schedule: '待办 · 排期 · 打卡', ledger: '流水 · 月度统计', notes: '仓库 · 闪念', usage: 'Token · 花费', settings: '配对 · 模型 · 外观' }
+function vCmd() {
+  return {
+    cap: { name: '号令', axis: '导航主体——底栏只剩一条 AI 命令行，六个目的地收进全屏启动器', when: '和产品 AI-first 身份最贴：想做什么说就行，切页是低频动作', cost: '切页从一次点击变成「点网格 → 再选」两步；命令行在无 Key 时只是个摆设', hint: '点右下角网格键打开启动器' },
+    html: `
+      ${topbar()}${pagesHost('cmd-pages')}
+      <div class="cmd"><button class="cmd-mic">${ic('mic', 17)}</button><div class="cmd-box">记一笔、加日程、找笔记…</div><button class="cmd-grid" id="cbtn" title="打开启动器">${ic('grid', 18)}</button></div>
+      <div class="lnch"><div class="lnch-bg" id="lbg"></div>
+        <div class="lnch-grid">${TABS.map(t => `<button data-nav="${t.id}" class="lnch-tile ${t.id === page ? 'on' : ''}"><span class="lt-ic">${ic(t.ic, 22)}</span><span class="lt-t">${t.lb}</span><span class="lt-s">${SUB[t.id]}</span></button>`).join('')}</div>
+      </div>`,
+    init() {
+      const ph = stage.querySelector('.proto-phone')
+      document.getElementById('cbtn').addEventListener('click', () => ph.classList.add('lnch-open'))
+      document.getElementById('lbg').addEventListener('click', () => ph.classList.remove('lnch-open'))
+    },
+    after() { stage.querySelector('.proto-phone').classList.remove('lnch-open') },
+  }
+}
+
+/* ================= 变体八「轮盘」：中央玻璃钮按下后扇形展开 ================= */
+function vDial() {
+  const ANG = [165, 135, 105, 75, 45, 15], R = 88
+  const items = TABS.map((t, i) => {
+    const a = ANG[i] * Math.PI / 180
+    return `<button class="dial-item ${t.id === page ? 'on' : ''}" data-nav="${t.id}" style="--tx:${Math.round(R * Math.cos(a))}px; --ty:${Math.round(-R * Math.sin(a))}px; --d:${i * 28}ms" aria-label="${t.lb}">${ic(t.ic, 19)}</button>`
+  }).join('')
+  return {
+    cap: { name: '轮盘', axis: '交互几何——底部中央一颗玻璃钮，按下后六个目的地沿弧线扇出', when: '拇指根部就在按钮上，展开后朝拇指自然张开；形态最有辨识度', cost: '扇形图标小且无文字（靠记忆）；展开瞬间盖住内容一角；误触率比栏高', hint: '点底部中央按钮展开轮盘 · 点空白处收起' },
+    html: `
+      ${topbar()}${pagesHost('dial-pages')}
+      <div class="dial-shade" id="dialShade"></div>
+      <div class="dial-wrap">
+        <div class="dial-items" id="dialItems">${items}</div>
+        <button class="dial-btn" id="dialBtn">${ic(TABS.find(t => t.id === page).ic, 22)}</button>
+      </div>`,
+    init() {
+      const ph = stage.querySelector('.proto-phone')
+      document.getElementById('dialBtn').addEventListener('click', () => ph.classList.toggle('dial-open'))
+      document.getElementById('dialShade').addEventListener('click', () => ph.classList.remove('dial-open'))
+    },
+    after() {
+      stage.querySelector('.proto-phone').classList.remove('dial-open')
+      document.getElementById('dialBtn').innerHTML = ic(TABS.find(t => t.id === page).ic, 22)
+    },
+  }
+}
+
+/* ================= 装配 ================= */
+const variants = [vRefine, vBreathe, vGrain, vDoor, vSwipe, vTop, vCmd, vDial]
+
+function placePill(barSel, pillSel) {
+  const bar = stage.querySelector(barSel)
+  if (!bar) return
+  const pill = bar.querySelector(pillSel)
+  const btn = bar.querySelector('button.on')
+  if (!pill || !btn) return
+  pill.style.transform = `translateX(${btn.offsetLeft + (btn.offsetWidth - pill.offsetWidth) / 2}px)`
+}
+
+function placeUnderline(barSel, lineSel) {
+  const bar = stage.querySelector(barSel)
+  if (!bar) return
+  const line = bar.querySelector(lineSel)
+  const btn = bar.querySelector('button.on')
+  if (!line || !btn) return
+  line.style.width = btn.offsetWidth + 'px'
+  line.style.transform = `translateX(${btn.offsetLeft}px)`
+}
+
+function go(id, slideDir = 0) {
+  page = id
+  const host = document.getElementById('ppages')
+  if (host) {
+    host.classList.remove('pp-slipe', 'pp-slide-l')
+    if (slideDir) {
+      void host.offsetWidth
+      host.classList.add('pp-slipe')
+      if (slideDir < 0) host.classList.add('pp-slide-l')
+    }
+    host.innerHTML = PAGES[page]()
+    host.style.transform = ''
+  }
+  stage.querySelectorAll('[data-nav]').forEach(b => b.classList.toggle('on', b.dataset.nav === page))
+  const sname = document.getElementById('sname')
+  if (sname) sname.textContent = TABS.find(t => t.id === page).lb
+  variants[cur]().after?.()
+}
+
+const stage = document.getElementById('stage')
+const picker = document.querySelector('.proto-picker')
+const highlight = picker.querySelector('.proto-picker-highlight')
+const items = [...picker.querySelectorAll('.proto-picker-item:not(.proto-picker-replay)')]
+const replay = picker.querySelector('.proto-picker-replay')
+let cur = 0
+
+function moveHighlight() {
+  const el = items[cur]
+  highlight.style.width = el.offsetWidth + 'px'
+  highlight.style.transform = `translateX(${el.offsetLeft}px)`
+}
+
+function mount(i) {
+  stage.innerHTML = ''
+  requestAnimationFrame(() => {
+    const v = variants[i]()
+    stage.innerHTML = `
+      <div class="cap">
+        <h1><em>${v.cap.name}</em>${v.cap.axis}</h1>
+        <p>${v.cap.when}</p>
+        <p class="cost">代价：${v.cap.cost}</p>
+        <p class="hint">${v.cap.hint}</p>
+      </div>
+      <div class="proto-phone${v.tb ? ' has-tb' : ''}">${v.html}</div>`
+    stage.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', () => go(b.dataset.nav)))
+    v.init?.()
+  })
+}
+
+function setActive(i) {
+  if (i < 0 || i >= variants.length) return
+  cur = i
+  items.forEach((el, j) => {
+    el.toggleAttribute('data-active', j === i)
+    if (j === i) el.setAttribute('aria-current', 'true')
+    else el.removeAttribute('aria-current')
+  })
+  moveHighlight()
+  const url = new URL(location)
+  url.searchParams.set('v', i + 1)
+  history.replaceState(null, '', url)
+  mount(i)
+}
+
+items.forEach((el, i) => el.addEventListener('click', () => setActive(i)))
+replay.addEventListener('click', () => mount(cur))
+window.addEventListener('resize', () => { moveHighlight(); variants[cur]().after?.() })
+
+document.addEventListener('keydown', (e) => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return
+  if (e.metaKey || e.ctrlKey || e.altKey) return
+  const num = parseInt(e.key, 10)
+  if (num >= 1 && num <= variants.length) setActive(num - 1)
+  else if (e.key === 'ArrowRight') setActive((cur + 1) % variants.length)
+  else if (e.key === 'ArrowLeft') setActive((cur - 1 + variants.length) % variants.length)
+  else if (e.key === 'r' || e.key === 'R') mount(cur)
+})
+
+setActive((parseInt(new URLSearchParams(location.search).get('v'), 10) || 1) - 1)
+requestAnimationFrame(() => requestAnimationFrame(() => picker.setAttribute('data-ready', '')))
+</script>
+</body>
+</html>

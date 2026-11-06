@@ -38,4 +38,7 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 扫码配对：Capacitor 的 BridgeWebChromeClient 会把 WebView 的 VIDEO_CAPTURE 请求
+         转成 CAMERA 运行时权限弹窗（须先在此声明，否则 hasDefinedPermission 为假） -->
+    <uses-permission android:name="android.permission.CAMERA" />
 </manifest>

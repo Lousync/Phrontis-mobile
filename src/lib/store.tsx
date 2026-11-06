@@ -69,6 +69,7 @@ interface Store {
   runSync: () => void
   markPending: (label: string, opId?: string) => void
   pairWith: (input: string, code: string) => Promise<void>
+  adoptPaired: (device: PairedDevice) => Promise<void>
   unpair: () => void
 
   /* 日程 */
@@ -452,6 +453,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       toast(e instanceof Error ? e.message : '配对失败', 'warn')
     }
+  }, [toast])
+
+  /** v1.5 请求式配对：pollPair 已落盘令牌，这里同步内存态并接上首次对账 */
+  const adoptPaired = useCallback(async (device: PairedDevice) => {
+    setPaired(device)
+    toast('已配对 ' + device.pcName + ' · 开始首次对账', 'ok')
+    const ok = await probeOnline()
+    setOnline(ok)
+    if (ok) setTimeout(() => void runSyncRef.current(), 500)
   }, [toast])
 
   const unpair = useCallback(() => {
@@ -980,7 +990,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value: Store = {
     theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, sheetOrigin, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
     sideCollapsed, toggleSide,
-    online, syncing, syncPct, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, unpair,
+    online, syncing, syncPct, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, adoptPaired, unpair,
     schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, deleteTodo, habits, toggleHabit,
     entries, txs, saveTx, updateTx, deleteTx, editTxId, openTxEdit,
     folders, toggleFolder, markCached, phoneNotes, addPhoneNote,
