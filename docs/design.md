@@ -30,6 +30,8 @@
 | 2026-11-01 | **AI 配置对齐桌面预设体系（随 0.5.0，原型 `prototype/ai-config.html` 落码）**：AI 卡改「摘要卡 + 两步抽屉」——摘要卡（品牌色点 + 模型 mono + 测试状态 未配置/未测试/可用·Nms/连接失败 + 测试连接 + 更换供应商）；抽屉第一步 **8 张预设卡**（与桌面 `src/lib/llmPresets.ts` 同源：DeepSeek/通义千问/豆包·火山方舟/Kimi/智谱 GLM/opencode/Ollama/自定义，各带品牌色/地址/副标题），第二步表单把**预设替你填好的明着列出**（地址/协议/会话头 + 「按官方文档」绿徽、「未经在线核实」amber 徽），用户只补 Key（显隐眼睛）/接入点 ID（豆包 ep-…，带指路文案）；**模型清单可拉取**（`fetchModels`：OpenAI 兼容 `GET /models`、Ollama `/api/tags`，失败优雅降级手填）；高级折叠（接口地址覆盖 + 自定义请求头 JSON，消毒后落 `pm.aiConfig.headers`）。**opencode 会话头真实生效**：`chatOnce` 增 sessionId 参，`x-opencode-session` 按当前会话 ID 覆盖（对齐桌面 withSessionHeaders，路由与 prompt 缓存用）。**与桌面不搬的差异**：多账号/多端点、逐模型协议覆盖（手机按所选模型自动匹配）、场景分配、CC Switch 导入、语义检索模型——手机单配置不需要。★ 冒烟抓出真缺陷并修复：`capacitor.config.ts` **从未启用 CapacitorHttp 原生桥**（M4a 拍板「出网走原生桥」没落地），真机上一切 AI 请求都会被 WebView CORS 拦死（浏览器 dev 里 opencode 预检不认 `x-opencode-session` 同理被拦）——现 `plugins.CapacitorHttp.enabled: true`（fetch 全量补丁到原生层）；浏览器 dev/smoke 仍走普通 fetch，跨域被拦属预期降级路径，报错文案已如实标注。 |
 | 2026-11-06 | **0.6.0 收口（无功能改动）**：版本号收敛为**单一真相源**——根 `package.json` 是唯一抬版处；界面版本行由 Vite `define` 注入 `__APP_VERSION__`（此前 `SettingsPage.tsx` 里写死 `0.5.0`），Android `versionName`/`versionCode` 由 `android/app/build.gradle` 读同一份 JSON 派生（`versionCode = major*10000 + minor*100 + patch`，0.6.0 → 600）。原因是 M6 应用内自动更新两条判定同时依赖它们（versionName 比 semver「有没有新版」+ versionCode 判「能否覆盖安装」），而脚手架默认值（`1.0` / `1`）与 0.x 版本线完全脱钩、且 versionCode 恒为 1 会让覆盖安装失败。另把 2026-11-01 那轮五份原型稿（`shell` / `topbar` / `tabbar` / `motion` / `ai-config`）入库归档。 |
 | 2026-11-06 | **配对体验重构拍板（方案发现 + 扫码合并）**：配对入口改为**局域网自动发现优先**——手机 TCP 扫段本网段 `:8770`（连通性优于 mDNS，LocalSend 同款思路），列出「发现的电脑」，点选后桌面弹确认框 + **双屏 4 位验证码一致**即配对（防服务常驻时陌生设备偷配）；发现失败（AP 隔离/跨网段）兜底**扫桌面二维码**（相机扫码提前到本里程碑，M1 手动输 IP + 配对码降级为「手动配对」高级选项）。**配对仍是一生一次**：长期 deviceToken + 同网自动重连机制不变（本条只动配对首次体验，不动既有同步协议）。设置页「设备管理」即连接历史：已配对电脑（pcName / 在线状态 / 上次同步时间 / 解除配对）。协议侧需扩展一对发现配对端点（`/api/pair/request` → 桌面确认框 `{ verifyCode }` → 用户确认后 `/api/pair/confirm` 换 deviceToken；10 分钟过期、限频沿用），改代码前同步契约脚本。 |
+| 2026-11-06 | **防串仓 + 同步范围瘦身拍板**。① **仓库绑定（fail-closed）**：桌面已配对设备表虽存应用全局（`%APPDATA%/knowbase/data/phone-companion.json`，与 vault 无关），但每台设备记录**配对时的 vault 指纹**（vaultId hash + 仓库名）；同步落到哪个仓不再取决于桌面当前打开哪个仓——`/api/pair`、`/api/ping`、push、pull 的请求/响应均带 `vaultFingerprint`，服务端 `token + vaultFingerprint` 双匹配才放行，手机端比对响应指纹不一致即**拒绝同步**（不 push 不 pull 不推游标），UI 红条「电脑当前仓库与配对仓库不符」，桌面切回原仓自动恢复；服务端拒绝回 `reason: 'vaultMismatch'`。合并规则（LWW/墓碑/游标）零改动。② **手机保持单配对**（不做手机多仓：多仓要把手机端存储/队列/游标/UI 全部按仓分区，且把「记错仓」的用户错误面从电脑搬到手机；闪念上行落错仓是真实污染）：设备管理页显示「已配对仓库：<名>」；换仓 = **一键改配对**——被拒时红条按钮「改配对到当前仓库」走桌面确认 + 双屏验证码，改配对时手机本地流水/日程显式处理（清空重对账 或 隔离归档，用户选），不静默搬运。③ **同步范围设置砍掉假开关**：现 `SettingsPage.tsx` 的四行开关（记账/日程/笔记/AI 会话记录）是未接线的本地 useState、无后端语义，v1 域模型里 ledger+schedule 恒同步、notes 上行无条件应用——改为**一行说明**「同步内容：记账 + 日程 + 笔记上行（删除双向）」；将来真出现可选域再按「域级开关 + 关闭域双向停摆」完整设计。 |
+| 2026-11-06 | **会话历史改版拍板（侧边抽屉 + 收藏，原型 `prototype/session-history.html` 定稿）**。① **形态**：会话历史从底部抽屉改为**左侧滑入全高抽屉**（DeepSeek 移动端同款）——宽 `min(312px, 84%)`、右侧圆角、backdrop 压暗右侧（点暗区 / ✕ 收起）。落码 = 新组件 `SideDrawer`（transform 滑入，**不共用 bottom Sheet 体系**——那条通道被键盘停靠占用，见 `index.css` 注释；backdrop 可复用），现 `SessionSheet` 的搜索/分组/长按操作逻辑整体复用换壳。入口暂维持页头右上时钟钮（是否学 DeepSeek 挪左上汉堡，真机验证后再定）。② **内容结构**：搜索常驻抽屉顶部 → 「开启新对话」 → 分组列表 **置顶 → 收藏 → 今天 → 昨天 → 7 天内 → 30 天内 → 更早**（各组带条数，空组不显示）。③ **收藏**：行首星标**直点即收藏/取消**（免进菜单），收藏会话归入「收藏」分组（**搬家式**——不再出现在原时间分组）；置顶优先于收藏（收藏组只列未置顶的收藏会话）；会话模型加 `fav` 字段（会话数据为手机本地态，不涉及同步协议）。④ **操作条不变**：⋯ 或长按 480ms（+震动）行内展开 收藏/置顶/重命名/删除（删除行内二次确认），此为现实现已对的部分。⑤ 附带说明：用户截图的「点击历史整屏变灰」为当天已修的 Sheet 落位 bug（`Sheet.tsx` 先落位再铺开，冒烟只数 DOM 节点的盲区已记入工作记忆），与本改版无关。 |
 
 ---
 
@@ -67,6 +69,9 @@
 | `POST /api/sync/push` | `{ deviceId, changes: [{ domain, id, updatedAt, data }] }` → `{ ok, results: [{ id, applied, conflict?, reason? }], serverTime }` |
 | `POST /api/sync/pull` | `{ since: { ledger: <ms> } }` → `{ ok, changes: { ledger: [{ id, updatedAt, data }] }, cursor: { ledger: <ms> } }` |
 | `POST /api/ai/chat` | **v1.3 电脑档**：对话中继到桌面完整 agentService。`{ sessionId?, message }` → `{ ok, reply?, sessionId, error?, code?, changes?: [{ tool, action, target }] }`；写入直接在桌面真相源执行（§3 电脑档语义）；手机超时 120s 自弃 |
+| `GET /api/discover` | **v1.5 发现**（无令牌）：→ `{ ok, protocol: 1, pc: { name }, pairing: ['request','code'] }`。手机扫本网段 `:8770` 用它识别电脑；`pairing` 里没有 `request` 表示电脑端没接确认框，手机退回配对码 |
+| `POST /api/pair/request` | **v1.5 请求式配对**（无令牌，限频与 `/api/pair` 共桶）：`{ deviceName }` → `{ ok, requestId, code, expiresAt }`；`code` 是 **4 位**码，手机与电脑同屏核对；电脑弹确认框，**本人在电脑上点「允许」才发令牌**。请求 3 分钟过期；电脑端未接确认框回 501 |
+| `GET /api/pair/status?id=` | **v1.5 轮询**（无令牌，`requestId` 为 UUID 不可猜）：→ `{ ok, status: 'pending'|'approved'|'rejected'|'expired', deviceToken?, protocol?, pc?, domains? }`；`approved` 才带 `deviceToken`。手机 1.5s 轮询，拿到令牌即落盘 |
 
 **合并规则（不需要 CRDT）：**
 
@@ -100,6 +105,14 @@
 - 裁决：删除与更新在同一条 LWW 时线上——deletedAt/updatedAt 新者赢、相同桌面赢；已墓碑的 id 再收到**更旧**的上行 upsert → 拒绝（`reason: 'tombstoned'`），防止复活；删除比行内 updatedAt 旧 → 拒删回 `conflict`（手机以服务端版本回写收敛）。
 - 下行：pull 响应增 `tombstones: [{ domain, id, deletedAt }]`（`deletedAt > min(各域游标)`）；手机按 id 幂等删本地条目，并丢弃该 id 的在途队列操作。
 
+**v1.4 仓库绑定（2026-11-06 拍板，防多仓库串写）：**
+
+- 背景：桌面配对设备表存应用全局（与 vault 无关，连接凭证），而同步写入走 `getCurrentVault()`——桌面切仓后手机 push/pull 会静默打进别的仓。绑定原则：**信任域跟 vault 走，fail-closed——宁可不同步，绝不静默写错仓**。
+- 协议字段：`/api/pair` 响应增 `vault: { fingerprint, name }`（fingerprint = vaultId hash）；`/api/ping`、push、pull 的响应均带 `vault.fingerprint`。桌面侧每台设备记录配对时的 vault 指纹，服务端 `token + vaultFingerprint` 双匹配才放行同步，不匹配回 `reason: 'vaultMismatch'`。
+- 手机端：配对时存 `paired.vault = { fingerprint, name }`，设备管理页显示「已配对仓库：<名>」；每次同步先 ping 核对指纹——不一致 → **拒绝同步**（不 push 不 pull 不推游标），UI 红条「电脑当前仓库与配对仓库不符（当前 B ≠ 配对 A）」+ 按钮「改配对到当前仓库」；桌面切回原仓自动恢复，无需干预。
+- 一键改配对：走桌面确认框 + 双屏验证码（与首次配对同一条确认路径）；改配对时手机本地流水/日程**显式处理**（清空后从零对账，或隔离归档——用户二选一），本地数据归属旧仓，绝不静默搬运进新仓。
+- 手机保持**单配对**（一部手机对一个仓）：存储/队列/游标/UI 均免除「当前仓」维度；多仓（配对表按 vaultId 键控）挂正式版，等「一机多活跃仓」真实场景出现再做。合并规则（LWW/墓碑/游标）零改动。
+
 **触发：** 已配对且探测到电脑在线 → 自动对账（启动时 + 写操作后 + 手动「立即同步」）；未配对/离线时一切照旧记本地，待同步条数 UI 常显（琥珀色徽标）。
 
 ### 2.2 发现与配对
@@ -119,7 +132,7 @@ mDNS 自动发现是锦上添花，二维码方案第一版就够。
 - **首选 · 局域网自动发现**：手机扫段本网段 `:8770`（TCP connect，LocalSend 同款；不用 mDNS——受路由器多播/AP 难隔离影响），设置 → 同步 列出「发现的电脑：<pcName>」。点选 → `POST /api/pair/request` → 桌面弹确认框并显示 4 位验证码，手机同屏显示同一组码，**两端一致** → 用户在桌面点确认 → `POST /api/pair/confirm` 换长期 deviceToken。防冒配的关键在「桌面确认框」这一步，双屏同码是给人眼核对的第二道锁。
 - **兜底 · 扫桌面二维码**：发现不了（AP 隔离、跨网段、防火墙）时走相机扫码（配对链接格式沿用 `http://<ip>:8770/pair#<配对码>`），IP/端口/令牌一次带齐一键配对。
 - **末位 · 手动配对**：M1 的手输 IP + 配对码流程原样保留，降级为折叠的「手动配对」高级选项（也服务无法开相机的场景）。
-- **连接历史 = 设备管理**：配对一生一次，之后同网自动 ping + 对账（既有机制不变）。设置页「设备管理」列出已配对电脑：pcName、在线状态（ping 结果）、上次同步时间、解除配对（双向清 token）。重新发现/扫码入口只在未配对状态露出。
+- **连接历史 = 设备管理**：配对一生一次，之后同网自动 ping + 对账（既有机制不变）。设置页「设备管理」列出已配对电脑：pcName、**已配对仓库**（vault 名，见 §2.1 v1.4）、在线状态（ping 结果）、上次同步时间、解除配对（双向清 token）。重新发现/扫码入口只在未配对状态露出；仓库不符时露出「改配对到当前仓库」。
 
 ## 3. AI 两档
 
@@ -136,12 +149,12 @@ mDNS 自动发现是锦上添花，二维码方案第一版就够。
 
 ## 4. 功能范围（v1，五页签浮坞壳层，用量走二级入口）
 
-- **AI**：单 AI 多会话；两档模式切换；语音输入；操作确认卡。
+- **AI**：单 AI 多会话（会话历史 = 左侧全高抽屉：搜索 + 置顶/收藏/时间分组 + 星标收藏，2026-11-06 拍板见 §0，原型 `prototype/session-history.html`）；两档模式切换；语音输入；操作确认卡。
 - **日程**：三视图（待办：按 截止/计划/日常 分组、子任务进度、排期时段芯片；排期：时间轴 + 当下红线；打卡：连续天数 + 一周圆点轨迹 + 本周进度）+ 周条切日。对齐桌面 `ScheduleTodo` 的 taskType/scheduledStart/parentId 字段。
 - **记账**：快速记一笔（数字键盘 + 分类/账户芯片）、流水按日分组、月度收支统计。
 - **笔记**：仓库目录树（增量缓存：绿点已缓存可离线、空心点按需下载）+ 标题搜索 + 阅读器（v1 已有笔记只读）+ 「手机笔记」（上行并入仓库）。
 - **用量**（设置 → 工具 → AI 用量）：今日/近 7 天/近 30 天 × Tokens（含输入/输出拆分）/花费/请求 × 趋势图（点柱看单日）× 按模型拆分 × 账户额度（额度/余额 + ok/warn/hot 级别）。口径对齐桌面 `src/modules/usage/`。
-- **设置**：配对设备管理、重新扫码、同步范围、AI 模型（提供商/Key/模型）、外观（深浅色；「跟随桌面主题」为正式版项）。
+- **设置**：配对设备管理（含已配对仓库名、仓库不符时一键改配对）、重新发现/扫码、AI 模型（提供商/Key/模型）、外观（深浅色；「跟随桌面主题」为正式版项）。~~同步范围~~ → 一行说明「同步内容：记账 + 日程 + 笔记上行（删除双向）」（2026-11-06 拍板砍掉假开关，见 §0）。
 
 原型：`prototype/index.html`（单文件，浏览器直接打开，可真实交互）。
 
