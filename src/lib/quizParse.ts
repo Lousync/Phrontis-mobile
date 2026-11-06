@@ -9,7 +9,7 @@ export type DocSegment =
   | { kind: 'md'; text: string }
   | { kind: 'quiz'; spec: QuizSpec }
 
-const FENCE = /```quiz[^\n]*\n([\s\S]*?)```/g
+const FENCE = /(?:^|\n)```quiz[^\n]*\n([\s\S]*?)```/g
 
 function normalizeOptions(raw: unknown): QuizOption[] {
   if (!Array.isArray(raw)) return []
