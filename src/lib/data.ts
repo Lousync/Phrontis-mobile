@@ -49,7 +49,7 @@ export function welcomeText(): string {
   const h = new Date().getHours()
   const g = h < 5 ? '夜深了' : h < 11 ? '早上好' : h < 13 ? '中午好' : h < 18 ? '下午好' : '晚上好'
   /* 文案走 markdown（渲染器会转义裸 HTML），所以加粗用 ** 而不是 <b> */
-  return g + '。手机端就我一个 AI，**记账、改日程、写笔记都找我** —— 点左下角麦克风说一句，或直接打字。连上电脑后切「电脑 AI」，升级成带全库工具的完整助手。'
+  return g + '。手机端就我一个 AI，**记账、改日程、写笔记都找我** —— 点左下角麦克风说一句，或直接打字。与电脑配对后，账本 / 日程 / 笔记会自动同步过去。'
 }
 
 export const VOICE_PHRASES = ['帮我记一笔午饭三十块', '把跑步改到明晚七点半', '记个想法：语音输入手感不错']
@@ -110,7 +110,7 @@ export const seedFolders: Folder[] = [
   },
   {
     name: '项目', open: false, files: [
-      { title: 'Phrontis 手机版方案', cached: false, path: '项目 / Phrontis 手机版方案', md: '# Phrontis 手机版方案\n\n## 架构\n\n- 本地优先：手机自带 SQLite，离线全功能\n- 域级同步：按条目 UUID 合并，新增直接并入，修改「新改的赢」\n- AI 两档：手机直连 / 电脑代理\n\n## 里程碑\n\n1. 配对 + 同步基建\n2. 记账 / 日程双端\n3. 笔记缓存 + 手机笔记\n4. AI 两档\n5. 通知与打包' },
+      { title: 'Phrontis 手机版方案', cached: false, path: '项目 / Phrontis 手机版方案', md: '# Phrontis 手机版方案\n\n## 架构\n\n- 本地优先：手机自带 SQLite，离线全功能\n- 域级同步：按条目 UUID 合并，新增直接并入，修改「新改的赢」\n- AI：手机直连（自带 Key + 7 个本地工具 + 确认卡）\n\n## 里程碑\n\n1. 配对 + 同步基建\n2. 记账 / 日程双端\n3. 笔记缓存 + 手机笔记\n4. AI 直连\n5. 通知与打包' },
     ],
   },
   {

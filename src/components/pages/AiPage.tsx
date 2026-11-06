@@ -105,17 +105,6 @@ function MsgView({ m }: { m: Msg }) {
           统一走 mdRender（与流式同一渲染器），并套 .md 复用笔记阅读器的排版 */}
       <div className="md" dangerouslySetInnerHTML={{ __html: mdRender(m.text) }} />
       {m.card && <ActionCard m={m} />}
-      {m.changes && m.changes.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 4 }}>电脑端本次改动</div>
-          {m.changes.map((c, i) => (
-            <div className="mini-todo" key={i}>
-              <span className="mt-dot" style={{ background: 'var(--accent)' }} />
-              <span>{c.action} · {c.target}</span>
-            </div>
-          ))}
-        </div>
-      )}
       {m.list && m.list.length > 0 && (
         <div style={{ marginTop: 8 }}>
           {m.list.map(t => (
@@ -251,7 +240,7 @@ export function SessionSheet() {
 }
 
 export function AiPage({ active }: { active: boolean }) {
-  const { sessions, curSession, streaming, streamText, sendChat, stopStream, aiMode, setAiMode, voicePhase, voiceElapsed, toggleVoice, openSheet } = useApp()
+  const { sessions, curSession, streaming, streamText, sendChat, stopStream, voicePhase, voiceElapsed, toggleVoice, openSheet } = useApp()
   const [input, setInput] = useState('')
   const sess = sessions.find(s => s.id === curSession) ?? sessions[0]
   const chatRef = useRef<HTMLDivElement>(null)
@@ -272,10 +261,6 @@ export function AiPage({ active }: { active: boolean }) {
   return (
     <section className={'page' + (active ? ' active' : '')}>
       <PageHead title="AI 助手">
-        <div className="ai-mode">
-          <button className={aiMode === 'direct' ? 'on' : ''} onClick={() => setAiMode('direct')}><span className="mdot" />手机直连</button>
-          <button className={aiMode === 'pc' ? 'on pc' : ''} onClick={() => setAiMode('pc')}><span className="mdot" />电脑 AI</button>
-        </div>
         <button className="icon-btn" style={{ width: 32, height: 32, flex: 'none' }} onClick={e => openSheet('sessions', e.currentTarget)}><IHistory /></button>
       </PageHead>
 

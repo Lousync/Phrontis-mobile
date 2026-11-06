@@ -39,7 +39,7 @@ npm run android:apk      # 产物：android/app/build/outputs/apk/debug/app-debu
 - [x] M1：配对 + 同步基建 —— 记账一条流双端打通（协议 v1，仅 `ledger` 域）
 - [x] M2：记账 / 日程全功能 —— 同步形态账本 + 编辑删除墓碑 + 月度统计；日程加域
 - [x] M3：笔记 —— 电脑笔记按需缓存（1.5M 字符 LRU）+ 手机笔记上行收件箱
-- [x] M4：AI 两档 —— 直连（OpenAI 兼容 + 7 工具 + 确认卡真写入）与电脑档（中继桌面 `agentService`）
+- [x] M4：AI 直连 —— OpenAI 兼容 + 7 工具 + 确认卡真写入（电脑档 2026-11-06 移除）
 - [x] 0.4 / 0.5：备忘录式壳层 C（大标题 + 5 页签浮坞 + 圆形扩散转场）· 7 套主题 · 8 家 AI 预设卡
 - [ ] M5：语音输入（云端 SenseVoiceSmall 直连 + 点击切换状态机）
 - [ ] M6：本地通知 + APK 发布（tag `v<ver>-mobile`）+ 应用内自动更新
