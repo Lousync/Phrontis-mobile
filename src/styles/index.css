@@ -740,6 +740,14 @@ button.vault-line:disabled { cursor: default; }
   animation: tickIn .22s cubic-bezier(.34, 1.56, .64, 1) both;
 }
 @keyframes tickIn { from { transform: scale(0); } }
+/* 扫码配对抽屉：全屏取景 + 扫描框（相机流覆盖整个 stage，框内亮、框外压暗） */
+.scan-stage { position: relative; width: 100%; aspect-ratio: 3 / 4; max-height: 60dvh; border-radius: 14px; overflow: hidden; background: #000; }
+.scan-stage video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scan-frame { position: absolute; inset: 16% 10%; border: 2px solid var(--accent); border-radius: 14px; box-shadow: 0 0 0 999px rgba(0, 0, 0, .42); }
+.scan-line { position: absolute; left: 12%; right: 12%; height: 2px; border-radius: 1px; background: var(--accent); opacity: .9; animation: scanMove 2.2s ease-in-out infinite; }
+@keyframes scanMove { 0%, 100% { top: 20%; } 50% { top: 76%; } }
+.scan-err { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; font-size: 12.5px; line-height: 1.7; color: var(--text-secondary); }
+
 /* 外观入口行（2026-11-06 方案 A）：当前主题色板 + 名称 + 副文案 + chevron，点开主题抽屉 */
 .theme-entry { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; padding: 7px 2px; border-radius: 10px; transition: background .13s; }
 .theme-entry:active { background: var(--bg-tertiary); }

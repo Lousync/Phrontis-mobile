@@ -172,9 +172,14 @@ export function SettingsPage({ active }: { active: boolean }) {
                     <div className="s">同一 Wi-Fi 下自动搜索，配对后双向同步</div>
                   </div>
                 </div>
-                <button className="btn-primary" style={{ marginTop: 12 }} disabled={discovering || pairing} onClick={() => void doDiscover()}>
-                  {discovering ? '搜索中…（约几秒）' : '搜索电脑'}
-                </button>
+                <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+                  <button className="btn-primary" style={{ flex: 1 }} disabled={discovering || pairing} onClick={() => void doDiscover()}>
+                    {discovering ? '搜索中…（约几秒）' : '搜索电脑'}
+                  </button>
+                  <button className="btn-ghost" style={{ height: 44, flex: 'none' }} onClick={e => openSheet('scan', e.currentTarget)}>
+                    扫码配对
+                  </button>
+                </div>
                 {found.length > 0 && (
                   <div style={{ marginTop: 8 }}>
                     {found.map(pc => (
