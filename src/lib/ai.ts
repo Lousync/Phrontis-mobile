@@ -192,7 +192,16 @@ export async function chatOnce(
   } catch (e) {
     if (external?.aborted) throw new AiStopped()
     if (e instanceof DOMException && e.name === 'AbortError') throw new Error('模型请求超时，稍后再试')
-    if (e instanceof TypeError) throw new Error('连不上模型服务：检查地址与网络；浏览器调试时多为跨域拦截（APK 原生桥不受限）')
+    if (e instanceof TypeError) {
+      /* 原生 HTTP 桥是否就绪，直接决定这类失败的处置方向：
+       *   桥在   → 请求确实发出去了但没回来（地址 / DNS / 明文 http 被系统拦 / 证书）；
+       *   桥不在 → 走的是 WebView 普通请求，跨域就被拦掉（安卓上几乎必然失败）。
+       * CapacitorHttpAndroidInterface 是 Capacitor 原生注入的 JS 接口，存在即代表补丁可用。 */
+      const bridged = typeof (window as unknown as Record<string, unknown>).CapacitorHttpAndroidInterface !== 'undefined'
+      throw new Error(bridged
+        ? '请求发不出去：原生桥已就绪，检查地址是否可达；若填的是 http:// 地址，安卓默认禁止明文传输'
+        : '连不上模型服务：原生 HTTP 桥未启用（当前走 WebView 请求，会被跨域拦截）——请装带 CapacitorHttp 配置的 APK')
+    }
     throw e instanceof Error ? e : new Error('模型请求失败')
   } finally {
     clearTimeout(timer)

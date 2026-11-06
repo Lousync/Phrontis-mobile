@@ -10,85 +10,96 @@ import androidx.core.view.WindowInsetsCompat;
 import com.getcapacitor.BridgeActivity;
 
 /**
- * 键盘高度桥（2026-11-06）。
+ * 原生 insets 桥（2026-11-06）：把系统栏与输入法占位换算成 CSS 变量注入页面。
  *
- * 为什么必须写到原生层：
- * Android 15（targetSdk 35）起强制 edge-to-edge，窗口不再随输入法缩放。此时 Web 侧三条路都拿不到键盘高度：
+ * 为什么必须写在原生层：Android 15（targetSdk 35）起强制 edge-to-edge，Web 侧拿不到这些尺寸 ——
  *   1. interactive-widget=resizes-content 是 Blink 特性，**没有接入 WebView**（no-op）；
- *   2. visualViewport 在 WebView 里要 Chrome 139+ 才会因 IME 收缩，低于该版本毫无信号；
- *   3. Capacitor 自己的 CapacitorWebView.edgeToEdgeHandler() 注册了 insets 监听，
- *      只取 systemBars | displayCutout，然后 return WindowInsetsCompat.CONSUMED —— IME inset 被丢弃。
+ *   2. visualViewport 在 WebView 里要 Chrome 139+ 才响应输入法，低于该版本毫无信号；
+ *   3. env(safe-area-inset-top) 在安卓上基本恒为 0（只反映刘海，不含状态栏）；
+ *   4. Capacitor 自己的 edgeToEdgeHandler 会 return WindowInsetsCompat.CONSUMED，
+ *      把 IME inset 直接吞掉（本项目已用 adjustMarginsForEdgeToEdge: 'disable' 关掉它）。
  *
- * 原生应用（Flutter 的 MediaQuery.viewInsets、RN 的 KeyboardAvoidingView）都是直接读系统 IME inset，
- * 这里补上同一层：把 IME 高度换算成 CSS px 注入 --kb-native，前端壳层高度扣掉它。
+ * 原生应用（Flutter 的 MediaQuery.viewInsets、RN 的 KeyboardAvoidingView）都直接读系统 inset，
+ * 这里补同一层，注入三个变量：
+ *   --kb-native    输入法占高 —— 壳层高度扣掉它，抽屉/浮坞/FAB/toast 整体上移到键盘上方
+ *   --safe-top     状态栏(+刘海)高度 —— 页面顶部留白；状态栏区域由页面自己绘制，才能跟随 7 套主题
+ *   --safe-bottom  导航栏/手势条高度 —— 浮坞、FAB、toast 的贴底间距
  *
  * 实现要点：
  * - 用 ViewCompat.getRootWindowInsets() **主动读**，不 setOnApplyWindowInsetsListener ——
- *   后者会顶掉 Capacitor 的 edge-to-edge 处理器（状态栏/刘海 margins 会跟着坏）。
- * - 用 addOnGlobalLayoutListener 触发：键盘弹出/收起必然引起布局变化。
- * - 只在数值变化时 evaluateJavascript，避免滚动期间频繁跨界调用。
+ *   后者会顶掉 Capacitor 的处理器（若将来重新启用 margins，会把状态栏处理弄坏）。
+ * - 触发用 OnPreDrawListener：铺满模式下窗口尺寸位置都不变，
+ *   addOnGlobalLayoutListener 可能一次都不回调。
  * - getInsets() 返回物理像素，除以 density 才是 WebView 的 CSS px。
  */
 public class MainActivity extends BridgeActivity {
 
-    /** 上一次注入的键盘高度（CSS px）；-1 = 尚未注入过 */
-    private int lastKbCssPx = -1;
-    /** 帧计数：用于周期性兜底重发，见 pushKeyboardInset */
+    /** 上一次注入的值（CSS px）；-1 = 尚未注入过 */
+    private int lastKb = -1;
+    private int lastTop = -1;
+    private int lastBottom = -1;
+    /** 帧计数：周期性兜底重发，见 pushInsets */
     private int tick = 0;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        hookKeyboardInset();
+        hookInsets();
     }
 
-    private void hookKeyboardInset() {
+    private void hookInsets() {
         WebView webView = bridge != null ? bridge.getWebView() : null;
         if (webView == null) return;
 
         /* post 之后再注册：onCreate 阶段 WebView 可能还没 attach，
          * 此时 getViewTreeObserver() 拿到的是临时实例，listener 会随 attach 一起丢。 */
         webView.post(() -> {
-            /* 触发时机很关键：adjustNothing + edge-to-edge 下窗口的尺寸和位置都不变，
-             * addOnGlobalLayoutListener 很可能一次都不回调（视图树没重排）。
-             * OnPreDrawListener 每帧绘制前必到 —— 键盘弹起必然引起重绘，信号一定拿得到；
-             * 内部先判等，高度没变就直接 return，每帧开销只是一次 insets 读取 + 一次比较。 */
+            /* OnPreDrawListener 每帧绘制前必到 —— 键盘弹起、状态栏变化都必然引起重绘；
+             * 内部先判等，没变就直接 return，每帧开销只是一次 insets 读取 + 几次比较。 */
             webView.getViewTreeObserver().addOnPreDrawListener(() -> {
-                pushKeyboardInset();
+                pushInsets();
                 return true;
             });
             /* 两种时机都挂上：某些 ROM 上首次布局只有其中一条会触发 */
-            webView.getViewTreeObserver().addOnGlobalLayoutListener(this::pushKeyboardInset);
+            webView.getViewTreeObserver().addOnGlobalLayoutListener(this::pushInsets);
 
             /* 页面首次加载可能晚于监听就绪（evaluateJavascript 打在空文档上会丢），
-             * 延时补一次，保证初始值 0 一定送达，避免残留旧值把壳压矮。 */
-            webView.postDelayed(this::pushKeyboardInset, 1500);
+             * 延时补一次，保证初始值送达，避免残留旧值把壳压矮。 */
+            webView.postDelayed(this::pushInsets, 1500);
         });
     }
 
-    private void pushKeyboardInset() {
+    private void pushInsets() {
         WebView webView = bridge != null ? bridge.getWebView() : null;
         if (webView == null) return;
 
         WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(webView);
         if (insets == null) return;
 
-        Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
         float density = getResources().getDisplayMetrics().density;
         if (density <= 0f) return;
 
-        int cssPx = Math.max(0, Math.round(ime.bottom / density));
+        Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+        Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
+
+        int kb = Math.max(0, Math.round(ime.bottom / density));
+        int top = Math.max(0, Math.round(bars.top / density));
+        int bottom = Math.max(0, Math.round(bars.bottom / density));
 
         /* 判等跳过跨界调用；但每约 3 秒兜底重发一次 ——
          * 页面重载（HMR / 刷新 / 崩溃恢复）会丢掉 html 上的内联变量，
-         * 而那时高度没变、判等会把它当成「无需更新」，壳就一直停在无键盘的高度。 */
+         * 而那时数值没变、判等会把它当成「无需更新」，壳就一直停在错误高度。 */
         tick = (tick + 1) % 180;
-        if (tick != 0 && cssPx == lastKbCssPx) return;
-        lastKbCssPx = cssPx;
+        boolean changed = kb != lastKb || top != lastTop || bottom != lastBottom;
+        if (tick != 0 && !changed) return;
+        lastKb = kb;
+        lastTop = top;
+        lastBottom = bottom;
 
-        webView.evaluateJavascript(
-            "document.documentElement.style.setProperty('--kb-native','" + cssPx + "px')",
-            null
-        );
+        String js = "(()=>{const s=document.documentElement.style;"
+            + "s.setProperty('--kb-native','" + kb + "px');"
+            + "s.setProperty('--safe-top','" + top + "px');"
+            + "s.setProperty('--safe-bottom','" + bottom + "px');})()";
+        webView.evaluateJavascript(js, null);
     }
 }

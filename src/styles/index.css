@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* 系统栏占位：由 MainActivity 从原生 insets 注入（Android，inline style 优先级更高）；
+ * iOS / 浏览器回落到 env()。安卓上 env(safe-area-inset-*) 基本恒为 0，不能单独依赖。
+ * 注意本项目没有裸 :root 主题块（令牌都在 :root[data-theme="..."] 里），这里单独定义，
+ * 所有主题都能继承。 */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 /* ============ 主题令牌（继承桌面 VS Code 系基因） ============ */
 :root[data-theme="dark"] {
   --bg-primary: #1e1e1e;
@@ -224,7 +233,7 @@ button.c-meta:active { opacity: .7; }
 
 /* 大标题滚动收拢：>46px 淡入的小顶栏（毛玻璃，盖在内容上，不占布局） */
 .c-bar {
-  position: absolute; top: 0; left: 0; right: 0; height: calc(44px + env(safe-area-inset-top)); z-index: 6;
+  position: absolute; top: 0; left: 0; right: 0; height: calc(44px + var(--safe-top)); z-index: 6;
   display: flex; align-items: flex-end; padding: 0 16px 6px;
   background: var(--glass);
   -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4);
@@ -237,7 +246,7 @@ button.c-meta:active { opacity: .7; }
 /* ============ 页面容器 ============ */
 .pages { flex: 1; position: relative; overflow: hidden; background: var(--app-bg, var(--bg-secondary)); }
 .page {
-  position: absolute; inset: 0; overflow-y: auto; padding: 12px 16px calc(96px + env(safe-area-inset-bottom));
+  position: absolute; inset: 0; overflow-y: auto; padding: calc(12px + var(--safe-top)) 16px calc(96px + var(--safe-bottom));
   display: none; flex-direction: column; gap: 14px; overscroll-behavior: contain;
 }
 .page.active { display: flex; animation: pageIn .22s ease; }
@@ -255,7 +264,7 @@ button.c-meta:active { opacity: .7; }
  * 浮在内容上（z 30），下滚收缩成当前页小胶囊、上滑或点当前胶囊展开。
  * 贴底控件（FAB / 添加条）因此抬到坞上方。 */
 .dock {
-  position: absolute; left: 12px; right: 12px; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 30;
+  position: absolute; left: 12px; right: 12px; bottom: calc(14px + var(--safe-bottom)); z-index: 30;
   display: flex; gap: 2px; padding: 6px; border-radius: 24px; background: var(--glass);
   -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
   box-shadow: 0 14px 34px rgba(0, 0, 0, .5), inset 0 0 0 1px rgba(255, 255, 255, .07);
@@ -446,7 +455,7 @@ button.c-meta:active { opacity: .7; }
 .habit-btn.done svg .ck1, .habit-btn.done svg .ck2 { stroke-dashoffset: 0; }
 
 .add-bar {
-  position: absolute; left: 16px; right: 16px; bottom: calc(100px + env(safe-area-inset-bottom)); height: 46px; border-radius: 23px;
+  position: absolute; left: 16px; right: 16px; bottom: calc(100px + var(--safe-bottom)); height: 46px; border-radius: 23px;
   background: var(--bg-primary); border: 1px solid var(--border); display: flex; align-items: center; gap: 10px;
   padding: 0 18px; color: var(--text-secondary); font-size: 13.5px; box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
   transition: border-color .15s, transform .12s; z-index: 5;
@@ -475,7 +484,7 @@ button.c-meta:active { opacity: .7; }
 .tx-amt { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .tx-amt.income { color: var(--green); }
 .fab {
-  position: absolute; right: 18px; bottom: calc(100px + env(safe-area-inset-bottom)); width: 54px; height: 54px; border-radius: 18px; z-index: 20;
+  position: absolute; right: 18px; bottom: calc(100px + var(--safe-bottom)); width: 54px; height: 54px; border-radius: 18px; z-index: 20;
   background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center;
   box-shadow: 0 10px 26px rgba(0, 122, 204, .4); transition: transform .15s, background .15s;
 }
@@ -516,7 +525,7 @@ button.vault-line:disabled { cursor: default; }
 .reader { position: absolute; inset: 0; background: var(--bg-secondary); z-index: 35; display: none; flex-direction: column; }
 .reader.open { display: flex; animation: readerIn .24s ease; }
 @keyframes readerIn { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
-.reader-top { flex: none; display: flex; align-items: center; gap: 10px; padding: calc(8px + env(safe-area-inset-top)) 14px 8px; border-bottom: 1px solid var(--border-soft); background: var(--bg-primary); }
+.reader-top { flex: none; display: flex; align-items: center; gap: 10px; padding: calc(8px + var(--safe-top)) 14px 8px; border-bottom: 1px solid var(--border-soft); background: var(--bg-primary); }
 .reader-top .path { font-size: 12px; color: var(--text-muted); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .reader-body { flex: 1; overflow-y: auto; padding: 18px 20px 40px; }
 .md h1 { font-size: 21px; margin: 4px 0 14px; line-height: 1.4; }
@@ -635,7 +644,7 @@ button.vault-line:disabled { cursor: default; }
 .sheet {
   position: absolute; left: 0; right: 0; bottom: -100%; z-index: 41;
   background: var(--bg-primary); border-radius: 22px 22px 0 0; border-top: 1px solid var(--border);
-  padding: 10px 20px calc(28px + env(safe-area-inset-bottom));
+  padding: 10px 20px calc(28px + var(--safe-bottom));
   /* 进出（-100% ↔ 0）只走 bottom 通道。
    * 勿改回 transform 滑入：transform 在元素上会使其后的 bottom 布局停靠渲染失灵（实测踩坑）。
    * max-height 用 % 而非 dvh：dvh 锚的是视口，键盘弹起后壳变矮而它不变，抽屉会顶出壳外；
@@ -759,13 +768,13 @@ button.vault-line:disabled { cursor: default; }
 .scan-frame { position: absolute; inset: 20% 12%; border: 2px solid rgba(255, 255, 255, .92); border-radius: 18px; box-shadow: 0 0 0 999px rgba(0, 0, 0, .5); }
 .scan-line { position: absolute; left: 14%; right: 14%; height: 2px; background: var(--accent); opacity: .95; animation: scanMove 2.2s ease-in-out infinite; }
 @keyframes scanMove { 0%, 100% { top: 22%; } 50% { top: 78%; } }
-.scan-head { position: absolute; top: 0; left: 0; right: 0; z-index: 2; padding: calc(env(safe-area-inset-top) + 14px) 16px 14px; display: flex; align-items: center; gap: 10px; color: #fff; }
+.scan-head { position: absolute; top: 0; left: 0; right: 0; z-index: 2; padding: calc(var(--safe-top) + 14px) 16px 14px; display: flex; align-items: center; gap: 10px; color: #fff; }
 .scan-close { width: 38px; height: 38px; border-radius: 50%; background: rgba(255, 255, 255, .18); color: #fff; display: flex; align-items: center; justify-content: center; }
 .scan-title { font-size: 14px; font-weight: 600; letter-spacing: .5px; }
 /* 提示层默认不吃事件：否则「权限被拒」的整屏文案会盖住关闭按钮，用户退不出去 */
 .scan-center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 40px; text-align: center; line-height: 1.7; font-size: 13px; color: rgba(255, 255, 255, .9); pointer-events: none; }
 .scan-tap { pointer-events: auto; background: rgba(0, 0, 0, .32); font-size: 15px; }
-.scan-foot { position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 30px); padding: 0 32px; text-align: center; font-size: 12px; line-height: 1.7; color: rgba(255, 255, 255, .82); }
+.scan-foot { position: absolute; left: 0; right: 0; bottom: calc(var(--safe-bottom) + 30px); padding: 0 32px; text-align: center; font-size: 12px; line-height: 1.7; color: rgba(255, 255, 255, .82); }
 
 /* 外观入口行（2026-11-06 方案 A）：当前主题色板 + 名称 + 副文案 + chevron，点开主题抽屉 */
 .theme-entry { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; padding: 7px 2px; border-radius: 10px; transition: background .13s; }
@@ -826,7 +835,7 @@ button.vault-line:disabled { cursor: default; }
 }
 
 /* ============ Toast ============ */
-.toast-wrap { position: absolute; bottom: calc(100px + env(safe-area-inset-bottom)); left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 60; pointer-events: none; }
+.toast-wrap { position: absolute; bottom: calc(100px + var(--safe-bottom)); left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 60; pointer-events: none; }
 .toast {
   background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary);
   font-size: 12.5px; padding: 9px 18px; border-radius: 20px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35);

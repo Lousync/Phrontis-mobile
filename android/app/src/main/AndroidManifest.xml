@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- usesCleartextTraffic：允许 http:// 端点。AI 直连与「电脑伴侣」都可能是局域网 http
+         （Ollama / 自建网关 / 电脑同步端口），Android 9+ 默认全部拒绝，表现为「电脑能连、手机连不上」。
+         代价是接受明文传输；本应用除用户自填的 API 地址外不向公网发送数据。 -->
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme">
 
         <!-- windowSoftInputMode=adjustNothing：键盘高度由 MainActivity 读原生 IME inset，

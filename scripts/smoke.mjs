@@ -242,6 +242,17 @@ ok('输入框聚焦后抽屉仍贴壳底（不下沉）', await page.locator('#r
 ok('键盘弹起时页面底部留白收掉（输入栏贴键盘）',
   parseFloat(await page.locator('#root .page.active').evaluate(el => getComputedStyle(el).paddingBottom)) <= 12,
 )
+/* 状态栏占位：安卓由 MainActivity 注入 --safe-top（env() 在安卓恒为 0），页面顶部据此留白 */
+const safeGeom = await page.evaluate(() => {
+  const root = document.documentElement
+  const page = document.querySelector('#root .page.active')
+  const before = parseFloat(getComputedStyle(page).paddingTop)
+  root.style.setProperty('--safe-top', '44px')
+  const after = parseFloat(getComputedStyle(page).paddingTop)
+  root.style.removeProperty('--safe-top')
+  return { before, after }
+})
+ok('状态栏占位变量驱动页面顶部留白', Math.abs(safeGeom.after - safeGeom.before - 44) <= 1)
 await page.locator('#root .sheet .key-wrap input').fill('sk-smoke-fake')
 await page.locator('#root .sheet .aic-foot .btn-primary').click()
 await page.waitForTimeout(500)
