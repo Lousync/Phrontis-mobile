@@ -1138,10 +1138,11 @@ button.vault-line:disabled { cursor: default; }
 .app.tablet .page > .notes-empty { max-width: none; width: auto; align-self: auto; }
 
 /* 平板日程快捷添加（真机反馈 2026-11-06）：通栏输入条改右下圆钮 + 就地浮起面板（内联展开，非抽屉）。
- * 两个绝对定位直接子元素——WebKit 翻回 width/align-self（§实现坑） */
+ * fixed 相对视口：悬浮在内容区右下角，列表滚动不带走（absolute 会钉在内容尾部随滚动漂移，真机已踩）。
+ * 二者均为 .page 直接子元素——WebKit 翻回 width/align-self（§实现坑） */
 .app.tablet .page > .tb-add {
   width: 54px; max-width: 54px; align-self: auto;
-  position: absolute; right: 24px; bottom: calc(24px + env(safe-area-inset-bottom));
+  position: fixed; right: 24px; bottom: calc(24px + env(safe-area-inset-bottom));
   height: 54px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   background: var(--accent); color: #fff; border: none; cursor: pointer;
@@ -1152,7 +1153,7 @@ button.vault-line:disabled { cursor: default; }
 .app.tablet .page > .tb-add.open { transform: rotate(45deg); }
 .app.tablet .page > .tb-quick-add {
   width: min(380px, 86vw); max-width: none; align-self: auto;
-  position: absolute; right: 24px; bottom: calc(88px + env(safe-area-inset-bottom));
+  position: fixed; right: 24px; bottom: calc(88px + env(safe-area-inset-bottom));
   padding: 14px;
   background: var(--bg-secondary); border: 1px solid var(--border-soft); border-radius: 14px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, .25); z-index: 5;
