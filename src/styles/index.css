@@ -1099,3 +1099,17 @@ button.vault-line:disabled { cursor: default; }
 .md h1 { font-size: calc(var(--rfs) * 1.5); }
 .md h2 { font-size: calc(var(--rfs) * 1.18); }
 .md code { font-size: calc(var(--rfs) * 0.85); }
+/* marked(GFM) 全语法支持：表格 / 图片 / 链接 / 删除线 / 任务列表 / hr / h3 */
+.md h3 { font-size: calc(var(--rfs) * 1.05); margin: 14px 0 8px; font-weight: 700; }
+.md table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: calc(var(--rfs) * 0.9); display: block; overflow-x: auto; }
+.md th, .md td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.md th { background: var(--bg-tertiary); font-weight: 600; }
+.md img { max-width: 100%; border-radius: 8px; }
+.md hr { border: none; border-top: 1px solid var(--border-soft); margin: 16px 0; }
+.md a { color: var(--accent-hover); text-decoration: none; }
+.md a:hover { text-decoration: underline; }
+.md del { color: var(--text-muted); }
+.md input[type='checkbox'] { accent-color: var(--accent); margin-right: 6px; }
+.md ol { padding-left: 22px; margin: 8px 0; }
+.md strong { font-weight: 700; }
+.md em { font-style: italic; }

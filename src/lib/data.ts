@@ -192,24 +192,17 @@ export function esc(s: string): string {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+/* ---------- Markdown 渲染：marked(GFM) + DOMPurify ----------
+ * 自研行级渲染器语法覆盖太窄（表格/粗斜体/任务列表/图片/链接/嵌套列表全缺），
+ * 换开源成熟方案：marked 负责完整 GFM 语法，DOMPurify 消毒防 XSS（dangerouslySetInnerHTML）。
+ * breaks=true 对齐旧行为（单换行即换行，中文笔记与 AI 聊天输出友好）。 */
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
+
+marked.setOptions({ gfm: true, breaks: true })
+
 export function mdRender(src: string): string {
-  const lines = esc(src).split('\n')
-  let html = '', inCode = false, inList = false
-  const closeList = () => { if (inList) { html += '</ul>'; inList = false } }
-  for (const ln of lines) {
-    if (ln.startsWith('```')) { closeList(); if (inCode) { html += '</code></pre>'; inCode = false } else { html += '<pre><code>'; inCode = true } continue }
-    if (inCode) { html += ln + '\n'; continue }
-    if (/^###\s/.test(ln)) { closeList(); html += '<h2>' + ln.slice(4) + '</h2>' }
-    else if (/^##\s/.test(ln)) { closeList(); html += '<h2>' + ln.slice(3) + '</h2>' }
-    else if (/^#\s/.test(ln)) { closeList(); html += '<h1>' + ln.slice(2) + '</h1>' }
-    else if (/^>\s?/.test(ln)) { closeList(); html += '<blockquote>' + ln.replace(/^>\s?/, '') + '</blockquote>' }
-    else if (/^[-*]\s/.test(ln)) { if (!inList) { html += '<ul>'; inList = true } html += '<li>' + ln.slice(2) + '</li>' }
-    else if (/^\d+\.\s/.test(ln)) { if (!inList) { html += '<ul>'; inList = true } html += '<li>' + ln.replace(/^\d+\.\s/, '') + '</li>' }
-    else if (ln.trim() === '') { closeList() }
-    else { closeList(); html += '<p>' + ln + '</p>' }
-  }
-  closeList(); if (inCode) html += '</code></pre>'
-  return html.replace(/```/g, '').replace(/`([^`]+)`/g, '<code>$1</code>')
+  return DOMPurify.sanitize(marked.parse(src, { async: false }))
 }
 
 export const fmtMoney = (n: number) => n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
