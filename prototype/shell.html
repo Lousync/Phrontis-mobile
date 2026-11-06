@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phrontis Mobile · 壳层定稿（顶栏 + 导航栏）</title>
+<style>
+/* ============ 设计令牌（与 App dark 主题同源） ============ */
+:root {
+  --bg-primary: #1e1e1e; --bg-secondary: #252526; --bg-tertiary: #2d2d2d;
+  --text-primary: #cccccc; --text-secondary: #969696; --text-muted: #6e6e6e;
+  --accent: #007acc; --accent-hover: #1a8ad4; --accent-soft: rgba(0, 122, 204, .14);
+  --border: #3c3c3c; --border-soft: rgba(60, 60, 60, .55);
+  --green: #89d185; --red: #f14c4c; --blue: #3794ff; --amber: #cca700;
+  --outside: #141516;
+  --glass: rgba(37, 37, 38, .78);
+  --spring: cubic-bezier(.23, 1, .32, 1);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body {
+  background: var(--outside); color: var(--text-primary);
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  overflow-x: hidden;
+}
+button { font-family: inherit; border: none; background: none; color: inherit; cursor: pointer; }
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.cap { max-width: 640px; margin: 84px auto 0; padding: 0 20px; }
+.cap h1 { font-size: 14px; font-weight: 700; letter-spacing: .5px; }
+.cap h1 em { font-style: normal; color: var(--accent-hover); margin-right: 8px; }
+.cap p { font-size: 12px; color: var(--text-secondary); line-height: 1.7; margin-top: 5px; }
+.cap .cost { color: var(--amber); }
+.cap .hint { color: var(--text-muted); margin-top: 2px; }
+
+.proto-phone {
+  position: relative; width: 390px; height: min(760px, calc(100dvh - 210px));
+  min-height: 560px; margin: 18px auto 40px;
+  border-radius: 26px; border: 1px solid var(--border); overflow: hidden;
+  background: var(--bg-primary); box-shadow: 0 18px 60px rgba(0, 0, 0, .35);
+  display: flex; flex-direction: column;
+}
+
+/* ============ 页面内容 ============ */
+.ppages {
+  position: absolute; top: 52px; bottom: 0; left: 0; right: 0;
+  overflow-y: auto; padding: 0 14px 130px; overscroll-behavior: contain;
+}
+.pg-head { display: flex; align-items: center; margin: 10px 2px 12px; }
+.pg-head .t { font-size: 16px; font-weight: 700; }
+.pg-card { background: var(--bg-secondary); border: 1px solid var(--border-soft); border-radius: 14px; padding: 4px 14px; margin-bottom: 10px; }
+.pg-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; position: relative; }
+.pg-row + .pg-row { border-top: 1px solid var(--border-soft); }
+.pg-ico { width: 34px; height: 34px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-hover); display: flex; align-items: center; justify-content: center; flex: none; }
+.pg-t { font-size: 13.5px; }
+.pg-s { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+.pg-amt { margin-left: auto; font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pg-badge { margin-left: auto; font-size: 10.5px; padding: 2px 8px; border-radius: 999px; background: rgba(204, 167, 0, .16); color: var(--amber); }
+.pg-badge.ok { background: rgba(137, 209, 133, .14); color: var(--green); }
+.pg-bubble { max-width: 78%; padding: 9px 12px; border-radius: 14px; font-size: 13px; line-height: 1.55; margin-bottom: 10px; }
+.pg-bubble.ai { background: var(--bg-secondary); border: 1px solid var(--border-soft); border-top-left-radius: 4px; }
+.pg-bubble.user { background: var(--accent-soft); color: var(--accent-hover); margin-left: auto; border-bottom-right-radius: 4px; }
+.pg-compose { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.pg-compose .box { flex: 1; height: 38px; border-radius: 19px; background: var(--bg-secondary); border: 1px solid var(--border-soft); display: flex; align-items: center; padding: 0 14px; color: var(--text-muted); font-size: 12.5px; }
+.pg-compose .mic { width: 38px; height: 38px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; flex: none; }
+.pg-seg { display: inline-flex; background: var(--bg-tertiary); border-radius: 10px; padding: 2px; margin-left: auto; }
+.pg-seg button { padding: 4px 10px; font-size: 11px; border-radius: 8px; color: var(--text-muted); }
+.pg-seg button.on { background: var(--bg-primary); color: var(--text-primary); }
+.pg-fab { position: absolute; right: 16px; bottom: 112px; width: 48px; height: 48px; border-radius: 16px; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 24px rgba(0, 122, 204, .35); z-index: 4; }
+.pg-week { display: flex; gap: 4px; margin-bottom: 12px; }
+.pg-week b { flex: 1; text-align: center; font-weight: 400; font-size: 10px; color: var(--text-muted); padding: 6px 0; border-radius: 10px; }
+.pg-week b i { display: block; font-style: normal; font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-top: 2px; }
+.pg-week b.sel { background: var(--accent-soft); color: var(--accent-hover); }
+.pg-week b.sel i { color: var(--accent-hover); }
+.pg-label { font-size: 11px; color: var(--text-muted); margin: 14px 2px 8px; display: flex; align-items: center; gap: 8px; }
+.pg-label::after { content: ""; flex: 1; height: 1px; background: var(--border-soft); }
+.pg-ubars { display: flex; align-items: flex-end; gap: 3px; height: 74px; padding: 8px 2px 0; }
+.pg-ubars i { flex: 1; background: var(--accent); opacity: .55; border-radius: 2px 2px 0 0; min-height: 3px; }
+.pg-input { height: 38px; border-radius: 11px; border: 1px solid var(--border-soft); background: var(--bg-tertiary); display: flex; align-items: center; padding: 0 12px; color: var(--text-muted); font-size: 12.5px; margin-bottom: 10px; }
+.pg-btn { height: 40px; border-radius: 12px; background: var(--accent); color: #fff; font-size: 13.5px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+.pg-folder { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-muted); margin: 0 2px 12px; }
+.pg-progress { height: 4px; border-radius: 2px; background: var(--bg-tertiary); margin: 0 2px 14px; overflow: hidden; }
+.pg-progress i { display: block; height: 100%; width: 20%; background: var(--accent); border-radius: 2px; }
+.nav-row { cursor: pointer; }
+.nav-row:active { background: var(--bg-tertiary); }
+
+/* ============ 现状对照：品牌额头 + 6 格平栏 ============ */
+.cur-top {
+  position: absolute; top: 0; left: 0; right: 0; height: 52px; z-index: 6;
+  display: flex; align-items: center; gap: 8px; padding: 0 14px; background: var(--bg-primary);
+}
+.pbrand { font-size: 17px; font-weight: 700; letter-spacing: .4px; }
+.pbrand small { font-size: 10px; font-weight: 400; color: var(--text-muted); letter-spacing: 1px; }
+.pspacer { flex: 1; }
+.ppill {
+  display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px;
+  border-radius: 16px; background: var(--bg-tertiary); border: 1px solid var(--border-soft);
+  font-size: 11.5px; color: var(--text-secondary);
+}
+.ppill-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px rgba(137, 209, 133, .7); }
+.cur-tab {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; display: flex;
+  padding: 6px 8px 15px; background: var(--bg-primary); border-top: 1px solid var(--border-soft);
+}
+.cur-tab button {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  color: var(--text-muted); font-size: 10.5px; padding-top: 5px;
+}
+.cur-tab button.on { color: var(--accent-hover); }
+
+/* ============ 同步浮标（异常才出现） ============ */
+.sync-chip {
+  position: absolute; right: 14px; bottom: 92px; z-index: 6;
+  display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 999px;
+  background: var(--glass); color: var(--text-secondary); font-size: 11.5px;
+  -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .4), inset 0 0 0 1px rgba(255, 255, 255, .07);
+  transition: transform .2s var(--spring);
+}
+.sync-chip:active { transform: scale(.92); }
+.sync-chip .sc-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.sync-chip.st-pend { color: var(--amber); }
+.sync-chip.st-pend .sc-dot { background: var(--amber); }
+.sync-chip.st-off { color: var(--red); }
+.sync-chip.st-off .sc-dot { background: var(--red); }
+/* 正常态 = 彻底不存在（异常才出现的浮标，没事时不占任何视觉） */
+.sync-chip.st-ok { display: none; }
+.cap-demo { color: var(--text-muted); text-decoration: underline dotted; font-size: inherit; padding: 0; }
+.cap-demo:hover { color: var(--text-secondary); }
+
+/* ============ 定稿 A「M3 五格」：药丸指示器 + 图标标签常驻 ============ */
+.m3-tab {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; display: flex;
+  padding: 8px 10px 16px; position: relative;
+  background: rgba(30, 30, 30, .84);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4);
+  border-top: 1px solid rgba(255, 255, 255, .055);
+}
+.m3-tab { position: absolute; }
+.m3-tab button {
+  position: relative; z-index: 1; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 5px 0 2px; color: var(--text-muted); font-size: 11px; letter-spacing: 1px; border-radius: 12px;
+  transition: color .18s ease-out;
+}
+.m3-tab button:active svg { transform: scale(.86); transition: transform .15s ease-out; }
+.m3-tab button.on { color: var(--accent-hover); font-weight: 600; }
+.m3-pill {
+  position: absolute; top: 12px; left: 0; width: 52px; height: 32px; border-radius: 999px;
+  background: var(--accent-soft); will-change: transform;
+  transition: transform .26s var(--spring);
+}
+
+/* ============ 定稿 B「Liquid Glass」：浮动玻璃坞 + 滚动收缩 ============ */
+.lg-dock {
+  position: absolute; left: 12px; right: 12px; bottom: 14px; z-index: 5;
+  display: flex; gap: 2px; padding: 6px; border-radius: 24px; background: var(--glass);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .5), inset 0 0 0 1px rgba(255, 255, 255, .07);
+  transition: left .3s var(--spring), right .3s var(--spring);
+}
+.lg-dock.min { left: auto; right: 14px; }
+.lg-dock button {
+  flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 5px;
+  height: 46px; border-radius: 18px; color: var(--text-muted);
+  max-width: 90px; overflow: hidden;
+  transition: max-width .3s var(--spring), opacity .2s ease-out, padding .3s var(--spring), color .18s ease-out, background .18s ease-out, transform .15s ease-out;
+}
+.lg-dock button:active { transform: scale(.92); }
+.lg-dock button.on { color: var(--accent-hover); background: var(--accent-soft); }
+.lg-dock .dk-lb { font-size: 10.5px; white-space: nowrap; max-width: 34px; opacity: 1; transition: max-width .28s var(--spring), opacity .16s ease-out; }
+.lg-dock.min button { flex: none; padding: 0; }
+.lg-dock.min button .dk-lb { max-width: 0; opacity: 0; }
+.lg-dock.min button:not(.on) { max-width: 0; opacity: 0; pointer-events: none; }
+.lg-dock.min button.on { max-width: 46px; padding: 0 12px; }
+.lg-dock-hint {
+  position: absolute; left: 50%; bottom: 76px; transform: translateX(-50%); z-index: 4;
+  font-size: 10px; color: var(--text-muted); letter-spacing: 1px;
+  padding: 3px 10px; border-radius: 999px; background: rgba(30, 30, 30, .6);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  pointer-events: none; transition: opacity .3s;
+}
+.lg-dock.min ~ .lg-dock-hint { opacity: 0; }
+
+/* ============ 定稿 C「备忘录式」：大标题页头 + 元信息行 + 滚动收拢（参考 Apple 备忘录） ============ */
+.c-pages { top: 0; padding-top: 6px; }
+.c-pages .pg-head { flex-wrap: wrap; row-gap: 2px; margin-top: 14px; }
+.c-pages .pg-head .t { font-size: 26px; letter-spacing: .3px; }
+.c-meta { width: 100%; font-size: 11.5px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+.c-mdot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
+.c-meta.warn { color: var(--amber); }
+.c-meta.warn .c-mdot { background: var(--amber); }
+.c-meta.off { color: var(--red); }
+.c-meta.off .c-mdot { background: var(--red); }
+.c-bar {
+  position: absolute; top: 0; left: 0; right: 0; height: 44px; z-index: 6;
+  display: flex; align-items: center; padding: 0 16px;
+  background: rgba(30, 30, 30, .82);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4);
+  border-bottom: 1px solid rgba(255, 255, 255, .055);
+  opacity: 0; pointer-events: none; transition: opacity .2s ease-out;
+}
+.c-bar.on { opacity: 1; pointer-events: auto; }
+.c-bar .c-t { font-size: 15px; font-weight: 700; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+/* ============ Picker（harness 规范） ============ */
+.proto-picker {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  z-index: 2147483647; display: flex; align-items: center; gap: 2px; padding: 4px;
+  border-radius: 999px; background: rgba(10, 10, 10, 0.82);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4); backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 8px 24px rgba(0, 0, 0, 0.24), 0 2px 6px rgba(0, 0, 0, 0.12);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; line-height: 1;
+  -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none;
+}
+.proto-picker-highlight {
+  position: absolute; top: 4px; left: 0; height: 28px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12); will-change: transform;
+}
+.proto-picker[data-ready] .proto-picker-highlight {
+  transition: transform 250ms cubic-bezier(0.23, 1, 0.32, 1), width 250ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@media (prefers-reduced-motion: reduce) { .proto-picker[data-ready] .proto-picker-highlight { transition: none; } }
+.proto-picker-item {
+  position: relative; display: flex; align-items: center; height: 28px; padding: 0 12px;
+  border: 0; border-radius: 999px; background: transparent; color: rgba(255, 255, 255, 0.55);
+  font: inherit; cursor: pointer; transition: color 150ms ease-out;
+}
+.proto-picker-item:hover { color: rgba(255, 255, 255, 0.85); }
+.proto-picker-item:active { transform: scale(0.97); }
+.proto-picker-item:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.4); outline-offset: 2px; }
+.proto-picker-item[data-active] { color: #fff; }
+.proto-picker-divider { width: 1px; height: 16px; margin: 0 4px; background: rgba(255, 255, 255, 0.12); }
+.proto-picker-replay { padding: 0 10px; font-size: 14px; }
+.proto-picker[data-position="top"] { bottom: auto; top: 24px; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<nav class="proto-picker" data-position="top" aria-label="Prototype variants">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item" data-active aria-current="true">现状</button>
+  <button class="proto-picker-item">定稿 A</button>
+  <button class="proto-picker-item">定稿 B</button>
+  <button class="proto-picker-item">定稿 C</button>
+  <span class="proto-picker-divider" aria-hidden="true"></span>
+  <button class="proto-picker-item proto-picker-replay" aria-label="Replay animation (R)">↻</button>
+</nav>
+
+<script>
+/* ================= 图标 ================= */
+const P = {
+  sparkle: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"/><path d="M19 15l.9 2.4L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.6L19 15z"/>',
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  wallet: '<path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/>',
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+  bars: '<path d="M18 20V10M12 20V4M6 20v-6"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/>',
+  send: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+  folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  pen: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
+  check: '<path d="M20 6L9 17l-5-5"/>',
+  chevL: '<path d="M15 18l-6-6 6-6"/>',
+  chevR: '<path d="M9 6l6 6-6 6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  monitor: '<rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21h8M12 16v5"/>',
+}
+const ic = (n, s = 20, sw = 1.8) =>
+  `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${P[n]}</svg>`
+
+/* 底栏 5 目的地：用量移出（进设置页），参考 Material 3 ≤5 规范 */
+const TABS = [
+  { id: 'ai', ic: 'sparkle', lb: 'AI' },
+  { id: 'schedule', ic: 'calendar', lb: '日程' },
+  { id: 'ledger', ic: 'wallet', lb: '记账' },
+  { id: 'notes', ic: 'book', lb: '笔记' },
+  { id: 'settings', ic: 'gear', lb: '设置' },
+]
+const TABS6 = TABS.concat([{ id: 'usage', ic: 'bars', lb: '用量' }])
+
+/* ================= 页面快照 ================= */
+let page = 'ai'
+let syncState = 0 // 0 正常 · 1 待同步 · 2 离线（点击浮标循环演示）
+
+const chipHtml = () => syncState === 0 ? '<span class="sc-dot"></span>' : syncState === 1 ? '<span class="sc-dot"></span>2 条待同步' : '<span class="sc-dot"></span>离线 · 点击查看'
+const chipCls = () => 'sync-chip ' + (syncState === 0 ? 'st-ok' : syncState === 1 ? 'st-pend' : 'st-off')
+
+const PAGES = {
+  ai: () => `
+    <div class="pg-head"><span class="t">AI 助手</span>
+      <div class="pg-seg"><button class="on">手机直连</button><button>电脑 AI</button></div></div>
+    <div class="pg-bubble ai">晚上好。手机端就我一个 AI，<b>记账、改日程、写笔记都找我</b> —— 点左下角麦克风说一句，或直接打字。</div>
+    <div class="pg-bubble user">记一下今天的午饭 45</div>
+    <div class="pg-bubble ai">已入账：支出 <b>¥45.00</b> · 餐饮 · 午饭（微信）。下次同步进电脑。</div>
+    <div class="pg-bubble user">今天还有什么安排？</div>
+    <div class="pg-bubble ai">今天还有 4 条：14:00 原型讨论、19:00 跑步、回复合作邮件、21:30 回顾规划。</div>
+    <div class="pg-compose"><button class="mic">${ic('mic', 18)}</button><div class="box">问点什么…</div><button class="mic" style="background:var(--bg-tertiary);color:var(--text-muted)">${ic('send', 17)}</button></div>`,
+  schedule: () => `
+    <div class="pg-head"><span class="t">11月1日</span><span style="color:var(--text-muted);font-size:12px;margin-left:6px">周六 · 今天</span>
+      <span style="margin-left:auto;font-size:11.5px;color:var(--text-muted)">已完成 1/5</span></div>
+    <div class="pg-progress"><i></i></div>
+    <div class="pg-week"><b>一<i>26</i></b><b>二<i>27</i></b><b>三<i>28</i></b><b>四<i>29</i></b><b>五<i>30</i></b><b>六<i>31</i></b><b class="sel"><i>1</i></b></div>
+    <div class="pg-label">计划 2</div>
+    <div class="pg-card">
+      <div class="pg-row"><span class="pg-ico">${ic('calendar', 16)}</span><div><div class="pg-t">Phrontis 手机版原型讨论</div><div class="pg-s">14:00 · 项目 · ☑ 1/3</div></div></div>
+      <div class="pg-row"><span class="pg-ico" style="opacity:.5">${ic('calendar', 16)}</span><div><div class="pg-t">回复合作邮件</div><div class="pg-s">工作</div></div></div></div>
+    <div class="pg-label">日常 2</div>
+    <div class="pg-card">
+      <div class="pg-row"><span class="pg-ico" style="color:var(--green);background:rgba(137,209,133,.12)">${ic('sparkle', 16)}</span><div><div class="pg-t">跑步 30 分钟</div><div class="pg-s">19:00 · 健康</div></div></div>
+      <div class="pg-row"><span class="pg-ico" style="opacity:.5;color:var(--green);background:rgba(137,209,133,.12)">${ic('sparkle', 16)}</span><div><div class="pg-t">回顾与明日规划</div><div class="pg-s">21:30 · 成长</div></div></div></div>`,
+  ledger: () => `
+    <div class="pg-head"><button style="color:var(--text-muted)">${ic('chevL', 15, 2)}</button><span class="t" style="margin:0 auto">2026年11月</span><button style="color:var(--text-muted)">${ic('chevR', 15, 2)}</button></div>
+    <div class="pg-card" style="display:flex;padding:12px 6px">
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">支出</div><div style="font-size:16px;font-weight:700;margin-top:3px">¥32.00</div></div>
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">收入</div><div style="font-size:16px;font-weight:700;margin-top:3px;color:var(--green)">¥800.00</div></div>
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">结余</div><div style="font-size:16px;font-weight:700;margin-top:3px;color:var(--green)">¥768.00</div></div></div>
+    <div class="pg-label">今天 <span style="color:var(--green)">+¥32.00</span></div>
+    <div class="pg-card">
+      <div class="pg-row"><span class="pg-ico" style="color:#e2a336;background:rgba(226,163,54,.13)">餐</span><div><div class="pg-t">午餐 · 公司食堂</div><div class="pg-s">11月1日 · 12:02 · 微信</div></div><span class="pg-amt">-¥28.00</span></div>
+      <div class="pg-row"><span class="pg-ico" style="color:#3794ff;background:rgba(55,148,255,.13)">交</span><div><div class="pg-t">地铁</div><div class="pg-s">11月1日 · 09:05 · 交通卡</div></div><span class="pg-amt">-¥4.00</span></div></div>
+    <div class="pg-label">昨天 <span style="color:var(--text-muted)">-¥71.00</span></div>
+    <div class="pg-card">
+      <div class="pg-row"><span class="pg-ico" style="color:#e2a336;background:rgba(226,163,54,.13)">餐</span><div><div class="pg-t">瑞幸咖啡</div><div class="pg-s">10月31日 · 15:40 · 微信</div></div><span class="pg-amt">-¥15.00</span></div>
+      <div class="pg-row"><span class="pg-ico" style="color:#89d185;background:rgba(137,209,133,.13)">日</span><div><div class="pg-t">超市日用品</div><div class="pg-s">10月31日 · 19:22 · 支付宝</div></div><span class="pg-amt">-¥56.00</span></div></div>
+    <div class="pg-label">10月28日 <span style="color:var(--green)">+¥800.00</span></div>
+    <div class="pg-card"><div class="pg-row"><span class="pg-ico" style="color:#89d185;background:rgba(137,209,133,.13)">稿</span><div><div class="pg-t">十月稿费</div><div class="pg-s">10月28日 · 10:00 · 银行卡</div></div><span class="pg-amt income">+¥800.00</span></div></div>
+    <div class="pg-label">10月25日 <span style="color:var(--text-muted)">-¥23.50</span></div>
+    <div class="pg-card">
+      <div class="pg-row"><span class="pg-ico" style="color:#e2a336;background:rgba(226,163,54,.13)">餐</span><div><div class="pg-t">外卖 · 麻辣烫</div><div class="pg-s">10月25日 · 19:12 · 支付宝</div></div><span class="pg-amt">-¥23.50</span></div></div>
+    <div class="pg-label">10月22日 <span style="color:var(--text-muted)">-¥199.00</span></div>
+    <div class="pg-card">
+      <div class="pg-row"><span class="pg-ico" style="color:#b180d7;background:rgba(177,128,215,.13)">购</span><div><div class="pg-t">机械键盘键帽</div><div class="pg-s">10月22日 · 21:40 · 银行卡</div></div><span class="pg-amt">-¥199.00</span></div></div>
+    <button class="pg-fab">${ic('plus', 22, 2)}</button>`,
+  notes: () => `
+    <div class="pg-head" style="margin-bottom:8px"><div class="pg-input" style="flex:1;margin:0">${ic('search', 15)}<span style="margin-left:8px">搜索笔记标题</span></div></div>
+    <div class="pg-folder"><span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>已连接 Phrontis-PC · 128 篇 · 增量缓存</div>
+    <div class="pg-card" style="padding:4px 14px">
+      <div class="pg-row"><span class="pg-ico" style="color:#89d185;background:rgba(137,209,133,.13)">${ic('book', 16)}</span><div><div class="pg-t">AI教学模块笔记</div><div class="pg-s">学习/AI教学模块笔记.md</div></div><span class="pg-badge ok">已缓存</span></div>
+      <div class="pg-row"><span class="pg-ico" style="opacity:.5;color:#89d185;background:rgba(137,209,133,.13)">${ic('book', 16)}</span><div><div class="pg-t">Phrontis 手机版方案</div><div class="pg-s">项目/Phrontis 手机版方案.md</div></div><span class="pg-badge">未缓存</span></div></div>
+    <button class="pg-fab">${ic('pen', 19)}</button>`,
+  usage: () => `
+    <div class="pg-head"><span class="t">AI 用量</span><div class="pg-seg"><button class="on">今日</button><button>近 7 天</button><button>近 30 天</button></div></div>
+    <div class="pg-card" style="display:flex;padding:12px 6px">
+      <div style="flex:1.4;text-align:center"><div style="font-size:11px;color:var(--text-muted)">Tokens</div><div style="font-size:16px;font-weight:700;margin-top:3px">12.6万</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px">输入 8.3万 · 输出 4.3万</div></div>
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">花费</div><div style="font-size:16px;font-weight:700;margin-top:3px">¥3.87</div></div>
+      <div style="flex:1;text-align:center"><div style="font-size:11px;color:var(--text-muted)">请求</div><div style="font-size:16px;font-weight:700;margin-top:3px">23</div></div></div>
+    <div class="pg-card"><div class="pg-s" style="margin-bottom:4px">趋势 · 点柱看单日</div>
+      <div class="pg-ubars">${Array.from({ length: 24 }, (_, i) => `<i class="${i === 12 ? 'hot' : ''}" style="height:${8 + Math.abs(Math.sin(i * 1.7)) * 88}%"></i>`).join('')}</div></div>`,
+  settings: () => `
+    <div class="pg-head"><span class="t">设置</span></div>
+    <div class="pg-label">同步</div>
+    <div class="pg-card">
+      <div class="pg-row">${ic('monitor', 20)}<div><div class="pg-t">未配对电脑</div><div class="pg-s">配对后记账数据与电脑双向同步</div></div></div>
+      <div class="pg-input" style="margin-top:6px">192.168.1.5:8770 或整条配对链接</div>
+      <div class="pg-btn" style="margin-top:4px">配对</div></div>
+    <div class="pg-label">工具</div>
+    <div class="pg-card" style="padding:4px 14px">
+      <div class="pg-row nav-row" data-nav="usage">${ic('bars', 18)}<div><div class="pg-t">AI 用量</div><div class="pg-s">Token · 花费 · 按模型统计</div></div>${ic('chevR', 14, 2)}</div>
+    </div>
+    <div class="pg-label">AI 模型（手机直连）</div>
+    <div class="pg-card">
+      <div class="pg-input">DeepSeek ▾</div>
+      <div class="pg-input">API Key（sk-…）</div>
+      <div style="display:flex;gap:10px"><div class="pg-btn" style="flex:1">保存</div><div class="pg-btn" style="flex:1;background:var(--bg-tertiary);color:var(--text-primary)">测试连接</div></div></div>
+    <div class="pg-label">外观</div>
+    <div class="pg-card"><div class="pg-seg" style="margin:0"><button class="on">深色</button><button>浅色</button></div></div>
+    <div class="pg-empty" style="text-align:center;color:var(--text-muted);font-size:12px;padding:24px 0">Phrontis Mobile 0.3.0 · 与桌面 3.15.1 配套</div>`,
+}
+
+/* ================= 三种壳 ================= */
+/* 现状对照：品牌额头 + 6 格平栏 */
+const curShell = () => `
+  <header class="cur-top"><span class="pbrand">Phrontis <small>MOBILE</small></span><span class="pspacer"></span>
+    <button class="ppill"><span class="ppill-dot"></span>已连接电脑</button></header>
+  <div class="ppages">${PAGES[page]()}</div>
+  <nav class="cur-tab">${TABS6.map(t => `<button data-nav="${t.id}" class="${t.id === page ? 'on' : ''}">${ic(t.ic, 20)}<span>${t.lb}</span></button>`).join('')}</nav>`
+
+/* 定稿 A：全剃 + M3 五格（药丸滑动）+ 同步浮标 */
+const shellA = () => `
+  <div class="ppages bare" style="top:0;padding-top:14px">${PAGES[page]()}</div>
+  <nav class="m3-tab" style="position:absolute;left:0;right:0;bottom:0"><div style="display:flex;position:relative;flex:1" id="m3bar">
+    <span class="m3-pill" aria-hidden="true"></span>
+    ${TABS.map(t => `<button data-nav="${t.id}" class="${t.id === page ? 'on' : ''}">${ic(t.ic, 22)}<span>${t.lb}</span></button>`).join('')}
+  </div></nav>
+  <button class="${chipCls()}" id="schip" data-nav="settings" title="同步异常 · 点击去设置">${chipHtml()}</button>`
+
+/* 定稿 B：全剃 + Liquid Glass 浮坞（滚动收缩为当前页小胶囊）+ 异常浮标 */
+const shellB = () => `
+  <div class="ppages bare" style="top:0;padding-top:14px" id="lpages">${PAGES[page]()}</div>
+  <nav class="lg-dock" id="lgdock">${TABS.map(t => `<button data-nav="${t.id}" class="${t.id === page ? 'on' : ''}">${ic(t.ic, 20)}<span class="dk-lb">${t.lb}</span></button>`).join('')}</nav>
+  <div class="lg-dock-hint">↓ 滚动试试：玻璃坞收缩成当前页小胶囊，点它展开</div>
+  <button class="${chipCls()}" id="schip" data-nav="settings" title="同步异常 · 点击去设置">${chipHtml()}</button>`
+
+/* 定稿 C：备忘录式——大标题页头 + 标题下元信息行（同步状态进排版）+ 大标题滚动收拢 + Liquid Glass 浮坞 */
+const C_TITLES = { ai: 'AI 助手', schedule: '日程', ledger: '记账', notes: '笔记', usage: 'AI 用量', settings: '设置' }
+const metaHtml = () => {
+  if (syncState === 1) return '<span class="c-meta warn"><i class="c-mdot"></i>待同步 2 条 · 联网后自动重试</span>'
+  if (syncState === 2) return '<span class="c-meta off"><i class="c-mdot"></i>电脑离线 · 数据照常记在本机</span>'
+  return '<span class="c-meta"><i class="c-mdot"></i>已连接 Phrontis-PC · 刚刚对账</span>'
+}
+const shellC = () => `
+  <header class="c-bar" id="cbar"><span class="c-t" id="ctitle">${C_TITLES[page]}</span></header>
+  <div class="ppages c-pages" id="lpages">${PAGES[page]()}</div>
+  <nav class="lg-dock" id="lgdock">${TABS.map(t => `<button data-nav="${t.id}" class="${t.id === page ? 'on' : ''}">${ic(t.ic, 20)}<span class="dk-lb">${t.lb}</span></button>`).join('')}</nav>`
+
+/* ================= 装配 ================= */
+const variants = [
+  { cap: {
+      name: '现状', axis: '对照——品牌额头 + 同步胶囊常驻 + 6 格平栏',
+      when: '改进前的样子：两行额头 + 六格底栏，约 116px 的壳层开销',
+      cost: '——', hint: '对比后两个定稿：注意每页多出来的内容空间' },
+    html: curShell(), needs: 'cur' },
+  { cap: {
+      name: '定稿 A', axis: '参考 Material 3——五格导航（药丸指示器+图标标签常驻）+ 无品牌额头 + 异常态浮标',
+      when: 'M3 规范：底栏 ≤5 个目的地；用量是低频查看页，移入「设置 → 工具 → AI 用量」；额头两家一线 app（微信/Things/Notion）都不放品牌行',
+      cost: '用量降级为二级入口，看 Token 要多进一层；五格 label 全显，单格更窄', hint: '点「设置 → AI 用量」体验二级入口 · 右下浮标点击循环三态' },
+    html: shellA(), needs: 'pill' },
+  { cap: {
+      name: '定稿 B', axis: '参考 iOS 26 Liquid Glass——浮动玻璃坞 + 滚动收缩（下滚缩成当前页小胶囊、上滑/点按展开）+ 无品牌额头',
+      when: '苹果 HIG 2025 主推的 minimize-on-scroll：内容优先又保留一次点击到达，兼得「隐藏式」与可达性',
+      cost: '收缩态只有一个图标，切页要先展开；浮动坞盖住内容一角；低端 WebView 的 blur 需真机验证', hint: '在页面里上下滚动看收缩与展开 · 点小胶囊再选页' },
+    html: shellB(), needs: 'dock' },
+  { cap: {
+      name: '定稿 C', axis: '参考苹果备忘录——每页大标题页头，同步状态变成标题下的元信息行（排版的一部分，不再漂浮），大标题滚动收拢进小顶栏',
+      when: '备忘录的层级感：大标题给页面身份，状态文字有归属处；滚动后大标题收拢、内容优先——突兀的小圆点从此不存在',
+      cost: '大标题吃掉约 30px 首屏高度；收拢顶栏多一套滚动状态要维护', hint: '上下滚动看大标题收拢 · 「模拟异常态」看标题下状态行变色' },
+    html: shellC(), needs: 'notes' },
+]
+
+const stage = document.getElementById('stage')
+const picker = document.querySelector('.proto-picker')
+const highlight = picker.querySelector('.proto-picker-highlight')
+const items = [...picker.querySelectorAll('.proto-picker-item:not(.proto-picker-replay)')]
+const replay = picker.querySelector('.proto-picker-replay')
+let cur = 0
+
+function renderPage() {
+  const host = stage.querySelector('.ppages')
+  if (host) host.innerHTML = PAGES[page]()
+  if (variants[cur].needs === 'notes') {
+    const t = document.getElementById('ctitle')
+    if (t) t.textContent = C_TITLES[page]
+    injectC()
+  }
+}
+
+/** 定稿 C：往当前页大标题下插元信息行 */
+function injectC() {
+  document.querySelector('#lpages .pg-head .t')?.insertAdjacentHTML('afterend', metaHtml())
+}
+
+/* 导航事件委托：挂载时还不存在的 data-nav（如设置页里的二级入口）也能点到 */
+stage.addEventListener('click', e => {
+  const b = e.target.closest('[data-nav]')
+  if (!b) return
+  if (b.dataset.nav === page) {
+    /* 定稿 B 收缩态：点当前页小胶囊 → 展开 */
+    const dock = document.getElementById('lgdock')
+    if (dock && dock.classList.contains('min') && b.classList.contains('on')) dock.classList.remove('min')
+    return
+  }
+  page = b.dataset.nav
+  stage.querySelectorAll('[data-nav]').forEach(x => x.classList.toggle('on', x.dataset.nav === page))
+  renderPage()
+  placePill()
+})
+
+/* 异常态浮标：正常态隐藏（st-ok display:none）；演示切换在说明区「模拟异常态」 */
+
+function placePill() {
+  const bar = document.getElementById('m3bar')
+  if (!bar) return
+  const pill = bar.querySelector('.m3-pill')
+  const btn = bar.querySelector('button.on')
+  if (!pill || !btn) return
+  pill.style.transform = `translateX(${btn.offsetLeft + (btn.offsetWidth - pill.offsetWidth) / 2}px)`
+}
+
+function bindDock() {
+  const dock = document.getElementById('lgdock')
+  const pages = document.getElementById('lpages')
+  if (!dock || !pages) return
+  let last = 0
+  pages.addEventListener('scroll', () => {
+    const st = pages.scrollTop
+    if (st > last + 6 && st > 70) dock.classList.add('min')
+    else if (st < last - 4 || st < 70) dock.classList.remove('min')
+    last = st
+    /* 定稿 C：大标题收拢进小顶栏 */
+    const cb = document.getElementById('cbar')
+    if (cb) cb.classList.toggle('on', st > 46)
+  }, { passive: true })
+}
+
+function mount(i) {
+  syncState = 0
+  stage.innerHTML = ''
+  requestAnimationFrame(() => {
+    const v = variants[i]
+    const demoBtn = v.needs === 'cur' ? '' : ' · <button class="cap-demo" id="capdemo">模拟异常态（待同步→离线→正常）</button>'
+    stage.innerHTML = `
+      <div class="cap">
+        <h1><em>${v.cap.name}</em>${v.cap.axis}</h1>
+        <p>${v.cap.when}</p>
+        <p class="cost">代价：${v.cap.cost}</p>
+        <p class="hint">${v.cap.hint}${demoBtn}</p>
+      </div>
+      <div class="proto-phone">${v.html}</div>`
+    const demo = document.getElementById('capdemo')
+    if (demo) demo.addEventListener('click', () => {
+      syncState = (syncState + 1) % 3
+      const c = document.getElementById('schip')
+      if (c) { c.className = chipCls(); c.innerHTML = chipHtml(); return }
+      /* 定稿 C：刷新标题下的元信息行 */
+      const t = document.querySelector('#lpages .pg-head .t')
+      if (t) {
+        if (t.nextElementSibling?.classList.contains('c-meta')) t.nextElementSibling.remove()
+        t.insertAdjacentHTML('afterend', metaHtml())
+      }
+    })
+    if (v.needs === 'pill') requestAnimationFrame(placePill)
+    if (v.needs === 'dock' || v.needs === 'notes') bindDock()
+    if (v.needs === 'notes') injectC()
+  })
+}
+
+function moveHighlight() {
+  const el = items[cur]
+  highlight.style.width = el.offsetWidth + 'px'
+  highlight.style.transform = `translateX(${el.offsetLeft}px)`
+}
+
+function setActive(i) {
+  if (i < 0 || i >= variants.length) return
+  cur = i
+  items.forEach((el, j) => {
+    el.toggleAttribute('data-active', j === i)
+    if (j === i) el.setAttribute('aria-current', 'true')
+    else el.removeAttribute('aria-current')
+  })
+  moveHighlight()
+  const url = new URL(location)
+  url.searchParams.set('v', i + 1)
+  history.replaceState(null, '', url)
+  mount(i)
+}
+
+items.forEach((el, i) => el.addEventListener('click', () => setActive(i)))
+replay.addEventListener('click', () => mount(cur))
+window.addEventListener('resize', () => { moveHighlight(); placePill() })
+
+document.addEventListener('keydown', (e) => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return
+  if (e.metaKey || e.ctrlKey || e.altKey) return
+  const num = parseInt(e.key, 10)
+  if (num >= 1 && num <= variants.length) setActive(num - 1)
+  else if (e.key === 'ArrowRight') setActive((cur + 1) % variants.length)
+  else if (e.key === 'ArrowLeft') setActive((cur - 1 + variants.length) % variants.length)
+  else if (e.key === 'r' || e.key === 'R') mount(cur)
+})
+
+setActive((parseInt(new URLSearchParams(location.search).get('v'), 10) || 1) - 1)
+requestAnimationFrame(() => requestAnimationFrame(() => picker.setAttribute('data-ready', '')))
+</script>
+</body>
+</html>

@@ -212,7 +212,7 @@ export function SettingsPage({ active }: { active: boolean }) {
         </div>
       </div>
 
-      <div className="ver">Phrontis Mobile 0.5.0 · 与桌面 3.15.1 配套</div>
+      <div className="ver">Phrontis Mobile {__APP_VERSION__} · 与桌面 3.15.1 配套</div>
     </section>
   )
 }

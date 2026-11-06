@@ -235,7 +235,7 @@ export function SchedulePage({ active }: { active: boolean }) {
   return (
     <section className={'page' + (active ? ' active' : '') + (full ? ' all-done' : '')}>
       <PageHead title={dn} sub={'周' + wd + rel}>
-        <span className={'ring' + (full ? ' full' : '')}>
+        <span className={'todo-ring' + (full ? ' full' : '')}>
           <svg width={30} height={30}>
             <circle className="rbg" cx={15} cy={15} r={12} />
             <circle className="rfg" cx={15} cy={15} r={12} style={{ strokeDashoffset: 75.4 * (1 - frac) }} />

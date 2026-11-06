@@ -288,15 +288,16 @@ button.c-meta:active { opacity: .7; }
 .progress-track.ok .progress-fill { background: var(--green); }
 
 /* 进度环 + 数字滚动（勾选组合拳：环前进 + 数字滚动 + 全完成变绿） */
-.ring { position: relative; width: 30px; height: 30px; flex: none; margin-left: auto; align-self: center; }
-.ring svg { transform: rotate(-90deg); display: block; }
-.ring .rbg { fill: none; stroke: var(--bg-tertiary); stroke-width: 3; }
-.ring .rfg {
+/* 类名曾用 .ring——与 Tailwind v4 的 ring 工具类（1px currentColor 描边框）撞名导致外框，改名 todo-ring 规避 */
+.todo-ring { position: relative; width: 30px; height: 30px; flex: none; margin-left: auto; align-self: center; }
+.todo-ring svg { transform: rotate(-90deg); display: block; }
+.todo-ring .rbg { fill: none; stroke: var(--bg-tertiary); stroke-width: 3; }
+.todo-ring .rfg {
   fill: none; stroke: var(--accent-hover); stroke-width: 3; stroke-linecap: round;
   stroke-dasharray: 75.4; transition: stroke-dashoffset .34s cubic-bezier(.23, 1, .32, 1), stroke .2s;
 }
-.ring.full .rfg { stroke: var(--green); }
-.ring .rtx {
+.todo-ring.full .rfg { stroke: var(--green); }
+.todo-ring .rtx {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   font-size: 9px; font-weight: 700; color: var(--text-secondary); font-variant-numeric: tabular-nums;
 }
