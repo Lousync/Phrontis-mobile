@@ -54,6 +54,10 @@ interface Store {
   /** 系统输入法展开中（input/textarea 聚焦即视同键盘弹出；真机键盘模型的状态源） */
   kbOpen: boolean
 
+  /* 平板侧栏收纳（仅平板壳消费；手机壳不渲染侧栏） */
+  sideCollapsed: boolean
+  toggleSide: () => void
+
   /* 同步 */
   online: boolean
   syncing: boolean
@@ -162,6 +166,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   /* 账本本地真相 = 同步形态（M2b）；展示形态派生 */
   const [entries, setEntries] = useState<LedgerEntry[]>(() => loadJson<LedgerEntry[]>(K_LEDGER, seedEntries))
   const txs = useMemo(() => entries.map(txToDisplay), [entries])
+
+  /* 平板侧栏收纳：rail(64px 图标) ⇄ 展开(232px)，落 localStorage 重启保持 */
+  const [sideCollapsed, setSideCollapsed] = useState(() => localStorage.getItem('tb.sideCollapsed') === '1')
+  const toggleSide = useCallback(() => {
+    setSideCollapsed(v => {
+      localStorage.setItem('tb.sideCollapsed', v ? '0' : '1')
+      return !v
+    })
+  }, [])
 
   useEffect(() => { saveJson(K_TODOS, todos) }, [todos])
   useEffect(() => { saveJson(K_LEDGER, entries) }, [entries])
@@ -939,6 +952,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value: Store = {
     theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, sheetOrigin, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
+    sideCollapsed, toggleSide,
     online, syncing, syncPct, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, unpair,
     schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, deleteTodo, habits, toggleHabit,
     entries, txs, saveTx, updateTx, deleteTx, editTxId, openTxEdit,

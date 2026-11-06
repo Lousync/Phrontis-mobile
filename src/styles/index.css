@@ -845,19 +845,27 @@ button.vault-line:disabled { cursor: default; }
   flex-direction: row;
 }
 
-/* 侧栏：安全区全让位（竖屏顶部刘海 / 横屏侧边） */
+/* 侧栏：安全区全让位（竖屏顶部刘海 / 横屏侧边）；可收纳 rail ⇄ 展开 */
 .tb-side {
   width: 232px; flex: none;
   display: flex; flex-direction: column; gap: 2px;
-  padding: calc(16px + env(safe-area-inset-top)) 10px calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  padding: calc(12px + env(safe-area-inset-top)) 10px calc(14px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
   border-right: 1px solid var(--border-soft);
   background: var(--bg-secondary);
+  transition: width .26s cubic-bezier(.23, 1, .32, 1);
 }
-.tb-brand {
-  display: flex; align-items: center; gap: 9px;
-  padding: 6px 12px 14px; font-size: 15px; font-weight: 700; letter-spacing: .3px;
+/* 收纳态：64px 纯图标 rail（iPadOS 侧栏手法），文字隐藏、点按切页 */
+.tb-side.min { width: 64px; padding-left: calc(8px + env(safe-area-inset-left)); padding-right: 8px; }
+.tb-fold {
+  display: flex; align-items: center; gap: 8px;
+  height: 40px; padding: 0 12px; margin-bottom: 8px;
+  border-radius: 11px; color: var(--text-muted); font-size: 13px;
+  transition: background .15s, color .15s;
 }
-.tb-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); flex: none; }
+.tb-fold:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.tb-side.min .tb-fold { justify-content: center; padding: 0; }
+.tb-side.min .tb-lb { display: none; }
+.tb-side.min .tb-item { justify-content: center; padding: 0; }
 .tb-item {
   display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px;
   border-radius: 12px; color: var(--text-secondary); font-size: 14px; text-align: left;
@@ -873,6 +881,8 @@ button.vault-line:disabled { cursor: default; }
 .app.tablet .pages { flex: 1; }
 .app.tablet .page { padding: 24px 32px 36px; }
 .app.tablet .page > * { max-width: 760px; width: 100%; align-self: center; }
+/* FAB 是悬浮钮不是内容块，限宽规则会把它拉成通栏条——恢复原尺寸并贴右 */
+.app.tablet .page > .fab { width: 54px; max-width: 54px; align-self: flex-end; }
 .app.tablet .dock, .app.tablet .c-bar { display: none; }
 
 /* 贴底控件：不再给浮坞让位，直接贴近底缘（toasts 亦然） */
@@ -880,29 +890,7 @@ button.vault-line:disabled { cursor: default; }
 .app.tablet .fab { bottom: calc(20px + env(safe-area-inset-bottom)); }
 .app.tablet .toast-wrap { bottom: calc(20px + env(safe-area-inset-bottom)); }
 
-/* ============ 平板笔记双栏（T1）：左列表 | 右阅读常驻 ============ */
-.app.tablet .notes-duo { padding: 0; flex-direction: row; gap: 0; }
-/* 覆盖 T0 的正文限宽（.page > * 的 width:100% + align-self:center 会把双栏撑满/垂直居中，
- * 必须连 width 与 align-self 一起翻回来；特异性 (0,4,0) > (0,3,0) */
-.app.tablet .notes-duo > .duo-list { max-width: none; width: 320px; align-self: stretch; }
-.app.tablet .notes-duo > .duo-reader { max-width: none; width: auto; align-self: stretch; }
-.duo-list {
-  flex: none; position: relative;
-  overflow-y: auto; padding: 24px 14px calc(32px + env(safe-area-inset-bottom));
-  border-right: 1px solid var(--border-soft);
-}
-.duo-list .pg-head { padding: 0 6px; }
-.duo-list .file-row.on { color: var(--accent-hover); background: var(--accent-soft); }
-.duo-reader {
-  flex: 1; min-width: 0; position: relative;
-  display: flex; flex-direction: column; background: var(--bg-secondary);
-}
-.duo-empty {
-  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-  color: var(--text-muted); font-size: 12px;
-}
-.duo-empty p { margin: 0; font-size: 14.5px; color: var(--text-secondary); }
-/* 阅读正文在右栏里限宽居中（行长与 T0 的 760px 口径一致） */
+/* 阅读正文限宽（两栏恒定：侧栏 | 内容区，阅读时内容区就是阅读器） */
 .app.tablet .reader-body .md { max-width: 720px; margin: 0 auto; }
 
 /* 目录浮层：手机覆盖层与平板右栏通用（定位上下文分别是 .reader / .duo-reader，均已 positioned） */

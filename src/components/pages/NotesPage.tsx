@@ -3,11 +3,10 @@ import type { CSSProperties } from 'react'
 import type { NoteCache, NoteTreePage } from '../../lib/types'
 import { mdRender } from '../../lib/data'
 import { useApp } from '../../lib/store'
-import { useFormFactor } from '../../lib/useFormFactor'
 import {
   fetchNoteContent, fetchNoteTree, loadNoteCache, loadNoteTree, saveNoteCache, saveNoteTree,
 } from '../../lib/sync'
-import { IBack, IBars, IBook, IChevR, IFolder, IPen, ISearch } from '../../components/icons'
+import { IBack, IBars, IChevR, IFolder, IPen, ISearch } from '../../components/icons'
 import { Grip, Sheet } from '../../components/Sheet'
 import { PageHead } from '../../components/chrome'
 
@@ -54,8 +53,6 @@ const FONT_KEY = 'tb-reader-font'
 
 export function NotesPage({ active }: { active: boolean }) {
   const { phoneNotes, openSheet, toast, paired } = useApp()
-  const ff = useFormFactor()
-  const tablet = ff === 'tablet'
   const [kw, setKw] = useState('')
   const [tree, setTree] = useState(() => loadNoteTree())
   const [loadingTree, setLoadingTree] = useState(false)
@@ -183,7 +180,7 @@ export function NotesPage({ active }: { active: boolean }) {
             </div>
             <div className="folder-files">
               {files.map(x => (
-                <div key={x.id} className={'file-row' + (tablet && reader?.path === x.path ? ' on' : '')} onClick={() => openVaultNote(x)}>
+                <div key={x.id} className="file-row" onClick={() => openVaultNote(x)}>
                   <span className={'c ' + (isFresh(x) ? 'cached' : 'uncached')} />
                   {x.title}
                   <span className="arrow"><IChevR /></span>
@@ -218,11 +215,12 @@ export function NotesPage({ active }: { active: boolean }) {
     </>
   )
 
-  /* 阅读块：手机覆盖层 / 平板右栏共用同一份 markup（含目录、字号、缓存徽标） */
+  /* 阅读块：列表页内的覆盖层（手机全屏 / 平板内容区），含目录、字号、缓存徽标。
+   * 两栏铁律：平板侧栏（可收纳）+ 内容区恒定两栏，阅读直接替换列表、返回键回列表。 */
   const readerEl = (
     <>
       <div className="reader-top">
-        {!tablet && <button className="icon-btn" onClick={() => setReader(null)} title="返回列表"><IBack /></button>}
+        <button className="icon-btn" onClick={() => setReader(null)} title="返回列表"><IBack /></button>
         <span className="path">{reader?.path}</span>
         {toc.length > 0 && (
           <button className={'icon-btn' + (tocOpen ? ' on' : '')} onClick={() => setTocOpen(o => !o)} title="目录">
@@ -239,7 +237,7 @@ export function NotesPage({ active }: { active: boolean }) {
         <div className="tb-toc">
           <div className="tb-toc-t">目录 · {toc.length} 节</div>
           {toc.map(t => (
-            <button key={t.id} className={'toc-lv' + t.level} onClick={() => { jumpTo(t.id); if (!tablet) setTocOpen(false) }}>
+            <button key={t.id} className={'toc-lv' + t.level} onClick={() => { jumpTo(t.id); setTocOpen(false) }}>
               {t.text}
             </button>
           ))}
@@ -250,36 +248,12 @@ export function NotesPage({ active }: { active: boolean }) {
       </div>
       <div className="reader-foot">
         <span className="note">
-          {reader?.kind === 'phone'
-            ? '手机笔记上行后在电脑收件箱继续整理'
-            : tablet ? '平板端 v1 只读电脑笔记，编辑回电脑进行' : '手机端 v1 只读电脑笔记，编辑回电脑进行'}
+          {reader?.kind === 'phone' ? '手机笔记上行后在电脑收件箱继续整理' : '移动端 v1 只读电脑笔记，编辑回电脑进行'}
         </span>
       </div>
     </>
   )
 
-  /* 平板：双栏（左列表 | 右阅读常驻），选中即读，不用覆盖层 */
-  if (tablet) {
-    return (
-      <section className={'page notes-duo' + (active ? ' active' : '')}>
-        <div className="duo-list">
-          {listEl}
-          <button className="fab" onClick={e => openSheet('note', e.currentTarget)}><IPen /></button>
-        </div>
-        <div className="duo-reader">
-          {reader ? readerEl : (
-            <div className="duo-empty">
-              <IBook size={30} />
-              <p>从左侧选一篇笔记开始阅读</p>
-              <span>目录跳转 · 字号调节 · 增量缓存离线可读</span>
-            </div>
-          )}
-        </div>
-      </section>
-    )
-  }
-
-  /* 手机：保持 v1 的覆盖层阅读器 */
   return (
     <section className={'page' + (active ? ' active' : '')}>
       {listEl}
