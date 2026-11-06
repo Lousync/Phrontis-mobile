@@ -781,6 +781,82 @@ button.vault-line:disabled { cursor: default; }
 .test-out.busy { background: var(--bg-tertiary); border: 1px solid var(--border-soft); color: var(--text-muted); }
 .aic-foot { display: flex; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
 
+/* ===== AI 配置「极简编辑态」（2026-11-06 拍板，原型 prototype/session-config.html）=====
+   已配置时不再从「选供应商」起跳：供应商收成一行，主体只留 Key + 模型。 */
+.prov-row {
+  width: 100%; display: flex; align-items: center; gap: 9px; text-align: left;
+  background: var(--bg-tertiary); border-radius: 12px; padding: 11px 13px; margin-bottom: 14px;
+}
+.prov-row .pr-body { flex: 1; min-width: 0; }
+.prov-row .n { display: block; font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.prov-row .n em { font-style: normal; font-size: 10px; color: var(--accent-hover); margin-left: 6px; }
+.prov-row .s { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.prov-row .chev { color: var(--text-muted); transition: transform .16s; flex: none; display: flex; }
+.prov-card.on { border-color: var(--accent); background: var(--accent-soft); }
+.model-field {
+  width: 100%; display: flex; align-items: center; gap: 10px; text-align: left;
+  background: var(--bg-tertiary); border: 1px solid transparent; border-radius: 12px; padding: 11px 13px;
+}
+.model-field.err { border-color: var(--red); }
+.model-field .mf-body { flex: 1; min-width: 0; }
+.model-field .lab { display: block; font-size: 10.5px; color: var(--text-muted); }
+.model-field .val { display: block; font-size: 13px; color: var(--text-primary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.model-field svg { color: var(--text-muted); flex: none; }
+
+/* ===== 模型选择器：全屏子页（原型 prototype/model-picker.html）=====
+   ★ 从右侧滑入、**不是底部上伸抽屉**（AGENTS.md UI 硬规则）。
+   由抽屉内部触发，但用 portal 挂到 .app —— .sheet 是滚动容器，直接放子元素铺不满屏。 */
+.mp-full {
+  position: absolute; inset: 0; z-index: 60; display: flex; flex-direction: column;
+  background: var(--bg-primary); transform: translateX(102%);
+  transition: transform .3s cubic-bezier(.32, .72, .28, 1);
+}
+.mp-full.open { transform: translateX(0); }
+.mp-head {
+  display: flex; align-items: center; gap: 9px; flex: none;
+  padding: calc(var(--safe-top) + 12px) 14px 12px;
+  border-bottom: 1px solid var(--border-soft); background: var(--bg-secondary);
+}
+.mp-back { padding: 5px; color: var(--text-secondary); display: flex; }
+.mp-t { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+.mp-from { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-muted); }
+.mp-search {
+  display: flex; align-items: center; gap: 8px; flex: none;
+  margin: 10px 14px 4px; padding: 9px 12px; border-radius: 11px;
+  border: 1px solid var(--border-soft); background: var(--bg-secondary);
+}
+.mp-search-ico { color: var(--text-muted); display: flex; }
+.mp-search input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--text-primary); font-size: 14px; }
+.mp-search input::placeholder { color: var(--text-muted); }
+.mp-clear { color: var(--text-muted); font-size: 12px; padding: 2px 4px; }
+.mp-list { flex: 1; overflow-y: auto; padding: 2px 12px 16px; }
+.mp-g { font-size: 11px; letter-spacing: 1px; color: var(--text-muted); padding: 13px 6px 7px; }
+.mp-card {
+  width: 100%; display: flex; align-items: center; gap: 11px; text-align: left;
+  background: var(--bg-secondary); border: 1px solid var(--border-soft); border-radius: 14px;
+  padding: 11px 12px; margin-bottom: 8px;
+}
+.mp-card.sel { border-color: var(--accent); background: var(--accent-soft); }
+.mp-avatar { width: 38px; height: 38px; border-radius: 11px; flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 15px; font-weight: 700; }
+.mp-body { flex: 1; min-width: 0; }
+.mp-name { display: block; font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.mp-tag { font-size: 10px; border-radius: 6px; padding: 1.5px 7px; background: var(--bg-tertiary); color: var(--text-muted); }
+.mp-tag.def { background: rgba(176, 122, 24, .16); color: #b07a18; }
+.mp-tag.r { background: rgba(65, 132, 49, .16); color: #418431; }
+.mp-tag.fast { background: rgba(23, 131, 67, .16); color: #178343; }
+.mp-tag.ctx { background: rgba(47, 116, 181, .16); color: #2f74b5; }
+.mp-tag.vision { background: rgba(124, 92, 214, .16); color: #7c5cd6; }
+.mp-tag.eco { background: rgba(90, 110, 230, .16); color: #5a6ee6; }
+.mp-tick { width: 21px; height: 21px; border-radius: 50%; flex: none; border: 1.5px solid var(--border); display: flex; align-items: center; justify-content: center; color: transparent; }
+.mp-card.sel .mp-tick { background: var(--accent); border-color: var(--accent); color: #fff; }
+.mp-empty { text-align: center; color: var(--text-muted); font-size: 12.5px; padding: 28px 0; }
+.mp-hint { font-size: 11.5px; line-height: 1.7; color: var(--text-muted); padding: 14px 6px; display: flex; align-items: center; gap: 7px; }
+.mp-manual { width: 100%; margin-top: 10px; padding: 12px; border-radius: 12px; border: 1px dashed var(--accent); color: var(--accent-hover); font-size: 12.5px; }
+.mp-foot { flex: none; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px 14px calc(12px + var(--safe-bottom)); border-top: 1px solid var(--border-soft); background: var(--bg-secondary); font-size: 10.5px; color: var(--text-muted); }
+.mp-refresh { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-hover); font-size: 11px; white-space: nowrap; }
+.mp-refresh:disabled { opacity: .5; }
+
 
 /* 主题选择器（外观卡）：3 列色板网格，一点即换 */
 .theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
