@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useApp } from '../../lib/store'
 import type { QuizRecord } from '../../lib/types'
-import { ICheck } from '../../components/icons'
+import { IBack, ICheck } from '../../components/icons'
 import { PageHead } from '../../components/chrome'
 
 /* 掌握判定对齐桌面：错过且连续答对 <2 = 未掌握；错次档位：顽固 ≥4 / 中 2-3 / 轻 1 */
@@ -68,11 +68,18 @@ export function QuizPage({ active }: { active: boolean }) {
     setIdx(i => i + 1); setPicked(null); setShortText(''); setRevealed(false); setSelfOk(null)
   }
 
-  /* 刷题态：一题一屏（对照桌面 QuizMode 沉浸式） */
+  /* 跳过：不计分不判掌握，直接到下一题；最后一题跳过 = 结束本轮 */
+  const skipQ = () => {
+    if (idx + 1 >= queue.length) { setMode('shelf'); return }
+    setIdx(i => i + 1); setPicked(null); setShortText(''); setRevealed(false); setSelfOk(null)
+  }
+
+  /* 刷题态：一题一屏（对照桌面 QuizMode 沉浸式），视觉居中 + 可退出回书架 */
   if (mode === 'run' && cur) {
     return (
-      <section className={'page' + (active ? ' active' : '')}>
+      <section className={'page quiz-run' + (active ? ' active' : '')}>
         <div className="quiz-progress">
+          <button className="icon-btn" onClick={() => setMode('shelf')} title="退出本轮，返回书架"><IBack /></button>
           <span>第 {idx + 1} / {queue.length} 题</span>
           <div className="qp-bar"><div style={{ width: ((idx + 1) / queue.length * 100) + '%' }} /></div>
           <span className="qp-score">答对 {score.ok}</span>
@@ -116,6 +123,7 @@ export function QuizPage({ active }: { active: boolean }) {
               )}
             </div>
           )}
+          {!revealed && <button className="quiz-skip" onClick={skipQ}>跳过此题</button>}
           {revealed && cur.type === 'choice' && (
             <div className="qc-exp"><span className="lbl">解析</span>{cur.explanation}</div>
           )}

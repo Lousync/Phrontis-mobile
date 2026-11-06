@@ -1064,6 +1064,15 @@ button.vault-line:disabled { cursor: default; }
 .qc-selfbtns .btn-bad { background: rgba(229, 87, 74, .12); color: var(--red); }
 .qc-next { width: 100%; }
 
+/* 刷题态视觉居中 + 跳过 */
+.page.quiz-run { justify-content: center; }
+.quiz-skip {
+  align-self: center; color: var(--text-muted); font-size: 12.5px; padding: 6px 18px; border-radius: 10px;
+  transition: background .15s, color .15s;
+}
+.quiz-skip:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
+.quiz-progress .icon-btn { flex: none; }
+
 /* 阅读器内嵌题卡（quiz 围栏 → 就地刷题）：限宽与 .md 同口径，融入文档流 */
 .app.tablet .reader-body .qc-inline { max-width: 720px; width: 100%; margin: 14px auto; }
 .qc-inline .qc-meta { display: flex; align-items: center; gap: 8px; }
