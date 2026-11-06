@@ -831,3 +831,51 @@ button.vault-line:disabled { cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ============ 平板壳（T0，design.md §10）============
+ * 形态检测（useFormFactor）给 .app 加 .tablet：解除手机 letterbox（420px 居中 + 圆角边框），
+ * 左侧栏（TabletChrome）+ 右内容区。底部玻璃坞与小顶栏退出，贴底控件回落。 */
+.app.tablet {
+  max-width: none;
+  height: 100dvh;
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  flex-direction: row;
+}
+
+/* 侧栏：安全区全让位（竖屏顶部刘海 / 横屏侧边） */
+.tb-side {
+  width: 232px; flex: none;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: calc(16px + env(safe-area-inset-top)) 10px calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  border-right: 1px solid var(--border-soft);
+  background: var(--bg-secondary);
+}
+.tb-brand {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 12px 14px; font-size: 15px; font-weight: 700; letter-spacing: .3px;
+}
+.tb-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); flex: none; }
+.tb-item {
+  display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px;
+  border-radius: 12px; color: var(--text-secondary); font-size: 14px; text-align: left;
+  transition: background .15s, color .15s;
+}
+.tb-item:hover { background: var(--bg-tertiary); }
+.tb-item:active { transform: scale(.98); }
+.tb-item.on { color: var(--accent-hover); background: var(--accent-soft); }
+.tb-foot { margin-top: auto; display: flex; flex-direction: column; gap: 4px; padding-top: 10px; }
+.tb-foot .c-meta { padding: 0 12px 6px; }
+
+/* 内容区：正文限宽防大屏行长失控（~760px 是 26px 字号下舒适的阅读宽度上限） */
+.app.tablet .pages { flex: 1; }
+.app.tablet .page { padding: 24px 32px 36px; }
+.app.tablet .page > * { max-width: 760px; width: 100%; align-self: center; }
+.app.tablet .dock, .app.tablet .c-bar { display: none; }
+
+/* 贴底控件：不再给浮坞让位，直接贴近底缘（toasts 亦然） */
+.app.tablet .add-bar { bottom: calc(20px + env(safe-area-inset-bottom)); }
+.app.tablet .fab { bottom: calc(20px + env(safe-area-inset-bottom)); }
+.app.tablet .toast-wrap { bottom: calc(20px + env(safe-area-inset-bottom)); }
