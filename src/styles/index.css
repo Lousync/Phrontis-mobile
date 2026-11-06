@@ -459,6 +459,10 @@ button.c-meta:active { opacity: .7; }
    padding 里的 --safe-bottom 两边相消，故不重复写） */
 .add-bar {
   position: sticky; bottom: 4px; margin-top: auto;
+  /* ★ 固定高度控件必须禁止 flex 收缩：.page 是 flex 列 + 滚动容器，长列表时
+     flex-shrink:1 会按比例压扁所有直接子元素，46px 被压到 ~22px（2026-11-06 真机
+     反馈「任务条目挤压了添加条」）。同理见下方 .fab。 */
+  flex: none;
   height: 46px; border-radius: 23px;
   background: var(--bg-primary); border: 1px solid var(--border); display: flex; align-items: center; gap: 10px;
   padding: 0 18px; color: var(--text-secondary); font-size: 13.5px; box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
@@ -492,6 +496,8 @@ button.c-meta:active { opacity: .7; }
    align-self:flex-end + margin-right:2px 复原原 right:18px（页 padding 已含 16px） */
 .fab {
   position: sticky; bottom: 4px; margin-top: auto; align-self: flex-end; margin-right: 2px;
+  /* 同 .add-bar：固定 54px 尺寸，禁止长列表 flex 收缩压扁 */
+  flex: none;
   width: 54px; height: 54px; border-radius: 18px; z-index: 20;
   background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center;
   box-shadow: 0 10px 26px rgba(0, 122, 204, .4); transition: transform .15s, background .15s;

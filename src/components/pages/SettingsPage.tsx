@@ -27,7 +27,6 @@ const THEME_PICKS: Array<{ id: ThemeName; name: string; bg: string; line: string
  */
 export function SettingsPage({ active }: { active: boolean }) {
   const { paired, online, syncing, syncPct, lastSync, runSync, pairWith, adoptPaired, unpair, theme, setTheme, toast, aiConfig, setActiveTab, kbSim, toggleKbSim, openSheet } = useApp()
-  const [scope, setScope] = useState<Record<string, boolean>>({ 记账: true, 日程: true, 笔记: true, 'AI 会话记录': false })
   const [pairInput, setPairInput] = useState('')
   const [pairCode, setPairCode] = useState('')
   const [pairing, setPairing] = useState(false)
@@ -47,13 +46,6 @@ export function SettingsPage({ active }: { active: boolean }) {
   const [testing, setTesting] = useState(false)
   /* 入口行展示的当前主题（色板固定取目标主题自己的色值，不随当前主题变） */
   const curTheme = THEME_PICKS.find(t => t.id === theme) ?? THEME_PICKS[0]
-
-  const scopeRows: Array<{ k: string; label: string; why?: string }> = [
-    { k: '记账', label: '记账 · 双向按条目合并（含删除）' },
-    { k: '日程', label: '日程 · 双向按条目合并（含删除）' },
-    { k: '笔记', label: '笔记 · 手机笔记上行 + 电脑笔记只读缓存' },
-    { k: 'AI 会话记录', label: 'AI 会话记录', why: '二期' },
-  ]
 
   const doPair = async () => {
     setPairing(true)
@@ -251,16 +243,15 @@ export function SettingsPage({ active }: { active: boolean }) {
         </div>
       </div>
 
+      {/* 同步范围：v1 域模型里 ledger + schedule 恒同步、notes 上行无条件应用，没有可选域。
+          原四行开关是未接线的假 useState（点击只改本地 state，不影响任何同步行为），
+          2026-11-06 拍板砍掉，改为一行说明；将来实现可选域需按「域级开关 + 关闭域双向停摆」完整设计。 */}
       <div>
         <div className="set-label">同步范围</div>
-        <div className="card" style={{ padding: '4px 14px' }}>
-          {scopeRows.map(r => (
-            <div key={r.k} className={'check-row' + (scope[r.k] ? ' on' : '')} onClick={() => setScope(s => ({ ...s, [r.k]: !s[r.k] }))}>
-              <span className="box">{scope[r.k] && <ICheck size={11} />}</span>
-              {r.label}
-              {r.why && <span className="why">{r.why}</span>}
-            </div>
-          ))}
+        <div className="card" style={{ padding: '12px 14px' }}>
+          <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+            同步内容：记账 + 日程 + 笔记上行（删除双向）
+          </div>
         </div>
       </div>
 
