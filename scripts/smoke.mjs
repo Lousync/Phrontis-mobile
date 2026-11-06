@@ -215,11 +215,20 @@ ok('两通道并存取大者（不双重扣）', Math.abs(kbGeom.h0 - kbGeom.hBo
 /* 设置：AI 配置抽屉（预设卡 + 表单 + 保存摘要）——放在最后，保存的假 Key 不得影响前面的演示通路 */
 await page.locator('#root .dock button', { hasText: '设置' }).click()
 await page.waitForTimeout(300)
+/* 设置页静态解释文案已清空（2026-11-06 用户截图指名）：只留卡片内文字与功能性指引。
+   反向锁——以后谁再把「说明一下」加回来，这里直接红。 */
+const setText = await page.locator('#root .page.active').innerText()
+ok('设置页无冗余解释段落（4 处截图指名文案已删）',
+  !/长期互信|不上行不同步|选中预设|只差粘一个|点一下即换|点行打开选择页/.test(setText))
+ok('版本行只保留版本号（去掉「与桌面 X 配套」）',
+  /^Phrontis Mobile \d+\.\d+\.\d+$/.test((await page.locator('#root .page.active .ver').innerText()).trim()))
 ok('AI 摘要卡（供应商 + 模型 + 未配置态）', (await page.locator('#root .page.active .device-card .pdot').count()) === 1
   && (await page.locator('#root .page.active .device-card:has(.pdot) .st').innerText()).includes('未配置'))
 await page.locator('#root .page.active .btn-ghost', { hasText: '去配置' }).click()
 await page.waitForTimeout(400)
 ok('供应商选择网格（8 张预设卡）', (await page.locator('#root .sheet .prov-card').count()) === 8)
+ok('供应商网格无底部脚注（卡片内副标题保留）', (await page.locator('#root .prov-foot').count()) === 0
+  && (await page.locator('#root .sheet .prov-card .ps').count()) === 8)
 await page.locator('#root .sheet .prov-card', { hasText: 'opencode' }).click()
 await page.waitForTimeout(300)
 ok('opencode 表单列出预设自带的会话头 + 官方文档徽章', (await page.locator('#root .sheet .filled-box', { hasText: 'x-opencode-session' }).count()) === 1

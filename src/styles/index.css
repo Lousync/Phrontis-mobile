@@ -744,8 +744,6 @@ button.vault-line:disabled { cursor: default; }
 .prov-card .pn { display: block; font-size: 12.5px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .prov-card .pn em { font-style: normal; font-size: 10px; color: var(--accent-hover); margin-left: 5px; }
 .prov-card .ps { display: block; font-size: 10.5px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.prov-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; font-size: 11px; color: var(--text-muted); }
-.prov-foot span:first-child { color: var(--text-secondary); font-size: 11.5px; }
 
 .filled-box { border: 1px solid var(--border-soft); border-radius: 11px; padding: 10px 12px; margin-bottom: 4px; background: var(--bg-primary); }
 .filled-box .fb-h { font-size: 11px; color: var(--text-muted); margin-bottom: 7px; }

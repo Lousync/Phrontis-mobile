@@ -219,9 +219,6 @@ export function SettingsPage({ active }: { active: boolean }) {
                     </button>
                   </>
                 )}
-                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 10 }}>
-                  电脑端先开启「工具箱 → 手机伴侣」；配对一次后长期互信，同网自动重连。
-                </div>
               </>
             )
           ) : (
@@ -303,9 +300,6 @@ export function SettingsPage({ active }: { active: boolean }) {
             </button>
             <button className="btn-ghost" style={{ height: 44 }} onClick={e => openSheet('ai-config', e.currentTarget)}>{ready ? '编辑配置' : '去配置'}</button>
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 10 }}>
-            Key 只存手机本地，不上行不同步。换供应商不会丢聊天记录。
-          </div>
         </div>
       </div>
 
@@ -335,7 +329,7 @@ export function SettingsPage({ active }: { active: boolean }) {
         </div>
       </div>
 
-      <div className="ver">Phrontis Mobile {__APP_VERSION__} · 与桌面 3.15.1 配套</div>
+      <div className="ver">Phrontis Mobile {__APP_VERSION__}</div>
     </section>
   )
 }
@@ -371,7 +365,6 @@ export function ThemePickerSheet() {
           </button>
         ))}
       </div>
-      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 12, textAlign: 'center' }}>点一下即换，选完自动关闭</div>
     </Sheet>
   )
 }
@@ -419,10 +412,6 @@ export function AiConfigSheet() {
                 </span>
               </button>
             ))}
-          </div>
-          <div className="prov-foot">
-            <span>选中预设 → 只差粘一个 Key</span>
-            <span>地址 / 协议 / 会话头由预设带好</span>
           </div>
         </>
       ) : p && <AiPresetForm key={p.id} preset={p} onSaved={closeSheet} />}
@@ -769,7 +758,6 @@ function AiEditForm({ onSaved }: { onSaved: () => void }) {
               </span>
               <IChevR size={14} />
             </button>
-            <div className="model-cnt">点行打开选择页（清单由端点 /models 拉取，也可搜索后手填）</div>
           </>
         )}
       </div>
