@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { ReactNode } from 'react'
-import type { AiChatMsg, AiConfig, AiMode, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteProposal, PairedDevice, PhoneNote, QuizRecord, QuizSpec, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
+import type { AiChatMsg, AiConfig, AiMode, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteProposal, PairedDevice, PhoneNote, QuizAddProposal, QuizDelProposal, QuizNoteProposal, QuizRecord, QuizSpec, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
 import { THEME_IDS } from './types'
 import { seedFolders, seedHabits, seedSessions, seedTodos, seedEntries, TODAY, VOICE_PHRASES, welcomeText, dayIso, fmtMoney, monthOf, monthStats, txToDisplay } from './data'
 import {
@@ -10,7 +10,7 @@ import {
   type RemoteLedgerItem, type RemoteScheduleItem,
 } from './sync'
 import { AI_MAX_ROUNDS, aiConfigReady, chatOnce, loadAiConfig, parseToolArgs, saveAiConfig } from './ai'
-import { AI_TOOLS, buildSystemPrompt, validateLedgerAdd, validateNoteCreate, validateTodoAdd, type ToolResult } from './aiTools'
+import { AI_TOOLS, buildSystemPrompt, quizQueryForModel, quizStatsForModel, validateLedgerAdd, validateNoteCreate, validateQuizAdd, validateQuizDel, validateQuizNote, validateTodoAdd, type ToolResult } from './aiTools'
 
 export interface ToastItem { id: number; msg: string; type: 'ok' | 'warn' | 'info' }
 
@@ -163,6 +163,10 @@ interface Store {
   answerQuiz: (id: string, correct: boolean) => void
   /** 阅读器题卡作答：按 文档+题号 upsert 错题记录（首答建档，重答累计 streak/错次） */
   upsertQuizAnswer: (pageId: string, pageTitle: string, spec: QuizSpec, correct: boolean) => void
+  /* AI 错题工具落库（确认卡后调用） */
+  addQuizRecord: (p: QuizAddProposal) => void
+  setQuizNote: (p: QuizNoteProposal) => void
+  deleteQuizRecord: (p: QuizDelProposal) => void
 
   /* AI */
   aiMode: AiMode
@@ -686,6 +690,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
    * 作答即时落本地（pm.quiz）；回流桌面待协议 v1.3 quiz 域。 */
   const [quizRecords, setQuizRecords] = useState<QuizRecord[]>(() => loadJson<QuizRecord[]>(K_QUIZ, seedQuizRecords))
   useEffect(() => { saveJson(K_QUIZ, quizRecords) }, [quizRecords])
+  const quizRecordsRef = useRef(quizRecords); quizRecordsRef.current = quizRecords
   const answerQuiz = useCallback((id: string, correct: boolean) => {
     setQuizRecords(list => list.map(r => r.id !== id ? r : {
       ...r,
@@ -695,6 +700,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       lastResult: correct ? 'correct' : 'wrong',
       updatedAt: Date.now(),
     }))
+  }, [])
+
+  /* AI 错题工具的落库三件套（确认卡确认后走这里，与 UI 同一条写入路径） */
+  const addQuizRecord = useCallback((p: QuizAddProposal) => {
+    const book = quizRecordsRef.current.filter(r => r.pageTitle === p.pageTitle)
+    const nextNo = book.reduce((m, r) => Math.max(m, r.no), 0) + 1
+    setQuizRecords(list => [{
+      id: uuid(), pageId: 'ai', pageTitle: p.pageTitle, no: nextNo,
+      type: p.type, question: p.question, options: p.options, answer: p.answer, explanation: p.explanation,
+      wrongCount: 0, correctCount: 0, streakCorrect: 0, lastResult: '', updatedAt: Date.now(),
+    }, ...list])
+  }, [])
+  const setQuizNote = useCallback((p: QuizNoteProposal) => {
+    setQuizRecords(list => list.map(r => r.pageTitle === p.pageTitle && r.no === p.no ? { ...r, note: p.note, updatedAt: Date.now() } : r))
+  }, [])
+  const deleteQuizRecord = useCallback((p: QuizDelProposal) => {
+    setQuizRecords(list => list.filter(r => !(r.pageTitle === p.pageTitle && r.no === p.no)))
   }, [])
   const upsertQuizAnswer = useCallback((pageId: string, pageTitle: string, spec: QuizSpec, correct: boolean) => {
     setQuizRecords(list => {
@@ -857,6 +879,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
       case 'notes_list': {
         const items = phoneNotesRef.current.map(x => ({ title: x.title, synced: x.synced }))
         return { ok: true, forModel: JSON.stringify({ count: items.length, items: items.slice(0, 20) }) }
+      }
+      case 'quiz_query': {
+        return { ok: true, forModel: quizQueryForModel(quizRecordsRef.current, args) }
+      }
+      case 'quiz_stats': {
+        return { ok: true, forModel: quizStatsForModel(quizRecordsRef.current) }
+      }
+      case 'quiz_add': {
+        const p = validateQuizAdd(args)
+        if (typeof p === 'string') return no(p)
+        const n = quizRecordsRef.current.filter(r => r.pageTitle === p.pageTitle).length
+        return {
+          ok: true,
+          forModel: '已生成出题确认卡（' + p.pageTitle + ' · 第 ' + (n + 1) + ' 题）。等用户确认入库，不要重复调用。',
+          proposal: { kind: 'quiz', data: p },
+        }
+      }
+      case 'quiz_note': {
+        const p = validateQuizNote(args)
+        if (typeof p === 'string') return no(p)
+        return { ok: true, forModel: '已生成错题备注确认卡。等用户确认。', proposal: { kind: 'quiz-note', data: p } }
+      }
+      case 'quiz_del': {
+        const p = validateQuizDel(args)
+        if (typeof p === 'string') return no(p)
+        return { ok: true, forModel: '已生成移出确认卡。等用户确认。', proposal: { kind: 'quiz-del', data: p } }
       }
       default:
         return no('未知工具：' + name)
@@ -1042,13 +1090,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } else if (kind === 'note' && data && 'body' in data) {
       const p = data as NoteProposal
       addPhoneNote(p.title || '闪念', p.body)
+    } else if (kind === 'quiz' && data && 'question' in data) {
+      addQuizRecord(data as QuizAddProposal)
+    } else if (kind === 'quiz-note' && data && 'note' in data) {
+      setQuizNote(data as QuizNoteProposal)
+    } else if (kind === 'quiz-del' && data && 'no' in data) {
+      deleteQuizRecord(data as QuizDelProposal)
     } else if (kind === 'move') {
       /* 演示卡（未配置 AI 时的脚本行为）：也走真实写入路径——原先只删本地不进队列，同步会把跑步条目原样带回来 */
       deleteTodo('t3')
       addTodo({ title: '跑步 30 分钟', type: 'daily', time: '19:30', date: dayIso(1) })
     }
     updateMsg(msgId, m => ({ ...m, card: m.card ? { ...m.card, confirmed: true } : m.card }))
-  }, [saveTx, addTodo, deleteTodo, addPhoneNote, updateMsg])
+  }, [saveTx, addTodo, deleteTodo, addPhoneNote, addQuizRecord, setQuizNote, deleteQuizRecord, updateMsg])
 
   const dismissCard = useCallback((msgId: string) => {
     updateMsg(msgId, m => ({ ...m, card: undefined }))
@@ -1094,6 +1148,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     folders, toggleFolder, markCached, phoneNotes, addPhoneNote,
     createPhoneNote, updatePhoneNote, discardPhoneNote, syncPhoneNote,
     quizRecords, answerQuiz, upsertQuizAnswer,
+    addQuizRecord, setQuizNote, deleteQuizRecord,
     aiMode, setAiMode, aiConfig, updateAiConfig, sessions, curSession, newSession, switchSession, deleteSession, renameSession, togglePin,
     streaming, streamText, sendChat, stopStream, confirmCard, dismissCard,
     voicePhase, voiceElapsed, toggleVoice,

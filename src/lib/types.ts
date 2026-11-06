@@ -56,13 +56,13 @@ export interface PhoneNote {
   synced: boolean
 }
 
-export type CardKind = 'tx' | 'todo' | 'note' | 'move'
+export type CardKind = 'tx' | 'todo' | 'note' | 'move' | 'quiz' | 'quiz-note' | 'quiz-del'
 
 /* AI 确认卡提案（写工具不落库，确认后走与 UI 按钮同一条写入路径） */
 export interface TxProposal { type: 'expense' | 'income'; amount: number; category: string; account: string; merchant: string }
 export interface TodoProposal { title: string; type: TodoType; date: string }
 export interface NoteProposal { title: string; body: string }
-export type ProposalData = TxProposal | TodoProposal | NoteProposal
+export type ProposalData = TxProposal | TodoProposal | NoteProposal | QuizAddProposal | QuizNoteProposal | QuizDelProposal
 
 export interface Card {
   kind: CardKind
@@ -241,9 +241,20 @@ export interface QuizRecord {
   correctCount: number
   streakCorrect: number
   lastResult: '' | 'correct' | 'wrong'
+  note?: string       // 备注/口诀（AI 或用户补充）
   updatedAt: number
 }
 
+export interface QuizAddProposal {
+  pageTitle: string    // 归入哪本「书」（来源笔记/试卷名）
+  type: 'choice' | 'short'
+  question: string
+  options: QuizOption[]
+  answer: string
+  explanation: string
+}
+export interface QuizNoteProposal { pageTitle: string; no: number; note: string }
+export interface QuizDelProposal { pageTitle: string; no: number }
 export interface QuizSpec {
   no: number
   question: string
