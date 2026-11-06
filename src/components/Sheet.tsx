@@ -34,7 +34,7 @@ export function Sheet({ children }: { children: ReactNode }) {
           [{ clipPath: `circle(0px at ${x}px ${y}px)` }, { clipPath: `circle(${r}px at ${x}px ${y}px)` }],
           { duration: 280, easing: 'cubic-bezier(.23,1,.32,1)' },
         )
-        /* 动画结束恢复 transition —— 键盘停靠要靠它把抽屉平滑上提 */
+        /* 动画结束恢复 transition —— 进出收起要靠 bottom 通道平滑滑动 */
         anim.finished.then(() => { el.style.transition = '' }).catch(() => { /* canceled：卸载中 */ })
         return () => { anim.cancel(); el.style.transition = '' }
       }

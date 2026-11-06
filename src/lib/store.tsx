@@ -253,45 +253,70 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSheet('tx-edit')
   }, [])
 
-  /* 系统键盘探测：文本输入聚焦 ≈ 键盘弹出（自定义数字键盘是 button，不触发，符合预期）。
-     真机上配合 viewport 的 resizes-content：键盘收缩布局视口 + kb-open 隐藏底栏 = 原生键盘模型。
-     抽屉内的聚焦输入框还要「停靠」：抽屉 bottom 下沉（纯布局属性，动画走 bottom 通道），
-     让键盘上沿正好贴住输入框下沿——输入框以下的部分滑进键盘底下被盖住。
-     offsetTop 是布局距离，不受抽屉滑入动画的 transform 影响。 */
+  /* ---- 系统键盘适配（2026-11-06 重做，修「输入框被键盘遮住」）----
+   * 旧实现假设 adjustResize 会把窗口压到键盘上方，于是把抽屉 bottom 设成负值「下沉」，
+   * 让输入框贴住键盘上沿。但 targetSdk 35 = Android 15 起强制 edge-to-edge：
+   * 窗口不再随键盘收缩，键盘浮在内容之上，100dvh 不变 → 下沉反而把抽屉推进键盘底下，
+   * 所有带输入框的抽屉都变成「看不见 / 输入框被遮」。
+   *
+   * 新模型：用 visualViewport 量出键盘实际占掉的高度，写进 --kb-real，壳层高度扣掉它
+   * （见 index.css 的 .app）。等价于在 CSS 层重建 adjustResize，抽屉 / 浮坞 / FAB / toast
+   * 这些绝对定位的贴底元素随壳整体上移。
+   * adjustResize 真生效时（iOS、老 Android）clientHeight 已缩到键盘上方，差值算出来是 0，不重复扣。
+   */
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    let raf = 0
+    const apply = () => {
+      raf = 0
+      /* 基准取 documentElement.clientHeight（与 100dvh 同源），不用 innerHeight：
+       * 部分 WebView 上 innerHeight 已扣键盘，会让差值恒为 0、适配静默失效。 */
+      const layoutH = document.documentElement.clientHeight || window.innerHeight
+      const kb = Math.max(0, Math.round(layoutH - vv.height - vv.offsetTop))
+      document.documentElement.style.setProperty('--kb-real', kb + 'px')
+    }
+    const schedule = () => { if (!raf) raf = requestAnimationFrame(apply) }
+    vv.addEventListener('resize', schedule)
+    vv.addEventListener('scroll', schedule) /* 键盘推挤页面时 offsetTop 变，需重算 */
+    apply()
+    return () => {
+      if (raf) cancelAnimationFrame(raf)
+      vv.removeEventListener('resize', schedule)
+      vv.removeEventListener('scroll', schedule)
+      document.documentElement.style.removeProperty('--kb-real')
+    }
+  }, [])
+
+  /* 文本输入聚焦 ≈ 键盘弹出（自定义数字键盘是 button，不触发，符合预期）。
+   * kb-open 只负责隐藏浮坞（原生键盘模型）；不再移动抽屉本身 ——
+   * 抽屉已随壳上移，这里只补「抽屉自身溢出时输入框没滚进可见区」这一种情况。 */
   useEffect(() => {
     const isText = (t: EventTarget | null) => t instanceof HTMLElement && t.matches('input, textarea')
-    const dock = (el: HTMLElement) => {
-      const sheet = el.closest('.sheet')
-      if (!(sheet instanceof HTMLElement)) return
-      const gap = 12
-      const dist = sheet.offsetHeight - (el.offsetTop + el.offsetHeight)
-      sheet.style.bottom = -Math.max(0, dist - gap) + 'px'
-    }
-    const undock = (el: HTMLElement) => {
-      const sheet = el.closest('.sheet')
-      if (sheet instanceof HTMLElement) sheet.style.bottom = ''
+    let timer = 0
+    const reveal = (el: HTMLElement) => {
+      const vv = window.visualViewport
+      const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight
+      const r = el.getBoundingClientRect()
+      if (r.bottom > visibleBottom - 16) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     }
     const onIn = (e: FocusEvent) => {
       if (!isText(e.target)) return
       setKbOpen(true)
       const el = e.target as HTMLElement
-      requestAnimationFrame(() => dock(el))
+      /* 键盘动画约 250ms：rAF 那次覆盖「本来就可见」，超时那次等键盘让出空间后补滚 */
+      requestAnimationFrame(() => reveal(el))
+      clearTimeout(timer)
+      timer = window.setTimeout(() => reveal(el), 320)
     }
     const onOut = (e: FocusEvent) => {
       if (!isText(e.target)) return
       setKbOpen(false)
-      undock(e.target as HTMLElement)
     }
-    /* 真机键盘弹出/收起会改布局视口：重算当前聚焦输入框的停靠量 */
-    const recompute = () => {
-      const ae = document.activeElement
-      if (ae instanceof HTMLElement && isText(ae)) dock(ae)
-    }
-    window.visualViewport?.addEventListener('resize', recompute)
     document.addEventListener('focusin', onIn)
     document.addEventListener('focusout', onOut)
     return () => {
-      window.visualViewport?.removeEventListener('resize', recompute)
+      clearTimeout(timer)
       document.removeEventListener('focusin', onIn)
       document.removeEventListener('focusout', onOut)
     }

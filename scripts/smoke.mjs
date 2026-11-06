@@ -177,6 +177,20 @@ await page.reload()
 await page.waitForTimeout(600)
 ok('主题选择重启保留（pm.theme 落盘）', (await page.locator('html[data-theme="winter"]').count()) === 1)
 
+/* 键盘适配（2026-11-06）：--kb-real 是 store 用 visualViewport 量出的键盘高度，壳层高度扣掉它，
+   抽屉 / 浮坞 / FAB / toast 随之整体上移到键盘上方。旧实现反向下沉，Android 15（edge-to-edge，
+   窗口不再随键盘收缩）下等于把抽屉推进键盘底下——所有带输入框的抽屉全被遮。 */
+const kbGeom = await page.evaluate(() => {
+  const root = document.documentElement
+  const app = document.querySelector('#root .app')
+  const before = app.getBoundingClientRect().height
+  root.style.setProperty('--kb-real', '300px')
+  const after = app.getBoundingClientRect().height
+  root.style.removeProperty('--kb-real')
+  return { before, after }
+})
+ok('键盘高度变量驱动壳收缩（--kb-real 生效）', Math.abs(kbGeom.before - kbGeom.after - 300) <= 2)
+
 /* 设置：AI 配置抽屉（预设卡 + 表单 + 保存摘要）——放在最后，保存的假 Key 不得影响前面的演示通路 */
 await page.locator('#root .dock button', { hasText: '设置' }).click()
 await page.waitForTimeout(300)
@@ -205,6 +219,15 @@ ok('空清单优雅降级手填', (await page.locator('#root .sheet .model-row i
 await page.locator('#root .sheet .aic-foot .btn-ghost').click()
 await page.waitForTimeout(300)
 ok('空 Key 测试被拦（错误卡）', (await page.locator('#root .sheet .test-out.bad').count()) === 1)
+/* 回归锁：聚焦抽屉内的输入框后，抽屉不得再被「下沉」。
+   旧实现把 bottom 写成负值让输入框贴键盘上沿；壳已随键盘上移的模型下，
+   那等于把整块抽屉推出壳外（Android 15 上就是「输入框被键盘遮住」的真因）。 */
+await page.locator('#root .sheet .key-wrap input').click()
+await page.waitForTimeout(200)
+ok('输入框聚焦后抽屉仍贴壳底（不下沉）', await page.locator('#root .sheet').evaluate(el => {
+  const app = el.closest('.app')
+  return !!app && Math.abs(el.getBoundingClientRect().bottom - app.getBoundingClientRect().bottom) < 2
+}))
 await page.locator('#root .sheet .key-wrap input').fill('sk-smoke-fake')
 await page.locator('#root .sheet .aic-foot .btn-primary').click()
 await page.waitForTimeout(500)

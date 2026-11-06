@@ -169,7 +169,12 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .app {
   position: relative;
   max-width: 420px;
-  height: 100dvh;
+  /* --kb-real 由 store 用 visualViewport 写入（键盘实际占掉的高度）。
+   * 必须在这里扣：Android 15（targetSdk 35）起强制 edge-to-edge，adjustResize 不再缩窗，
+   * 键盘浮在内容之上。壳变矮后，抽屉 / 浮坞 / FAB / toast 这些绝对定位的贴底元素
+   * 自动整体上移到键盘上方 —— 等价于原生 adjustResize 的手感。
+   * 键盘收起时该变量为 0px，布局与之前完全一致。 */
+  height: calc(100dvh - var(--kb-real, 0px));
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -177,7 +182,7 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 }
 @media (min-width: 480px) {
   .app {
-    height: calc(100dvh - 24px);
+    height: calc(100dvh - 24px - var(--kb-real, 0px));
     margin: 12px auto;
     border-radius: 26px;
     border: 1px solid var(--border);
@@ -625,10 +630,12 @@ button.vault-line:disabled { cursor: default; }
   position: absolute; left: 0; right: 0; bottom: -100%; z-index: 41;
   background: var(--bg-primary); border-radius: 22px 22px 0 0; border-top: 1px solid var(--border);
   padding: 10px 20px calc(28px + env(safe-area-inset-bottom));
-  /* 进出（-100% ↔ 0）与「键盘停靠」（store 聚焦输入框时内联负值下沉）共用 bottom 通道。
-   * 勿改回 transform 滑入：transform 在元素上会使其后的 bottom 布局停靠渲染失灵（实测踩坑）。 */
+  /* 进出（-100% ↔ 0）只走 bottom 通道。
+   * 勿改回 transform 滑入：transform 在元素上会使其后的 bottom 布局停靠渲染失灵（实测踩坑）。
+   * max-height 用 % 而非 dvh：dvh 锚的是视口，键盘弹起后壳变矮而它不变，抽屉会顶出壳外；
+   * % 跟随包含块（.app），壳多矮抽屉就多矮。 */
   transition: bottom .28s cubic-bezier(.32, .72, .28, 1);
-  max-height: 86dvh; overflow-y: auto;
+  max-height: 86%; overflow-y: auto;
 }
 .sheet.open { bottom: 0; }
 .sheet-grip { width: 38px; height: 4px; border-radius: 2px; background: var(--border); margin: 4px auto 14px; }
@@ -828,21 +835,18 @@ button.vault-line:disabled { cursor: default; }
 .toast.info .tdot { background: var(--accent); }
 
 /* ============ 桌面专用：模拟输入法（真机触屏不出现此行） ============
- * 真机键盘收缩布局视口的行为由 index.html 的 interactive-widget=resizes-content 提供；
- * 桌面浏览器没有键盘也无法模拟，开关把手机壳压到 55dvh 并画出「键盘占位」，
- * 用来验证贴底输入框 / 抽屉在键盘弹出时正确上提。
+ * 真机的键盘适配由 store 的 visualViewport 探针写 --kb-real 驱动（见 .app 高度）；
+ * 桌面浏览器没有键盘，开关把手机壳直接压到 55dvh（等价键盘占掉 45dvh），
+ * 用来验证贴底输入框 / 抽屉 / 浮坞在键盘弹出时正确上提。
  * 显示条件按指针能力（hover + 精确指针）而非宽度：启动器 app 窗口只有 500 宽。
  * 壳层改版后无顶栏可挂（右上曾盖住 AI 页的历史按钮，冒烟抓到），落位设置页外观卡。 */
 .kb-sim-row { display: none; }
 @media (hover: hover) and (pointer: fine) {
   .kb-sim-row { display: flex; }
-  /* 模拟态 = 键盘展开态：壳收缩 + 底部方角（与键盘齐平）+ 浮坞被「键盘」盖住 */
+  /* 模拟态 = 键盘展开态：壳收缩 + 底部方角（与键盘齐平）。
+   * 浮坞不在这里隐藏 —— 壳变矮后它自然落在键盘上方；真机由 focus 触发的 .kb-open 隐藏。 */
   .app.kb-sim { height: 55dvh; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
-  .app.kb-sim .dock {
-    transform: translateY(110%); visibility: hidden;
-    transition: transform .22s ease, visibility .22s;
-  }
-  /* 与真机同款：抽屉内聚焦输入框停靠到「键盘」上沿（store 写内联 transform） */
+  /* 键盘占位：模拟键盘顶住壳下缘，滑到壳外的内容在此被盖住（= 真机键盘的遮挡行为） */
   .kb-sim-band {
     position: fixed; bottom: 0; z-index: 60;
     top: calc(55dvh + 12px); /* 手机壳底缘（12px 上边距 + 55dvh），紧贴模拟键盘 */
