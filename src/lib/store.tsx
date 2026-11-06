@@ -296,7 +296,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let timer = 0
     const reveal = (el: HTMLElement) => {
       const vv = window.visualViewport
-      const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight
+      /* 原生注入的键盘高度也要扣：WebView 的 visualViewport 不随输入法收缩（见 MainActivity），
+       * 只看它会把「其实已被键盘盖住」误判成「可见」而完全不滚动。 */
+      const nativeKb = parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue('--kb-native'),
+      ) || 0
+      const visibleBottom = (vv ? vv.offsetTop + vv.height : window.innerHeight) - nativeKb
       const r = el.getBoundingClientRect()
       if (r.bottom > visibleBottom - 16) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     }

@@ -9,13 +9,17 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- windowSoftInputMode=adjustNothing：键盘高度由 MainActivity 读原生 IME inset，
+             注入 CSS 变量 kb-native 来驱动布局（注意 XML 注释里不能出现连续两个减号，故不写前导横线）。
+             不让系统再动窗口 —— adjustResize 在 Android 15 edge-to-edge 下已失效（不缩窗），
+             而老 Android 上它真会缩 WebView，与本机制叠加就成了双重扣；adjustPan 更糟（整页平移）。 -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
             android:name=".MainActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
-            android:windowSoftInputMode="adjustResize"
+            android:windowSoftInputMode="adjustNothing"
             android:exported="true">
 
             <intent-filter>

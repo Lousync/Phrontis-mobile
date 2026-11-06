@@ -169,12 +169,13 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .app {
   position: relative;
   max-width: 420px;
-  /* --kb-real 由 store 用 visualViewport 写入（键盘实际占掉的高度）。
-   * 必须在这里扣：Android 15（targetSdk 35）起强制 edge-to-edge，adjustResize 不再缩窗，
-   * 键盘浮在内容之上。壳变矮后，抽屉 / 浮坞 / FAB / toast 这些绝对定位的贴底元素
-   * 自动整体上移到键盘上方 —— 等价于原生 adjustResize 的手感。
-   * 键盘收起时该变量为 0px，布局与之前完全一致。 */
-  height: calc(100dvh - var(--kb-real, 0px));
+  /* 键盘高度有两个来源，取大者（不会双重扣，任一来源失效另一个仍生效）：
+   *   --kb-native —— APK 内由 MainActivity 读原生 IME inset 注入（唯一可靠的来源，见 MainActivity 注释）；
+   *   --kb-real   —— 浏览器 / PWA 里由 store 用 visualViewport 算出（WebView 内通常为 0，
+   *                  因为 Android WebView 的 visualViewport 要 Chrome 139+ 才响应输入法）。
+   * 壳变矮后，抽屉 / 浮坞 / FAB / toast 这些绝对定位的贴底元素自动整体上移到键盘上方。
+   * 键盘收起时两者都是 0px，布局与无键盘时完全一致。 */
+  height: calc(100dvh - max(var(--kb-native, 0px), var(--kb-real, 0px)));
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -182,7 +183,7 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 }
 @media (min-width: 480px) {
   .app {
-    height: calc(100dvh - 24px - var(--kb-real, 0px));
+    height: calc(100dvh - 24px - max(var(--kb-native, 0px), var(--kb-real, 0px)));
     margin: 12px auto;
     border-radius: 26px;
     border: 1px solid var(--border);

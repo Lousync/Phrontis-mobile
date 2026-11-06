@@ -177,19 +177,29 @@ await page.reload()
 await page.waitForTimeout(600)
 ok('主题选择重启保留（pm.theme 落盘）', (await page.locator('html[data-theme="winter"]').count()) === 1)
 
-/* 键盘适配（2026-11-06）：--kb-real 是 store 用 visualViewport 量出的键盘高度，壳层高度扣掉它，
-   抽屉 / 浮坞 / FAB / toast 随之整体上移到键盘上方。旧实现反向下沉，Android 15（edge-to-edge，
-   窗口不再随键盘收缩）下等于把抽屉推进键盘底下——所有带输入框的抽屉全被遮。 */
+/* 键盘适配（2026-11-06）：壳高度扣掉键盘占高，抽屉 / 浮坞 / FAB / toast 随之整体上移。
+   两个来源取大者：--kb-native（APK 内由 MainActivity 读原生 IME inset 注入，主路径）与
+   --kb-real（浏览器 / PWA 由 visualViewport 算出；Android WebView 里它对输入法无信号）。 */
 const kbGeom = await page.evaluate(() => {
   const root = document.documentElement
   const app = document.querySelector('#root .app')
-  const before = app.getBoundingClientRect().height
-  root.style.setProperty('--kb-real', '300px')
-  const after = app.getBoundingClientRect().height
+  const h = () => app.getBoundingClientRect().height
+  const h0 = h()
+  root.style.setProperty('--kb-real', '260px')
+  const hReal = h()
   root.style.removeProperty('--kb-real')
-  return { before, after }
+  root.style.setProperty('--kb-native', '300px')
+  const hNative = h()
+  /* 两条通道同时有值：必须取大者，不能相加（否则双重扣、壳被压得过矮） */
+  root.style.setProperty('--kb-real', '200px')
+  const hBoth = h()
+  root.style.removeProperty('--kb-native')
+  root.style.removeProperty('--kb-real')
+  return { h0, hReal, hNative, hBoth }
 })
-ok('键盘高度变量驱动壳收缩（--kb-real 生效）', Math.abs(kbGeom.before - kbGeom.after - 300) <= 2)
+ok('visualViewport 通道驱动壳收缩', Math.abs(kbGeom.h0 - kbGeom.hReal - 260) <= 2)
+ok('原生 IME 通道驱动壳收缩（APK 主路径）', Math.abs(kbGeom.h0 - kbGeom.hNative - 300) <= 2)
+ok('两通道并存取大者（不双重扣）', Math.abs(kbGeom.h0 - kbGeom.hBoth - 300) <= 2)
 
 /* 设置：AI 配置抽屉（预设卡 + 表单 + 保存摘要）——放在最后，保存的假 Key 不得影响前面的演示通路 */
 await page.locator('#root .dock button', { hasText: '设置' }).click()
