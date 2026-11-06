@@ -117,8 +117,8 @@ ok('配对卡：搜索电脑入口在位（v1.5 发现优先）', (await page.lo
 ok('配对卡：扫码配对入口在位', (await page.locator('#root .page.active .btn-ghost', { hasText: '扫码配对' }).count()) === 1)
 await page.locator('#root .page.active .btn-ghost', { hasText: '扫码配对' }).click()
 await page.waitForTimeout(700)
-ok('扫码抽屉打开（取景框在位）', (await page.locator('#root .sheet .scan-stage').count()) === 1)
-await page.locator('#root .sheet .icon-btn').click()
+ok('扫码全屏打开（取景层铺满壳层）', (await page.locator('#root .scan-full').count()) === 1)
+await page.locator('#root .scan-close').click()
 await page.waitForTimeout(250)
 await page.locator('#root .page.active .adv-toggle').click()
 await page.waitForTimeout(200)
@@ -177,6 +177,30 @@ await page.reload()
 await page.waitForTimeout(600)
 ok('主题选择重启保留（pm.theme 落盘）', (await page.locator('html[data-theme="winter"]').count()) === 1)
 
+/* 键盘适配（2026-11-06）：壳高度扣掉键盘占高，抽屉 / 浮坞 / FAB / toast 随之整体上移。
+   两个来源取大者：--kb-native（APK 内由 MainActivity 读原生 IME inset 注入，主路径）与
+   --kb-real（浏览器 / PWA 由 visualViewport 算出；Android WebView 里它对输入法无信号）。 */
+const kbGeom = await page.evaluate(() => {
+  const root = document.documentElement
+  const app = document.querySelector('#root .app')
+  const h = () => app.getBoundingClientRect().height
+  const h0 = h()
+  root.style.setProperty('--kb-real', '260px')
+  const hReal = h()
+  root.style.removeProperty('--kb-real')
+  root.style.setProperty('--kb-native', '300px')
+  const hNative = h()
+  /* 两条通道同时有值：必须取大者，不能相加（否则双重扣、壳被压得过矮） */
+  root.style.setProperty('--kb-real', '200px')
+  const hBoth = h()
+  root.style.removeProperty('--kb-native')
+  root.style.removeProperty('--kb-real')
+  return { h0, hReal, hNative, hBoth }
+})
+ok('visualViewport 通道驱动壳收缩', Math.abs(kbGeom.h0 - kbGeom.hReal - 260) <= 2)
+ok('原生 IME 通道驱动壳收缩（APK 主路径）', Math.abs(kbGeom.h0 - kbGeom.hNative - 300) <= 2)
+ok('两通道并存取大者（不双重扣）', Math.abs(kbGeom.h0 - kbGeom.hBoth - 300) <= 2)
+
 /* 设置：AI 配置抽屉（预设卡 + 表单 + 保存摘要）——放在最后，保存的假 Key 不得影响前面的演示通路 */
 await page.locator('#root .dock button', { hasText: '设置' }).click()
 await page.waitForTimeout(300)
@@ -205,6 +229,30 @@ ok('空清单优雅降级手填', (await page.locator('#root .sheet .model-row i
 await page.locator('#root .sheet .aic-foot .btn-ghost').click()
 await page.waitForTimeout(300)
 ok('空 Key 测试被拦（错误卡）', (await page.locator('#root .sheet .test-out.bad').count()) === 1)
+/* 回归锁：聚焦抽屉内的输入框后，抽屉不得再被「下沉」。
+   旧实现把 bottom 写成负值让输入框贴键盘上沿；壳已随键盘上移的模型下，
+   那等于把整块抽屉推出壳外（Android 15 上就是「输入框被键盘遮住」的真因）。 */
+await page.locator('#root .sheet .key-wrap input').click()
+await page.waitForTimeout(200)
+ok('输入框聚焦后抽屉仍贴壳底（不下沉）', await page.locator('#root .sheet').evaluate(el => {
+  const app = el.closest('.app')
+  return !!app && Math.abs(el.getBoundingClientRect().bottom - app.getBoundingClientRect().bottom) < 2
+}))
+/* 键盘弹起时浮坞已隐藏，那 96px 的「给浮坞让位」留白必须收掉，否则输入栏离键盘一大截 */
+ok('键盘弹起时页面底部留白收掉（输入栏贴键盘）',
+  parseFloat(await page.locator('#root .page.active').evaluate(el => getComputedStyle(el).paddingBottom)) <= 12,
+)
+/* 状态栏占位：安卓由 MainActivity 注入 --safe-top（env() 在安卓恒为 0），页面顶部据此留白 */
+const safeGeom = await page.evaluate(() => {
+  const root = document.documentElement
+  const page = document.querySelector('#root .page.active')
+  const before = parseFloat(getComputedStyle(page).paddingTop)
+  root.style.setProperty('--safe-top', '44px')
+  const after = parseFloat(getComputedStyle(page).paddingTop)
+  root.style.removeProperty('--safe-top')
+  return { before, after }
+})
+ok('状态栏占位变量驱动页面顶部留白', Math.abs(safeGeom.after - safeGeom.before - 44) <= 1)
 await page.locator('#root .sheet .key-wrap input').fill('sk-smoke-fake')
 await page.locator('#root .sheet .aic-foot .btn-primary').click()
 await page.waitForTimeout(500)

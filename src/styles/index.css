@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* 系统栏占位：由 MainActivity 从原生 insets 注入（Android，inline style 优先级更高）；
+ * iOS / 浏览器回落到 env()。安卓上 env(safe-area-inset-*) 基本恒为 0，不能单独依赖。
+ * 注意本项目没有裸 :root 主题块（令牌都在 :root[data-theme="..."] 里），这里单独定义，
+ * 所有主题都能继承。 */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 /* ============ 主题令牌（继承桌面 VS Code 系基因） ============ */
 :root[data-theme="dark"] {
   --bg-primary: #1e1e1e;
@@ -169,7 +178,13 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 .app {
   position: relative;
   max-width: 420px;
-  height: 100dvh;
+  /* 键盘高度有两个来源，取大者（不会双重扣，任一来源失效另一个仍生效）：
+   *   --kb-native —— APK 内由 MainActivity 读原生 IME inset 注入（唯一可靠的来源，见 MainActivity 注释）；
+   *   --kb-real   —— 浏览器 / PWA 里由 store 用 visualViewport 算出（WebView 内通常为 0，
+   *                  因为 Android WebView 的 visualViewport 要 Chrome 139+ 才响应输入法）。
+   * 壳变矮后，抽屉 / 浮坞 / FAB / toast 这些绝对定位的贴底元素自动整体上移到键盘上方。
+   * 键盘收起时两者都是 0px，布局与无键盘时完全一致。 */
+  height: calc(100dvh - max(var(--kb-native, 0px), var(--kb-real, 0px)));
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -177,7 +192,7 @@ input, textarea, select { font-family: inherit; color: var(--text-primary); }
 }
 @media (min-width: 480px) {
   .app {
-    height: calc(100dvh - 24px);
+    height: calc(100dvh - 24px - max(var(--kb-native, 0px), var(--kb-real, 0px)));
     margin: 12px auto;
     border-radius: 26px;
     border: 1px solid var(--border);
@@ -218,7 +233,7 @@ button.c-meta:active { opacity: .7; }
 
 /* 大标题滚动收拢：>46px 淡入的小顶栏（毛玻璃，盖在内容上，不占布局） */
 .c-bar {
-  position: absolute; top: 0; left: 0; right: 0; height: calc(44px + env(safe-area-inset-top)); z-index: 6;
+  position: absolute; top: 0; left: 0; right: 0; height: calc(44px + var(--safe-top)); z-index: 6;
   display: flex; align-items: flex-end; padding: 0 16px 6px;
   background: var(--glass);
   -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4);
@@ -231,10 +246,15 @@ button.c-meta:active { opacity: .7; }
 /* ============ 页面容器 ============ */
 .pages { flex: 1; position: relative; overflow: hidden; background: var(--app-bg, var(--bg-secondary)); }
 .page {
-  position: absolute; inset: 0; overflow-y: auto; padding: 12px 16px calc(96px + env(safe-area-inset-bottom));
+  position: absolute; inset: 0; overflow-y: auto; padding: calc(12px + var(--safe-top)) 16px calc(96px + var(--safe-bottom));
   display: none; flex-direction: column; gap: 14px; overscroll-behavior: contain;
 }
 .page.active { display: flex; animation: pageIn .22s ease; }
+/* 键盘弹起时收掉给浮坞让位的 96px 底部留白 —— 浮坞此刻已被 .kb-open 隐藏，
+ * 留着就是一大块空洞（真机实测输入框离键盘约 100px）。只留 10px 净空，输入栏贴住键盘上沿。 */
+.app.kb-open .page { padding-bottom: 10px; }
+/* 抽屉同理：它底部本来留 28px 给「键盘收起时的安全区」，键盘真的在时只需一点净空 */
+.app.kb-open .sheet { padding-bottom: 12px; }
 @keyframes pageIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /* 全部完成：页面色温极淡变暖（勾选组合拳的收尾一层） */
@@ -244,7 +264,7 @@ button.c-meta:active { opacity: .7; }
  * 浮在内容上（z 30），下滚收缩成当前页小胶囊、上滑或点当前胶囊展开。
  * 贴底控件（FAB / 添加条）因此抬到坞上方。 */
 .dock {
-  position: absolute; left: 12px; right: 12px; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 30;
+  position: absolute; left: 12px; right: 12px; bottom: calc(14px + var(--safe-bottom)); z-index: 30;
   display: flex; gap: 2px; padding: 6px; border-radius: 24px; background: var(--glass);
   -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
   box-shadow: 0 14px 34px rgba(0, 0, 0, .5), inset 0 0 0 1px rgba(255, 255, 255, .07);
@@ -435,7 +455,7 @@ button.c-meta:active { opacity: .7; }
 .habit-btn.done svg .ck1, .habit-btn.done svg .ck2 { stroke-dashoffset: 0; }
 
 .add-bar {
-  position: absolute; left: 16px; right: 16px; bottom: calc(100px + env(safe-area-inset-bottom)); height: 46px; border-radius: 23px;
+  position: absolute; left: 16px; right: 16px; bottom: calc(100px + var(--safe-bottom)); height: 46px; border-radius: 23px;
   background: var(--bg-primary); border: 1px solid var(--border); display: flex; align-items: center; gap: 10px;
   padding: 0 18px; color: var(--text-secondary); font-size: 13.5px; box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
   transition: border-color .15s, transform .12s; z-index: 5;
@@ -464,7 +484,7 @@ button.c-meta:active { opacity: .7; }
 .tx-amt { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .tx-amt.income { color: var(--green); }
 .fab {
-  position: absolute; right: 18px; bottom: calc(100px + env(safe-area-inset-bottom)); width: 54px; height: 54px; border-radius: 18px; z-index: 20;
+  position: absolute; right: 18px; bottom: calc(100px + var(--safe-bottom)); width: 54px; height: 54px; border-radius: 18px; z-index: 20;
   background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center;
   box-shadow: 0 10px 26px rgba(0, 122, 204, .4); transition: transform .15s, background .15s;
 }
@@ -505,7 +525,7 @@ button.vault-line:disabled { cursor: default; }
 .reader { position: absolute; inset: 0; background: var(--bg-secondary); z-index: 35; display: none; flex-direction: column; }
 .reader.open { display: flex; animation: readerIn .24s ease; }
 @keyframes readerIn { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
-.reader-top { flex: none; display: flex; align-items: center; gap: 10px; padding: calc(8px + env(safe-area-inset-top)) 14px 8px; border-bottom: 1px solid var(--border-soft); background: var(--bg-primary); }
+.reader-top { flex: none; display: flex; align-items: center; gap: 10px; padding: calc(8px + var(--safe-top)) 14px 8px; border-bottom: 1px solid var(--border-soft); background: var(--bg-primary); }
 .reader-top .path { font-size: 12px; color: var(--text-muted); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .reader-body { flex: 1; overflow-y: auto; padding: 18px 20px 40px; }
 .md h1 { font-size: 21px; margin: 4px 0 14px; line-height: 1.4; }
@@ -624,11 +644,13 @@ button.vault-line:disabled { cursor: default; }
 .sheet {
   position: absolute; left: 0; right: 0; bottom: -100%; z-index: 41;
   background: var(--bg-primary); border-radius: 22px 22px 0 0; border-top: 1px solid var(--border);
-  padding: 10px 20px calc(28px + env(safe-area-inset-bottom));
-  /* 进出（-100% ↔ 0）与「键盘停靠」（store 聚焦输入框时内联负值下沉）共用 bottom 通道。
-   * 勿改回 transform 滑入：transform 在元素上会使其后的 bottom 布局停靠渲染失灵（实测踩坑）。 */
+  padding: 10px 20px calc(28px + var(--safe-bottom));
+  /* 进出（-100% ↔ 0）只走 bottom 通道。
+   * 勿改回 transform 滑入：transform 在元素上会使其后的 bottom 布局停靠渲染失灵（实测踩坑）。
+   * max-height 用 % 而非 dvh：dvh 锚的是视口，键盘弹起后壳变矮而它不变，抽屉会顶出壳外；
+   * % 跟随包含块（.app），壳多矮抽屉就多矮。 */
   transition: bottom .28s cubic-bezier(.32, .72, .28, 1);
-  max-height: 86dvh; overflow-y: auto;
+  max-height: 86%; overflow-y: auto;
 }
 .sheet.open { bottom: 0; }
 .sheet-grip { width: 38px; height: 4px; border-radius: 2px; background: var(--border); margin: 4px auto 14px; }
@@ -740,13 +762,19 @@ button.vault-line:disabled { cursor: default; }
   animation: tickIn .22s cubic-bezier(.34, 1.56, .64, 1) both;
 }
 @keyframes tickIn { from { transform: scale(0); } }
-/* 扫码配对抽屉：全屏取景 + 扫描框（相机流覆盖整个 stage，框内亮、框外压暗） */
-.scan-stage { position: relative; width: 100%; aspect-ratio: 3 / 4; max-height: 60dvh; border-radius: 14px; overflow: hidden; background: #000; }
-.scan-stage video { width: 100%; height: 100%; object-fit: cover; display: block; }
-.scan-frame { position: absolute; inset: 16% 10%; border: 2px solid var(--accent); border-radius: 14px; box-shadow: 0 0 0 999px rgba(0, 0, 0, .42); }
-.scan-line { position: absolute; left: 12%; right: 12%; height: 2px; border-radius: 1px; background: var(--accent); opacity: .9; animation: scanMove 2.2s ease-in-out infinite; }
-@keyframes scanMove { 0%, 100% { top: 20%; } 50% { top: 76%; } }
-.scan-err { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; font-size: 12.5px; line-height: 1.7; color: var(--text-secondary); }
+/* 扫码配对：全屏取景（2026-11-06 真机反馈否掉抽屉形态——举着手机扫电脑时抽屉太别扭） */
+.scan-full { position: absolute; inset: 0; z-index: 60; background: #000; overflow: hidden; }
+.scan-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.scan-frame { position: absolute; inset: 20% 12%; border: 2px solid rgba(255, 255, 255, .92); border-radius: 18px; box-shadow: 0 0 0 999px rgba(0, 0, 0, .5); }
+.scan-line { position: absolute; left: 14%; right: 14%; height: 2px; background: var(--accent); opacity: .95; animation: scanMove 2.2s ease-in-out infinite; }
+@keyframes scanMove { 0%, 100% { top: 22%; } 50% { top: 78%; } }
+.scan-head { position: absolute; top: 0; left: 0; right: 0; z-index: 2; padding: calc(var(--safe-top) + 14px) 16px 14px; display: flex; align-items: center; gap: 10px; color: #fff; }
+.scan-close { width: 38px; height: 38px; border-radius: 50%; background: rgba(255, 255, 255, .18); color: #fff; display: flex; align-items: center; justify-content: center; }
+.scan-title { font-size: 14px; font-weight: 600; letter-spacing: .5px; }
+/* 提示层默认不吃事件：否则「权限被拒」的整屏文案会盖住关闭按钮，用户退不出去 */
+.scan-center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 40px; text-align: center; line-height: 1.7; font-size: 13px; color: rgba(255, 255, 255, .9); pointer-events: none; }
+.scan-tap { pointer-events: auto; background: rgba(0, 0, 0, .32); font-size: 15px; }
+.scan-foot { position: absolute; left: 0; right: 0; bottom: calc(var(--safe-bottom) + 30px); padding: 0 32px; text-align: center; font-size: 12px; line-height: 1.7; color: rgba(255, 255, 255, .82); }
 
 /* 外观入口行（2026-11-06 方案 A）：当前主题色板 + 名称 + 副文案 + chevron，点开主题抽屉 */
 .theme-entry { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; padding: 7px 2px; border-radius: 10px; transition: background .13s; }
@@ -807,7 +835,7 @@ button.vault-line:disabled { cursor: default; }
 }
 
 /* ============ Toast ============ */
-.toast-wrap { position: absolute; bottom: calc(100px + env(safe-area-inset-bottom)); left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 60; pointer-events: none; }
+.toast-wrap { position: absolute; bottom: calc(100px + var(--safe-bottom)); left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 60; pointer-events: none; }
 .toast {
   background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary);
   font-size: 12.5px; padding: 9px 18px; border-radius: 20px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
@@ -822,21 +850,18 @@ button.vault-line:disabled { cursor: default; }
 .toast.info .tdot { background: var(--accent); }
 
 /* ============ 桌面专用：模拟输入法（真机触屏不出现此行） ============
- * 真机键盘收缩布局视口的行为由 index.html 的 interactive-widget=resizes-content 提供；
- * 桌面浏览器没有键盘也无法模拟，开关把手机壳压到 55dvh 并画出「键盘占位」，
- * 用来验证贴底输入框 / 抽屉在键盘弹出时正确上提。
+ * 真机的键盘适配由 store 的 visualViewport 探针写 --kb-real 驱动（见 .app 高度）；
+ * 桌面浏览器没有键盘，开关把手机壳直接压到 55dvh（等价键盘占掉 45dvh），
+ * 用来验证贴底输入框 / 抽屉 / 浮坞在键盘弹出时正确上提。
  * 显示条件按指针能力（hover + 精确指针）而非宽度：启动器 app 窗口只有 500 宽。
  * 壳层改版后无顶栏可挂（右上曾盖住 AI 页的历史按钮，冒烟抓到），落位设置页外观卡。 */
 .kb-sim-row { display: none; }
 @media (hover: hover) and (pointer: fine) {
   .kb-sim-row { display: flex; }
-  /* 模拟态 = 键盘展开态：壳收缩 + 底部方角（与键盘齐平）+ 浮坞被「键盘」盖住 */
+  /* 模拟态 = 键盘展开态：壳收缩 + 底部方角（与键盘齐平）。
+   * 浮坞不在这里隐藏 —— 壳变矮后它自然落在键盘上方；真机由 focus 触发的 .kb-open 隐藏。 */
   .app.kb-sim { height: 55dvh; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
-  .app.kb-sim .dock {
-    transform: translateY(110%); visibility: hidden;
-    transition: transform .22s ease, visibility .22s;
-  }
-  /* 与真机同款：抽屉内聚焦输入框停靠到「键盘」上沿（store 写内联 transform） */
+  /* 键盘占位：模拟键盘顶住壳下缘，滑到壳外的内容在此被盖住（= 真机键盘的遮挡行为） */
   .kb-sim-band {
     position: fixed; bottom: 0; z-index: 60;
     top: calc(55dvh + 12px); /* 手机壳底缘（12px 上边距 + 55dvh），紧贴模拟键盘 */

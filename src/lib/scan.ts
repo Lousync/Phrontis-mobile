@@ -1,42 +1,82 @@
 /**
  * 相机扫码（配对兜底路径）：getUserMedia 取后置摄像头 → 定时抓帧 → jsQR 解码。
  *
- * 为什么不用 BarcodeDetector：Android WebView 上它靠 Play Services 模块，是否有不确定；
- * jsQR 是纯 JS，APK 与浏览器行为一致，桌面冒烟也能跑。
- * **jsQR 走动态 import**：它单独 130KB，扫码是低频路径，不该压在首屏包里（打开抽屉时才拉）。
+ * 三个实测要点（2026-11-06 真机反馈后重写）：
+ * 1. **必须显式 muted + 显式 play()**：Android WebView 里 <video autoPlay muted> 仍可能被
+ *    自动播放策略拦住，画面停在「大播放键」的占位态——这时 jsQR 一帧都拿不到，表象是「扫不出」。
+ *    play() 失败要回调 UI 让用户点一下（用户手势必然放行）。
+ * 2. **jsQR 与开相机并行**：解码器是独立 chunk（130KB），串行等它会把首帧再推后。
+ * 3. **限定分辨率**：不约束时部分机型会以最高档开流，首帧要 1s+；1280×720 足够解码且明显更快。
  *
- * 注意：浏览器里 getUserMedia 需要**安全上下文**（https 或 localhost）——
- * 用 http://192.168.x.x 打开的开发页会直接没有 navigator.mediaDevices，
- * 这是预期降级（APK 内是 https://localhost，不受影响）。
+ * 浏览器里 getUserMedia 需要**安全上下文**（https 或 localhost）：
+ * 用 http://192.168.x.x 打开的开发页没有 navigator.mediaDevices，属预期降级（APK 内不受影响）。
  */
+
+export type ScanState = 'starting' | 'ready' | 'tap'
 
 export interface ScanHandle {
   stop(): void
+  /** 自动播放被拦时由用户点一下画面触发；成功返回 true */
+  play(): Promise<boolean>
 }
 
 const DECODE_INTERVAL_MS = 200
 const MAX_FRAME_WIDTH = 640
 
-export async function startQrScanner(video: HTMLVideoElement, onHit: (text: string) => void): Promise<ScanHandle> {
+export async function startQrScanner(
+  video: HTMLVideoElement,
+  onHit: (text: string) => void,
+  onState: (s: ScanState) => void,
+): Promise<ScanHandle> {
   const media = navigator.mediaDevices
   if (!media?.getUserMedia) {
-    throw new Error('当前环境拿不到摄像头：浏览器需 https（或 localhost），用 APK 打开即可扫码')
+    throw new Error('当前环境拿不到摄像头：浏览器需 https 或 localhost，用 APK 打开即可扫码')
   }
-  /* 动态拉解码器：130KB 的低频依赖不进首屏包 */
-  const { default: jsQR } = await import('jsqr')
+
+  /* 开相机与拉解码器并行，少等一截 */
+  const camPromise = media.getUserMedia({
+    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false,
+  })
+  const modPromise = import('jsqr')
+
   let stream: MediaStream
   try {
-    stream = await media.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
+    stream = await camPromise
   } catch (e) {
     const name = e instanceof DOMException ? e.name : ''
     if (name === 'NotAllowedError' || name === 'SecurityError') throw new Error('相机权限被拒绝：到系统设置里允许 Phrontis 使用相机')
     if (name === 'NotFoundError' || name === 'OverconstrainedError') throw new Error('没找到可用的摄像头')
     throw new Error('打开相机失败' + (e instanceof Error ? '：' + e.message : ''))
   }
+  const { default: jsQR } = await modPromise
 
-  video.srcObject = stream
+  video.muted = true
+  video.playsInline = true
   video.setAttribute('playsinline', 'true')
-  await video.play().catch(() => { /* 自动播放被拦时靠用户点一下画面 */ })
+  video.srcObject = stream
+
+  const play = async (): Promise<boolean> => {
+    try {
+      await video.play()
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /* 首帧：先直接 play；被拦就等元数据再试一次，仍不行交回 UI 让用户点 */
+  if (await play()) {
+    onState('ready')
+  } else {
+    await new Promise<void>(res => {
+      const done = () => res()
+      video.addEventListener('loadedmetadata', done, { once: true })
+      setTimeout(done, 900)
+    })
+    if (await play()) onState('ready')
+    else onState('tap')
+  }
 
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
@@ -53,7 +93,7 @@ export async function startQrScanner(video: HTMLVideoElement, onHit: (text: stri
 
   const tick = () => {
     if (stopped) return
-    if (ctx && video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth) {
+    if (ctx && video.readyState >= video.HAVE_CURRENT_DATA && video.videoWidth) {
       const scale = Math.min(1, MAX_FRAME_WIDTH / video.videoWidth)
       canvas.width = Math.round(video.videoWidth * scale)
       canvas.height = Math.round(video.videoHeight * scale)
@@ -70,5 +110,5 @@ export async function startQrScanner(video: HTMLVideoElement, onHit: (text: stri
   }
   tick()
 
-  return { stop }
+  return { stop, play }
 }

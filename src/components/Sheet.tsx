@@ -4,6 +4,10 @@ import { useApp } from '../lib/store'
 import { circleFrom } from '../lib/fx'
 
 /**
+ * ⛔ 已废弃（2026-11-06 UI 规范，见 AGENTS.md）：用户明确不要「从底部出来的抽屉」。
+ * 新功能不许再用；存量调用点（记一笔 / 待办 / 笔记 / 会话 / AI 配置 / 主题）改造时
+ * 按全屏子页或页内内联展开替换，此文件只许减少、不许新增用法。
+ *
  * 底部抽屉容器：默认滑入；带触发元素（sheetOrigin）时改用圆形扩散——
  * 从 FAB / 行 / 按钮中心 clip-path 圆形铺开（280ms），遮罩照常淡入，关闭仍是直接卸载。
  * 含遮罩，点遮罩关闭。
@@ -30,7 +34,7 @@ export function Sheet({ children }: { children: ReactNode }) {
           [{ clipPath: `circle(0px at ${x}px ${y}px)` }, { clipPath: `circle(${r}px at ${x}px ${y}px)` }],
           { duration: 280, easing: 'cubic-bezier(.23,1,.32,1)' },
         )
-        /* 动画结束恢复 transition —— 键盘停靠要靠它把抽屉平滑上提 */
+        /* 动画结束恢复 transition —— 进出收起要靠 bottom 通道平滑滑动 */
         anim.finished.then(() => { el.style.transition = '' }).catch(() => { /* canceled：卸载中 */ })
         return () => { anim.cancel(); el.style.transition = '' }
       }
