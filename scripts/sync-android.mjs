@@ -19,6 +19,7 @@ const CFG = 'android/app/src/main/assets/capacitor.config.json'
 /* 1) 配置：从 capacitor.config.ts 现算，保证与源码永远一致 */
 const loaded = await loadConfigFromFile({ command: 'build', mode: 'production' }, 'capacitor.config.ts')
 if (!loaded) throw new Error('读不到 capacitor.config.ts')
+fs.mkdirSync('android/app/src/main/assets', { recursive: true }) // 全新克隆没有此目录（git 不跟踪空目录），直接写 config 会 ENOENT
 fs.writeFileSync(CFG, JSON.stringify(loaded.config, null, '\t') + '\n')
 console.log('[sync] config →', CFG, JSON.stringify(loaded.config.plugins ?? {}))
 
@@ -27,10 +28,12 @@ console.log('[sync] config →', CFG, JSON.stringify(loaded.config.plugins ?? {}
 if (!fs.existsSync(DIST + '/assets')) throw new Error('dist 不存在，先跑 vite build')
 const keep = new Set(fs.readdirSync(DIST + '/assets'))
 let removed = 0
-for (const f of fs.readdirSync(DST + '/assets')) {
-  if (!keep.has(f)) {
-    fs.unlinkSync(DST + '/assets/' + f)
-    removed++
+if (fs.existsSync(DST + '/assets')) { // 全新克隆没有旧产物目录，跳过清理（下一步 cpSync 会全量写入）
+  for (const f of fs.readdirSync(DST + '/assets')) {
+    if (!keep.has(f)) {
+      fs.unlinkSync(DST + '/assets/' + f)
+      removed++
+    }
   }
 }
 fs.cpSync(DIST, DST, { recursive: true, force: true })
