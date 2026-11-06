@@ -48,7 +48,8 @@ export const ACCOUNTS = ['微信', '支付宝', '现金', '银行卡']
 export function welcomeText(): string {
   const h = new Date().getHours()
   const g = h < 5 ? '夜深了' : h < 11 ? '早上好' : h < 13 ? '中午好' : h < 18 ? '下午好' : '晚上好'
-  return g + '。手机端就我一个 AI，<b>记账、改日程、写笔记都找我</b> —— 点左下角麦克风说一句，或直接打字。连上电脑后切「电脑 AI」，升级成带全库工具的完整助手。'
+  /* 文案走 markdown（渲染器会转义裸 HTML），所以加粗用 ** 而不是 <b> */
+  return g + '。手机端就我一个 AI，**记账、改日程、写笔记都找我** —— 点左下角麦克风说一句，或直接打字。连上电脑后切「电脑 AI」，升级成带全库工具的完整助手。'
 }
 
 export const VOICE_PHRASES = ['帮我记一笔午饭三十块', '把跑步改到明晚七点半', '记个想法：语音输入手感不错']
@@ -192,24 +193,137 @@ export function esc(s: string): string {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-export function mdRender(src: string): string {
-  const lines = esc(src).split('\n')
-  let html = '', inCode = false, inList = false
-  const closeList = () => { if (inList) { html += '</ul>'; inList = false } }
-  for (const ln of lines) {
-    if (ln.startsWith('```')) { closeList(); if (inCode) { html += '</code></pre>'; inCode = false } else { html += '<pre><code>'; inCode = true } continue }
-    if (inCode) { html += ln + '\n'; continue }
-    if (/^###\s/.test(ln)) { closeList(); html += '<h2>' + ln.slice(4) + '</h2>' }
-    else if (/^##\s/.test(ln)) { closeList(); html += '<h2>' + ln.slice(3) + '</h2>' }
-    else if (/^#\s/.test(ln)) { closeList(); html += '<h1>' + ln.slice(2) + '</h1>' }
-    else if (/^>\s?/.test(ln)) { closeList(); html += '<blockquote>' + ln.replace(/^>\s?/, '') + '</blockquote>' }
-    else if (/^[-*]\s/.test(ln)) { if (!inList) { html += '<ul>'; inList = true } html += '<li>' + ln.slice(2) + '</li>' }
-    else if (/^\d+\.\s/.test(ln)) { if (!inList) { html += '<ul>'; inList = true } html += '<li>' + ln.replace(/^\d+\.\s/, '') + '</li>' }
-    else if (ln.trim() === '') { closeList() }
-    else { closeList(); html += '<p>' + ln + '</p>' }
+/** 属性值转义（表格/链接复用；比 esc 多挡一个单引号） */
+const escAttr = (s: string): string => esc(s).replace(/'/g, '&#39;')
+
+/**
+ * 行内标记：粗体 / 斜体 / 删除线 / 行内代码 / 链接。
+ * 顺序很关键 —— 先把行内代码抽成占位符，否则 `**a**` 里若含 `*` 会被误当强调。
+ * 入参是**已转义**的文本（结构解析在转义之前，见 mdRender）。
+ */
+function mdInline(input: string): string {
+  const slots: string[] = []
+  let s = esc(input).replace(/`([^`]+)`/g, (_m, code: string) => {
+    slots.push(code)
+    return '\u0000' + (slots.length - 1) + '\u0000'
+  })
+  /* 链接：[文字](地址) —— 只放行常见协议，挡掉 javascript: 之类 */
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label: string, href: string) => {
+    const safe = /^(https?:|mailto:|#|\/)/i.test(href) ? href : '#'
+    return '<a href="' + safe + '" target="_blank" rel="noreferrer noopener">' + label + '</a>'
+  })
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>')
+  s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>')
+  /* 斜体：两侧不能是空格，避免把 `a * b * c` 这类算式吃掉 */
+  s = s.replace(/(^|[\s（(、，。])\*([^*\s][^*]*?)\*(?=$|[\s）)、，。])/g, '$1<em>$2</em>')
+  s = s.replace(/(^|[\s（(、，。])_([^_\s][^_]*?)_(?=$|[\s）)、，。])/g, '$1<em>$2</em>')
+  return s.replace(/\u0000(\d+)\u0000/g, (_m, n: string) => '<code>' + slots[Number(n)] + '</code>')
+}
+
+/** 表格块（表头 + 分隔行 + 数据行），返回 [html, 消耗行数] */
+function mdTable(lines: string[], start: number): [string, number] {
+  const cells = (ln: string): string[] =>
+    ln.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim())
+  const head = cells(lines[start])
+  let i = start + 2
+  const rows: string[][] = []
+  while (i < lines.length && lines[i].includes('|') && lines[i].trim() !== '') {
+    rows.push(cells(lines[i]))
+    i++
   }
-  closeList(); if (inCode) html += '</code></pre>'
-  return html.replace(/```/g, '').replace(/`([^`]+)`/g, '<code>$1</code>')
+  let html = '<table><thead><tr>' + head.map(c => '<th>' + mdInline(c) + '</th>').join('') + '</tr></thead><tbody>'
+  for (const r of rows) {
+    html += '<tr>' + head.map((_h, k) => '<td>' + mdInline(r[k] ?? '') + '</td>').join('') + '</tr>'
+  }
+  return [html + '</tbody></table>', i - start]
+}
+
+/**
+ * 极简 Markdown → HTML（AI 回答与笔记共用的渲染器）。
+ *
+ * 2026-11-06 对齐桌面端（react-markdown + remark-gfm）的观感，但**不引依赖**：
+ * 手机端主包只有 328KB，为聊天加一条 markdown 工具链不划算。覆盖模型输出的常见子集：
+ * 围栏代码块（带语言标签）、标题 h1–h6、有序/无序列表、引用、表格、分隔线、
+ * 段落（连续行合并为一段，与桌面 remark 的软换行一致）、行内粗体/斜体/删除线/代码/链接。
+ *
+ * 解析顺序：**先按原始文本判结构，输出时才转义** —— 否则 `>` 变成 `&gt;` 后引用语法就认不出了。
+ * 不支持：嵌套列表、脚注、公式、任务列表（`- [ ]`）、HTML 混排。AI 回答里极少出现，遇到时退化为文本。
+ */
+export function mdRender(src: string): string {
+  const lines = String(src ?? '').replace(/\r\n?/g, '\n').split('\n')
+  let html = ''
+  let list: '' | 'ul' | 'ol' = ''
+  const closeList = () => { if (list) { html += '</' + list + '>'; list = '' } }
+  const pushList = (kind: 'ul' | 'ol') => {
+    if (list !== kind) { closeList(); html += '<' + kind + '>'; list = kind }
+  }
+  const BLOCK_START = /^\s*(```|#{1,6}\s|>|\s*[-*+]\s|\s*\d+[.)]\s|---|\*\*\*|___)/
+
+  let i = 0
+  while (i < lines.length) {
+    const ln = lines[i]
+
+    /* 围栏代码块：```lang … ``` —— 内容原样转义，不做行内解析 */
+    const fence = ln.match(/^\s*```+\s*([\w+#.\-]*)\s*$/)
+    if (fence) {
+      closeList()
+      const lang = fence[1]
+      const buf: string[] = []
+      i++
+      while (i < lines.length && !/^\s*```+\s*$/.test(lines[i])) { buf.push(lines[i]); i++ }
+      i++
+      html += '<pre' + (lang ? ' data-lang="' + escAttr(lang) + '"' : '') + '><code>' + esc(buf.join('\n')) + '</code></pre>'
+      continue
+    }
+
+    /* 表格：本行含 | 且下一行是 |---|---| 分隔行 */
+    if (ln.includes('|') && i + 1 < lines.length && /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(lines[i + 1])) {
+      closeList()
+      const [tbl, used] = mdTable(lines, i)
+      html += tbl
+      i += used
+      continue
+    }
+
+    if (ln.trim() === '') { closeList(); i++; continue }
+
+    if (/^\s*(---+|\*\*\*+|___+)\s*$/.test(ln)) { closeList(); html += '<hr>'; i++; continue }
+
+    const h = ln.match(/^(#{1,6})\s+(.*)$/)
+    if (h) {
+      closeList()
+      const lv = h[1].length
+      html += '<h' + lv + '>' + mdInline(h[2]) + '</h' + lv + '>'
+      i++
+      continue
+    }
+
+    if (/^\s*>/.test(ln)) {
+      closeList()
+      const buf: string[] = []
+      while (i < lines.length && /^\s*>/.test(lines[i])) { buf.push(lines[i].replace(/^\s*>\s?/, '')); i++ }
+      html += '<blockquote>' + mdInline(buf.join(' ')) + '</blockquote>'
+      continue
+    }
+
+    const ul = ln.match(/^\s*[-*+]\s+(.*)$/)
+    if (ul) { pushList('ul'); html += '<li>' + mdInline(ul[1]) + '</li>'; i++; continue }
+
+    const ol = ln.match(/^\s*\d+[.)]\s+(.*)$/)
+    if (ol) { pushList('ol'); html += '<li>' + mdInline(ol[1]) + '</li>'; i++; continue }
+
+    /* 段落：连续的非空非块级行合并（软换行 → 空格，与桌面 remark 默认一致） */
+    closeList()
+    const buf: string[] = [ln.trim()]
+    i++
+    while (i < lines.length && lines[i].trim() !== '' && !BLOCK_START.test(lines[i]) && !/^\s*```/.test(lines[i])) {
+      buf.push(lines[i].trim()); i++
+    }
+    html += '<p>' + mdInline(buf.join(' ')) + '</p>'
+  }
+  closeList()
+  return html
 }
 
 export const fmtMoney = (n: number) => n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })

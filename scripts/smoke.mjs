@@ -147,6 +147,11 @@ ok('录音态（麦克风变红 + 波形条）', (await page.locator('#root .mic
 await page.locator('.mic-btn').click()
 await page.waitForTimeout(2800)
 ok('转写自动发送（AI 回复出现）', (await page.locator('#root .chat .msg.ai').count()) >= 2)
+/* 2026-11-06：落库后的 AI 消息此前直接 innerHTML 塞原文（**加粗** / 列表全是字面量）。
+   现在与流式共用 mdRender 并套 .md 排版，这里锁住「确实走了渲染器」而不是裸文本 */
+ok('AI 回复走 markdown 渲染器（.md 容器 + 段落）',
+  (await page.locator('#root .chat .msg.ai .md').count()) >= 2
+  && (await page.locator('#root .chat .msg.ai .md p').count()) >= 1)
 
 /* 设置：外观主题（一行入口 → 抽屉里一点即换 → 选中即关 + 持久化） */
 await page.locator('#root .dock button', { hasText: '设置' }).click()

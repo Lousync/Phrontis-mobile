@@ -75,6 +75,8 @@ export interface Msg {
   id: string
   role: 'user' | 'ai'
   text: string
+  /** 思考痕迹（手机直连档才有）：模型返回的 reasoning 原文，折叠展示；电脑档中继不返回 */
+  reason?: string
   card?: Card
   list?: Todo[]
   /** 电脑档：桌面端本轮真实写改动（changes 清单展示） */

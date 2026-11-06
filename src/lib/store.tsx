@@ -810,9 +810,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         let card: Card | undefined
         let rounds = 0
         let finalText = ''
+        /* 思考痕迹：多轮工具循环里每轮 reasoning 各存一段，落库时拼成一条折叠区（与桌面按轮分段的观感一致） */
+        const reasons: string[] = []
         while (rounds < AI_MAX_ROUNDS) {
           rounds++
           const reply = await chatOnce(cfg, history, AI_TOOLS, 60_000, ctrl.signal, sid)
+          if (reply.reasoning) reasons.push(reply.reasoning)
           if (!reply.toolCalls.length) { finalText = reply.content; break }
           history.push({ role: 'assistant', content: reply.content, tool_calls: reply.toolCalls })
           let proposed = false
@@ -831,7 +834,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
         }
         if (!finalText) finalText = rounds >= AI_MAX_ROUNDS ? '工具轮次用尽了，先到这里——换个问法再试试。' : '（模型没有返回内容）'
-        startReveal(finalText, f => { pushAiMsg({ role: 'ai', text: f, card }) })
+        const reason = reasons.length ? reasons.join('\n\n') : undefined
+        startReveal(finalText, f => { pushAiMsg({ role: 'ai', text: f, card, reason }) })
         abortRef.current = null
       } catch (e) {
         abortRef.current = null

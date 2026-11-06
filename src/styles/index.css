@@ -531,8 +531,30 @@ button.vault-line:disabled { cursor: default; }
 .md li { margin: 4px 0; }
 .md blockquote { border-left: 3px solid var(--border); padding: 2px 12px; color: var(--text-secondary); margin: 12px 0; }
 .md code { background: var(--bg-tertiary); padding: 1.5px 6px; border-radius: 5px; font-size: 12.5px; font-family: Consolas, monospace; }
-.md pre { background: var(--bg-primary); border: 1px solid var(--border-soft); border-radius: 10px; padding: 12px 14px; overflow-x: auto; margin: 10px 0; }
+.md pre { background: var(--bg-primary); border: 1px solid var(--border-soft); border-radius: 10px; padding: 12px 14px; overflow-x: auto; margin: 10px 0; position: relative; }
 .md pre code { background: none; padding: 0; }
+/* --- Markdown 补全（2026-11-06：对齐桌面 react-markdown + remark-gfm 的常见子集）--- */
+.md h3 { font-size: 15px; margin: 16px 0 8px; line-height: 1.45; }
+.md h4, .md h5, .md h6 { font-size: 14px; margin: 14px 0 6px; line-height: 1.45; color: var(--text-secondary); }
+/* 有序列表：旧实现把 `1.` 也渲染成 ul（没编号），这里补回真编号 */
+.md ol { padding-left: 22px; margin: 8px 0; list-style: decimal; }
+.md ul { list-style: disc; }
+.md li > p { margin: 0; }
+.md a { color: var(--accent-hover); text-decoration: none; border-bottom: 1px solid var(--border); }
+.md del { color: var(--text-muted); }
+.md hr { border: 0; border-top: 1px solid var(--border-soft); margin: 16px 0; }
+.md table { border-collapse: collapse; margin: 10px 0; font-size: 12.5px; display: block; max-width: 100%; overflow-x: auto; }
+.md th, .md td { border: 1px solid var(--border-soft); padding: 6px 9px; text-align: left; white-space: nowrap; }
+.md th { background: var(--bg-tertiary); font-weight: 600; }
+/* 代码块语言标签（桌面 codeBlockChrome="card" 的等价物）：右上角小签，不占正文行 */
+.md pre[data-lang]::before {
+  content: attr(data-lang); position: absolute; top: 0; right: 0;
+  padding: 2px 8px; font-size: 10px; letter-spacing: .4px; color: var(--text-muted);
+  background: var(--bg-tertiary); border-left: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft);
+  border-radius: 0 9px 0 8px;
+}
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
 .reader-foot { flex: none; padding: 10px 16px 16px; border-top: 1px solid var(--border-soft); background: var(--bg-primary); display: flex; gap: 10px; align-items: center; }
 .reader-foot .note { font-size: 11px; color: var(--text-muted); flex: 1; line-height: 1.5; }
 
@@ -546,8 +568,36 @@ button.vault-line:disabled { cursor: default; }
 .msg { max-width: 84%; font-size: 14px; line-height: 1.7; animation: msgIn .22s ease; }
 @keyframes msgIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .msg.user { align-self: flex-end; background: var(--accent); color: #fff; padding: 10px 14px; border-radius: 16px 16px 4px 16px; overflow-wrap: break-word; }
-.msg.ai { align-self: flex-start; background: var(--bg-primary); border: 1px solid var(--border-soft); padding: 11px 14px; border-radius: 16px 16px 16px 4px; }
-.msg.ai .cursor { display: inline-block; width: 7px; height: 14px; background: var(--accent); vertical-align: -2px; margin-left: 2px; animation: pulse .8s infinite; }
+/* AI 回答不再套气泡（2026-11-06 对齐桌面：正文直接排、无边框）——
+   长答案在 84% 宽的气泡里会被挤成细柱，去掉后与桌面阅读体验一致；用户消息仍保留右侧气泡作区分。 */
+.msg.ai { align-self: stretch; max-width: 100%; background: none; border: 0; padding: 0; border-radius: 0; }
+.msg.ai .md p, .msg.ai .md li { line-height: 1.8; }
+.msg.ai .md p { margin: 8px 0; }
+.msg.ai .md h1 { font-size: 18px; margin: 2px 0 10px; }
+.msg.ai .md h2 { font-size: 15px; margin: 14px 0 8px; }
+.msg.ai .md pre { background: var(--bg-tertiary); }
+/* 流式光标：挂在最后一块的末尾（不能作为独立子元素，否则会掉到下一行） */
+.msg.ai.streaming .md > :last-child::after {
+  content: ''; display: inline-block; width: 7px; height: 13px; margin-left: 3px;
+  vertical-align: -2px; background: var(--accent); animation: pulse .8s infinite;
+}
+
+/* 思考痕迹（对齐桌面 .kb-think：一行折叠 + 左细线展开体，不做二级盒子） */
+.think { margin: 0 0 6px; }
+.think-head {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 0;
+  border: 0; background: none; font: inherit; cursor: pointer;
+  font-size: 11.5px; color: var(--text-muted);
+}
+.think-head svg { transition: transform .18s ease; }
+.think.open .think-head svg { transform: rotate(90deg); }
+.think-head:active { color: var(--text-secondary); }
+.think-meta { font-size: 11px; opacity: .75; }
+.think-body {
+  margin: 4px 0 2px 5px; padding-left: 9px; border-left: 1px solid var(--border);
+  white-space: pre-wrap; font-size: 11.5px; line-height: 1.7; color: var(--text-muted);
+  max-height: 132px; overflow-y: auto;
+}
 .action-card { margin-top: 10px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 12px; padding: 12px; animation: itemIn .25s ease; }
 .action-card .ac-head { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--accent-hover); font-weight: 600; letter-spacing: .5px; }
 .action-card .ac-row { display: flex; align-items: baseline; gap: 8px; margin-top: 9px; }

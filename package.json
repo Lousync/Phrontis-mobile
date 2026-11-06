@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview --host",
     "smoke": "vite build && node scripts/smoke.mjs",
+    "verify:md": "node --experimental-strip-types --no-warnings scripts/verify-markdown.mjs",
     "cap:sync": "vite build && node scripts/sync-android.mjs",
     "android:open": "cap open android",
     "android:apk": "vite build && node scripts/sync-android.mjs && cd android && set \"JAVA_HOME=D:\\develp\\jdk-21.0.2\"&& set \"GRADLE_USER_HOME=D:\\develp\\.gradle\"&& gradlew.bat assembleDebug"
