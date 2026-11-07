@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { AiProvider } from '../lib/types'
 import { fetchModels, presetOf } from '../lib/ai'
-import { ICheck, IChevL, IRefresh, ISearch } from './icons'
+import { ICheck, IChevL, IRefresh, ISearch, IX } from './icons'
 
 /**
  * 模型选择器（design.md §0 2026-11-06 第 35⑥ 条，原型 prototype/model-picker.html）
@@ -10,9 +10,8 @@ import { ICheck, IChevL, IRefresh, ISearch } from './icons'
  * 形态：**全屏子页从右侧滑入**（同扫码页 scan-full），不是底部上伸抽屉——
  * 项目 UI 硬规则禁止 bottom sheet，别改回去。
  *
- * 为什么用 portal 挂到 .app：它由 AI 配置抽屉内部触发，而 `.sheet` 是
- * `overflow-y:auto` 的滚动容器，子元素 absolute inset:0 只会铺满抽屉内容区、
- * 且跟着抽屉滚走。portal 进壳层后才能真正盖住整屏（z-index 60 > sheet 41）。
+ * 为什么用 portal 挂到 .app：它由 AI 配置全屏子页（FullPage，z 50）内部触发，
+ * portal 进壳层后 z-index 60 才能盖住子页（与扫码页同级）。
  */
 export function ModelPicker({
   provider, baseUrl, apiKey, current, defaultModel, onPick, onClose,
@@ -92,7 +91,7 @@ export function ModelPicker({
           autoCorrect="off"
           spellCheck={false}
         />
-        {kw && <button className="mp-clear" onClick={() => { setKw(''); kwRef.current?.focus() }}>✕</button>}
+        {kw && <button className="mp-clear" onClick={() => { setKw(''); kwRef.current?.focus() }}><IX size={13} /></button>}
       </div>
 
       <div className="mp-list">

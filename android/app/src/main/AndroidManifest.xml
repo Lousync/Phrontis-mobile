@@ -50,4 +50,11 @@
     <!-- 扫码配对：Capacitor 的 BridgeWebChromeClient 会把 WebView 的 VIDEO_CAPTURE 请求
          转成 CAMERA 运行时权限弹窗（须先在此声明，否则 hasDefinedPermission 为假） -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 日程提醒的本地通知（@capacitor/local-notifications）：Android 13+ 通知是运行时权限，
+         由 lib/notify.ts 启动时 requestPermissions 弹窗申请；13 以下安装即有。
+         拒绝后不再反复骚扰，设置页「工具」卡有状态行引导去系统设置重开。 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 触感反馈：navigator.vibrate 在 WebView 里要求 app 持有该权限，未声明会静默失败
+         （勾选待办 / 长按删除的 10ms 顿感此前在真机上实际不生效） -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 </manifest>

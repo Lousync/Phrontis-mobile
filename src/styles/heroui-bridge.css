@@ -1,0 +1,70 @@
+/* ============================================================
+ * HeroUI v3 ↔ 本项目主题令牌桥接层
+ *
+ * 背景：HeroUI 的语义令牌（--background/--surface/--accent…）只在
+ * [data-theme="light"] / [data-theme="dark"] 两个块里定义；本项目
+ * 的 5 套自定义主题（opencode + 四季）都不命中这两个选择器，
+ * HeroUI 组件在这 5 套主题下会拿不到颜色（渲染成透明/回退值）。
+ *
+ * 本文件把 HeroUI 语义令牌映射到各自定义主题已有的
+ * --bg- 系列、--text- 系列、--green/--red/--amber 变量上，HeroUI 组件
+ * 即可随全部 7 套主题联动。dark / light 两套不需要映射：
+ *   - 令牌由 HeroUI 自带块提供（组件走 HeroUI 默认苹果风观感）；
+ *   - --accent / --border 等同名令牌被本项目 :root[data-theme] 块
+ *     （特异性更高、无 layer）覆盖为项目色，自动形成"项目强调色
+ *     + HeroUI 中性色"的混合，属预期行为。
+ *
+ * 映射对照（HeroUI ← 本项目）：
+ *   --background ← --bg-primary      --surface ← --bg-secondary
+ *   --foreground ← --text-primary    --surface-secondary ← --bg-tertiary
+ *   --muted ← --text-muted           --surface-tertiary ← --bg-hover
+ *   --success/--danger/--warning ← --green/--red/--amber
+ * 新增主题时：在下面选择器列表补一行 :root[data-theme="新主题"] 即可。
+ * ============================================================ */
+
+:root[data-theme="opencode"],
+:root[data-theme="spring"],
+:root[data-theme="summer"],
+:root[data-theme="autumn"],
+:root[data-theme="winter"] {
+  color-scheme: light;
+
+  /* 画布与前景 */
+  --background: var(--bg-primary);
+  --foreground: var(--text-primary);
+
+  /* 非浮层表面（卡片、折叠组） */
+  --surface: var(--bg-secondary);
+  --surface-foreground: var(--text-primary);
+  --surface-secondary: var(--bg-tertiary);
+  --surface-secondary-foreground: var(--text-primary);
+  --surface-tertiary: var(--bg-hover);
+  --surface-tertiary-foreground: var(--text-primary);
+
+  /* 浮层表面（菜单、气泡；本项目禁用底部抽屉，正常用不到 overlay 系） */
+  --overlay: var(--bg-secondary);
+  --overlay-foreground: var(--text-primary);
+
+  /* 中性控件底色 */
+  --default: var(--bg-hover);
+  --default-foreground: var(--text-primary);
+  --muted: var(--text-muted);
+
+  /* 表单域 */
+  --field-background: var(--bg-secondary);
+  --field-foreground: var(--text-primary);
+  --field-placeholder: var(--text-muted);
+
+  /* 状态色（对号入座，语义同桌面插件映射口径） */
+  --success: var(--green);
+  --danger: var(--red);
+  --warning: var(--amber);
+
+  /* 分隔 / 焦点 / 链接 */
+  --separator: var(--border-soft);
+  --focus: var(--accent);
+  --link: var(--blue);
+
+  /* 遮罩（ScanOverlay 等全屏覆盖已有自研实现，此处仅兜底） */
+  --backdrop: rgba(0, 0, 0, .5);
+}

@@ -3,7 +3,7 @@ import type { Msg, NoteProposal, QuizAddProposal, QuizDelProposal, QuizNotePropo
 import { fmtMoney, mdRender, sessGroupKey, TODO_TYPE_LABEL } from '../../lib/data'
 import { useApp } from '../../lib/store'
 import { ICheck, IHistory, IMic, ISearch, ISend, ISparkle, IPlus, IDots, IStop, IChevR } from '../icons'
-import { Grip, Sheet } from '../Sheet'
+import { FullPage, FullPageHead } from '../FullPage'
 import { PageHead } from '../chrome'
 
 const TODO_DOT: Record<string, string> = { deadline: 'var(--red)', plan: 'var(--blue)', daily: 'var(--green)' }
@@ -259,8 +259,9 @@ export function SessionSheet() {
   }
 
   return (
-    <Sheet>
-      <Grip />
+    <FullPage>
+      <FullPageHead title="会话记录" />
+      <div className="fp-body">
       <div className="search-box" style={{ marginBottom: 10 }}>
         <ISearch />
         <input value={kw} onChange={e => setKw(e.target.value)} placeholder="搜索历史会话" />
@@ -273,7 +274,8 @@ export function SessionSheet() {
       <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', marginTop: 14, lineHeight: 1.6 }}>
         长按会话可置顶 / 重命名 / 删除 · 会话存手机本地，跨端同步放二期
       </div>
-    </Sheet>
+      </div>
+    </FullPage>
   )
 }
 

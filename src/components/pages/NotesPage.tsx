@@ -171,7 +171,7 @@ export function NotesPage({ active }: { active: boolean }) {
             <IBook size={30} />
             <p>从左侧文件树选一篇笔记开始阅读</p>
             <span>目录跳转 · 字号调节 · 选择同步自动保持最新</span>
-            <button className="btn-primary" onClick={startNewNote}><IPen size={14} style={{ marginRight: 6 }} />新建笔记</button>
+            <button className="btn-primary" onClick={startNewNote}><IPen size={14} />新建笔记</button>
           </div>
         )}
         {editorEl}

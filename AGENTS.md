@@ -20,4 +20,5 @@
   - 系统级提示、阻塞性状态 → **全屏 overlay**（覆盖壳层，仍然不是从底部弹出）
 - 动效同源约束：入场用整页切换（全局已有页面圆形扩散），不要用「自下而上位移」。
 - **⛔ 手机端只有竖屏，横屏是平板端的事**：手机锁竖屏由 `MainActivity.applyOrientationPolicy()` 按 `sw600dp` 运行时判定（<600dp 锁 PORTRAIT，≥600dp 交给系统）。**不要在 AndroidManifest 里写 `android:screenOrientation`** —— 那是静态值，会把平板一起锁死。前端也不得为「手机横屏」做任何布局分支。
-- `src/components/Sheet.tsx` 与它的调用点（记一笔 / 待办 / 笔记 / 会话 / AI 配置 / 主题）是**历史遗留**：只许减少、不许新增；改造时按上面三种形态替换。
+- ~~`src/components/Sheet.tsx` 历史遗留~~ **已清偿（2026-11-07）**：`Sheet.tsx` 已删除，原调用点全部改为三形态——主题=外观卡内联展开；记一笔 / 添加待办 / 会话记录 / AI 配置=全屏子页（`src/components/FullPage.tsx`，从触发点圆形扩散入场，与全局切页动效同源）。新独立任务一律复用 `FullPage`，bottom sheet 禁令照旧。
+- 类名空间（2026-11-07）：本项目自研类与 HeroUI v3 组件类已隔离，原同名裸类改名为 `.ph-card` / `.ph-chip` / `.ph-tag` / `.ph-toast`；HeroUI 的 Card/Chip/Tag/Toast 可安全使用。**新增自研类不要用裸通用名**（button/field/label 等已被 HeroUI 占用）。

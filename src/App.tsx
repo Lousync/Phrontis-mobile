@@ -8,7 +8,7 @@ import { LedgerPage, TxSheet } from './components/pages/LedgerPage'
 import { NotesPage } from './components/pages/NotesPage'
 import { QuizPage } from './components/pages/QuizPage'
 import { UsagePage } from './components/pages/UsagePage'
-import { SettingsPage, AiConfigSheet, ThemePickerSheet } from './components/pages/SettingsPage'
+import { SettingsPage, AiConfigSheet } from './components/pages/SettingsPage'
 import { ScanOverlay } from './components/ScanOverlay'
 
 function Shell() {
@@ -34,7 +34,6 @@ function Shell() {
         {sheet === 'todo' && <TodoSheet selDate={selDate} />}
         {sheet === 'sessions' && <SessionSheet />}
         {sheet === 'ai-config' && <AiConfigSheet />}
-        {sheet === 'theme' && <ThemePickerSheet />}
         {sheet === 'scan' && <ScanOverlay />}
         <Toasts />
       </div>

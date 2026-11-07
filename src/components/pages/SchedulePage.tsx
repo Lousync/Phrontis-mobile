@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Habit, Todo, TodoType } from '../../lib/types'
+import { ToggleButton, ToggleButtonGroup } from '@heroui/react'
+import type { Habit, SchedView, Todo, TodoType } from '../../lib/types'
 import { TODO_TYPE_LABEL, TODAY, dayIso, fmtMin, weekOf } from '../../lib/data'
 import { burstAt } from '../../lib/fx'
 import { useApp } from '../../lib/store'
 import { useFormFactor } from '../../lib/useFormFactor'
-import { IChevL, IChevR, IPlus } from '../../components/icons'
-import { Grip, Sheet } from '../../components/Sheet'
+import { ICheck, IChevL, IChevR, IPlus } from '../../components/icons'
+import { FullPage, FullPageHead } from '../../components/FullPage'
 import { PageHead } from '../../components/chrome'
 
 /** 两笔对勾（逐段绘制用），待办与打卡共用 */
@@ -69,10 +70,11 @@ function TodoItem({ t, confirming, onAsk, onConfirm, onCancel }: {
           <>
             <div className="todo-title">{t.title}</div>
             <div className="todo-meta">
-              <span className={'tag ' + t.type}>{TODO_TYPE_LABEL[t.type]}</span>
-              {t.time && <span>{t.time}</span>}
+              <span className={'ph-tag ' + t.type}>{TODO_TYPE_LABEL[t.type]}</span>
+              {/* 排期区间已带出开始时间时不再重复一个裸时间芯片（unslop 布局去重） */}
+              {t.time && !(t.sched && fmtMin(t.sched.s) === t.time) && <span>{t.time}</span>}
               {t.sched && <span className="sched-chip">{fmtMin(t.sched.s)}–{fmtMin(t.sched.e)}</span>}
-              {t.subTotal ? <span className="sub-chip">☑ {t.subDone}/{t.subTotal}</span> : null}
+              {t.subTotal ? <span className="sub-chip"><ICheck size={11} /> {t.subDone}/{t.subTotal}</span> : null}
               <span>{t.tag}</span>
             </div>
           </>
@@ -94,7 +96,7 @@ function renderTodoList(dayTodos: Todo[], delId: string | null, ask: (id: string
     html.push(
       <div className="group-wrap" key={type}>
         <div className="group-head"><span className={'gn ' + cls}>{label}</span><span className="gline" /><span>{items.length}</span></div>
-        <div className="card" style={{ padding: '2px 14px' }}>
+        <div className="ph-card" style={{ padding: '2px 14px' }}>
           {items.map(t => <TodoItem key={t.id} t={t} confirming={delId === t.id} onAsk={ask} onConfirm={confirm} onCancel={cancel} />)}
         </div>
       </div>,
@@ -104,7 +106,7 @@ function renderTodoList(dayTodos: Todo[], delId: string | null, ask: (id: string
     html = html.concat(
       <div className="group-wrap" key="done">
         <div className="group-head"><span className="gn" style={{ color: 'var(--text-muted)' }}>已完成</span><span className="gline" /><span>{done.length}</span></div>
-        <div className="card" style={{ padding: '2px 14px' }}>
+        <div className="ph-card" style={{ padding: '2px 14px' }}>
           {done.map(t => <TodoItem key={t.id} t={t} confirming={delId === t.id} onAsk={ask} onConfirm={confirm} onCancel={cancel} />)}
         </div>
       </div>,
@@ -162,7 +164,7 @@ function HabitCard({ h }: { h: Habit }) {
   const pct = Math.min(100, h.weekDone / h.target * 100)
   const WD = ['一', '二', '三', '四', '五', '六', '日']
   return (
-    <div className="card habit-card" style={{ ['--hc' as string]: h.color }}>
+    <div className="ph-card habit-card" style={{ ['--hc' as string]: h.color }}>
       <div className="habit-top">
         <div className="habit-dot" style={{ background: `color-mix(in srgb, ${h.color} 15%, transparent)`, color: h.color }}>{h.char}</div>
         <div className="habit-name">{h.name}</div>
@@ -201,19 +203,29 @@ function TodoSheet({ selDate }: { selDate: string }) {
     closeSheet()
   }
   return (
-    <Sheet>
-      <Grip />
-      <h3>添加待办</h3>
+    <FullPage>
+      <FullPageHead title="添加待办" />
+      <div className="fp-body">
       <div className="field"><label>标题</label><input autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder="要做什么？" onKeyDown={e => { if (e.key === 'Enter') save() }} /></div>
-      <div className="seg">
+      <ToggleButtonGroup
+        aria-label="待办类型"
+        size="sm"
+        fullWidth
+        selectionMode="single"
+        disallowEmptySelection
+        selectedKeys={new Set([type])}
+        onSelectionChange={keys => { const k = [...keys][0]; if (k) setType(k as TodoType) }}
+        style={{ marginBottom: 14 }}
+      >
         {(['plan', 'deadline', 'daily'] as TodoType[]).map(t => (
-          <button key={t} className={type === t ? 'on' : ''} onClick={() => setType(t)}>{TODO_TYPE_LABEL[t]}</button>
+          <ToggleButton key={t} id={t}>{TODO_TYPE_LABEL[t]}</ToggleButton>
         ))}
-      </div>
+      </ToggleButtonGroup>
       <div className="field"><label>日期</label><input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
       <div className="field"><label>时间（可选）</label><input type="time" value={time} onChange={e => setTime(e.target.value)} /></div>
       <button className="btn-primary" onClick={save}>保存到手机</button>
-    </Sheet>
+      </div>
+    </FullPage>
   )
 }
 
@@ -250,11 +262,20 @@ function QuickTodoAdd({ selDate, onClose }: { selDate: string; onClose: () => vo
         />
         <button className="btn-primary qa-go" onClick={save}>添加</button>
       </div>
-      <div className="seg">
+      <ToggleButtonGroup
+        aria-label="待办类型"
+        size="sm"
+        fullWidth
+        selectionMode="single"
+        disallowEmptySelection
+        selectedKeys={new Set([type])}
+        onSelectionChange={keys => { const k = [...keys][0]; if (k) setType(k as TodoType) }}
+        style={{ marginBottom: 14 }}
+      >
         {(['plan', 'deadline', 'daily'] as TodoType[]).map(t => (
-          <button key={t} className={type === t ? 'on' : ''} onClick={() => setType(t)}>{TODO_TYPE_LABEL[t]}</button>
+          <ToggleButton key={t} id={t}>{TODO_TYPE_LABEL[t]}</ToggleButton>
         ))}
-      </div>
+      </ToggleButtonGroup>
       <div className="qa-row">
         <input type="time" value={time} onChange={e => setTime(e.target.value)} />
         <span className="qa-hint">记到 {selDate === TODAY ? '今天' : selDate} · Enter 添加</span>
@@ -317,13 +338,19 @@ export function SchedulePage({ active }: { active: boolean }) {
         <button className="today-jump" onClick={() => { setWeekOff(0); setSelDate(TODAY) }}>回到今天</button>
       )}
 
-      <div className="view-seg">
-        {(['list', 'grid', 'habit'] as const).map(v => (
-          <button key={v} className={schedView === v ? 'on' : ''} onClick={() => setSchedView(v)}>
-            {v === 'list' ? '待办' : v === 'grid' ? '排期' : '打卡'}
-          </button>
+      <ToggleButtonGroup
+        aria-label="视图切换"
+        size="sm"
+        fullWidth
+        selectionMode="single"
+        disallowEmptySelection
+        selectedKeys={new Set([schedView])}
+        onSelectionChange={keys => { const k = [...keys][0]; if (k) setSchedView(k as SchedView) }}
+      >
+        {([['list', '待办'], ['grid', '排期'], ['habit', '打卡']] as const).map(([v, label]) => (
+          <ToggleButton key={v} id={v}>{label}</ToggleButton>
         ))}
-      </div>
+      </ToggleButtonGroup>
 
       {schedView === 'list' && renderTodoList(
         dayTodos,
@@ -333,7 +360,9 @@ export function SchedulePage({ active }: { active: boolean }) {
         () => setDelId(null),
       )}
       {schedView === 'grid' && <DayGrid key={selDate} dayTodos={dayTodos} />}
-      {schedView === 'habit' && habits.map(h => <HabitCard key={h.id} h={h} />)}
+      {schedView === 'habit' && (habits.length
+        ? habits.map(h => <HabitCard key={h.id} h={h} />)
+        : <div className="empty">还没有打卡习惯</div>)}
 
       {schedView === 'list' && !tablet && (
         <button className="add-bar" onClick={e => openSheet('todo', e.currentTarget)}>

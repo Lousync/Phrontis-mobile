@@ -17,6 +17,9 @@ export default defineConfig({
     host: true,
     // 平板开发线独立端口：5173 留给主树开发线
     port: 5180,
+    // android/ 的 Gradle 产物（build/reports 等）由后台 daemon 间歇写入，
+    // 不排除会让 dev server 触发整页刷新、打断浏览器里的调试验证（2026-11-07 实测踩坑）
+    watch: { ignored: ['**/android/**', '**/dist/**'] },
     // node_modules 是指向主仓（Phrontis-mobile）的 junction，vite dev 按 realpath
     // 判定模块来源，真身在 worktree 之外 → 不放行静态资源会 403。
     // 普通 checkout 下 realpath 即自身路径，此配置零副作用，合并回主线无需回退。

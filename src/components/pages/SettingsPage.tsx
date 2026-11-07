@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
+import { Switch, SwitchContent, SwitchControl, SwitchThumb } from '@heroui/react'
 import type { AiConfig, AiProvider, ThemeName } from '../../lib/types'
 import { AI_PRESETS, aiConfigReady, fetchModels, presetOf, testAiConfig, type AiPreset } from '../../lib/ai'
 import { discoverCompanions, pollPair, requestPair, type DiscoveredPc } from '../../lib/sync'
 import { useApp } from '../../lib/store'
-import { IBars, ICheck, IChevL, IChevR, IKeyboard, IMonitor, IRefresh, ISparkle, IX, IEye } from '../../components/icons'
+import { IBars, IBell, ICheck, IChevL, IChevR, IKeyboard, IMonitor, IRefresh, ISparkle, IX, IEye } from '../../components/icons'
 import { PageHead } from '../../components/chrome'
 import { ModelPicker } from '../../components/ModelPicker'
-import { Sheet, Grip } from '../Sheet'
+import { FullPage } from '../FullPage'
 
 /** 主题选择器清单（色板预览用固定色值——色板必须展示目标主题自己的颜色，不能随当前主题变） */
 const THEME_PICKS: Array<{ id: ThemeName; name: string; bg: string; line: string; dot: string }> = [
@@ -36,6 +37,7 @@ export function SettingsPage({ active }: { active: boolean }) {
   const [found, setFound] = useState<DiscoveredPc[]>([])
   const [pairMsg, setPairMsg] = useState('')
   const [manualOpen, setManualOpen] = useState(false)
+  const [themeOpen, setThemeOpen] = useState(false)
   const [pairReq, setPairReq] = useState<{ baseUrl: string; pcName: string; requestId: string; code: string } | null>(null)
   const pollRef = useRef<number | null>(null)
 
@@ -134,7 +136,7 @@ export function SettingsPage({ active }: { active: boolean }) {
 
       <div>
         <div className="set-label">同步</div>
-        <div className="card">
+        <div className="ph-card">
           {!paired ? (
             pairReq ? (
               /* 已向电脑发起请求：同屏 4 位码核对，电脑点「允许」后自动落盘 */
@@ -243,21 +245,9 @@ export function SettingsPage({ active }: { active: boolean }) {
         </div>
       </div>
 
-      {/* 同步范围：v1 域模型里 ledger + schedule 恒同步、notes 上行无条件应用，没有可选域。
-          原四行开关是未接线的假 useState（点击只改本地 state，不影响任何同步行为），
-          2026-11-06 拍板砍掉，改为一行说明；将来实现可选域需按「域级开关 + 关闭域双向停摆」完整设计。 */}
-      <div>
-        <div className="set-label">同步范围</div>
-        <div className="card" style={{ padding: '12px 14px' }}>
-          <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-            同步内容：记账 + 日程 + 笔记上行（删除双向）
-          </div>
-        </div>
-      </div>
-
       <div>
         <div className="set-label">工具</div>
-        <div className="card" style={{ padding: '2px 14px' }}>
+        <div className="ph-card" style={{ padding: '2px 14px' }}>
           {/* 用量从底栏降级到这里的二级入口（M3 ≤5 规范） */}
           <button className="tool-row" onClick={e => setActiveTab('usage', e.currentTarget)}>
             <span className="tool-ico"><IBars /></span>
@@ -267,12 +257,13 @@ export function SettingsPage({ active }: { active: boolean }) {
             </span>
             <IChevR size={14} />
           </button>
+          <NotifPermRow />
         </div>
       </div>
 
       <div>
         <div className="set-label">AI 模型（手机直连）</div>
-        <div className="card">
+        <div className="ph-card">
           <div className="device-card">
             <div className="device-ico"><ISparkle /></div>
             <div className="info">
@@ -296,10 +287,10 @@ export function SettingsPage({ active }: { active: boolean }) {
 
       <div>
         <div className="set-label">外观</div>
-        <div className="card">
+        <div className="ph-card">
           {/* 外观：一行式主题入口（2026-11-06 方案 A——七套平铺占两行半高度，收进抽屉；
              色板展示目标主题自己的颜色，不随当前主题变） */}
-          <button className="theme-entry" onClick={e => openSheet('theme', e.currentTarget)}>
+          <button className="theme-entry" onClick={() => setThemeOpen(v => !v)}>
             <span className="sw" style={{ background: curTheme.bg }}>
               <span className="dot" style={{ background: curTheme.dot }} />
               <i className="l1" style={{ background: curTheme.line }} />
@@ -309,13 +300,38 @@ export function SettingsPage({ active }: { active: boolean }) {
               <span className="n">{curTheme.name}</span>
               <span className="s">当前主题 · 点按更换</span>
             </span>
-            <IChevR size={14} />
+            <IChevR size={14} style={{ transform: themeOpen ? 'rotate(90deg)' : 'none', transition: 'transform .16s' }} />
           </button>
+          {themeOpen && (
+            <div className="theme-grid" style={{ marginTop: 12, marginBottom: 4 }}>
+              {THEME_PICKS.map(t => (
+                <button
+                  key={t.id}
+                  className={'theme-chip' + (theme === t.id ? ' on' : '')}
+                  onClick={() => { setTheme(t.id); setThemeOpen(false) }}
+                >
+                  <span className="sw" style={{ background: t.bg }}>
+                    <span className="dot" style={{ background: t.dot }} />
+                    <i className="l1" style={{ background: t.line }} />
+                    <i className="l2" style={{ background: t.line }} />
+                  </span>
+                  <span className="nm">{t.name}</span>
+                  {theme === t.id && <span className="tick"><ICheck size={10} /></span>}
+                </button>
+              ))}
+            </div>
+          )}
           {/* 桌面 letterbox 专用（触屏经 CSS 隐藏）：验证键盘弹出时贴底控件上提 */}
-          <div className="check-row kb-sim-row" onClick={toggleKbSim}>
-            <span className={'box' + (kbSim ? ' on' : '')}>{kbSim && <ICheck size={11} />}</span>
-            模拟输入法 <IKeyboard size={13} style={{ color: 'var(--text-muted)' }} />
+          <div className="check-row kb-sim-row">
+            <span>模拟输入法 <IKeyboard size={13} style={{ color: 'var(--text-muted)' }} /></span>
             <span className="why">桌面调试</span>
+            <Switch isSelected={kbSim} onChange={toggleKbSim} aria-label="模拟输入法" size="sm">
+              <SwitchContent>
+                <SwitchControl>
+                  <SwitchThumb />
+                </SwitchControl>
+              </SwitchContent>
+            </Switch>
           </div>
         </div>
       </div>
@@ -326,37 +342,35 @@ export function SettingsPage({ active }: { active: boolean }) {
 }
 
 /* =========================================================================
-   外观主题抽屉（2026-11-06 方案 A：一行入口 + 抽屉，取代设置页 3 列平铺）
-   点 chip 即 setTheme 并立即关闭，不做「留在抽屉里预览再手动关」。
-   色板固定取目标主题自己的色值（THEME_PICKS），不随当前主题变。
+   工具卡行（2026-11-07 主题选择器内联化：外观卡点主题入口就地展开 7 色板，
+   点 chip 即 setTheme 并收起，替代原「外观主题抽屉」——AGENTS.md 禁 bottom sheet）
    ========================================================================= */
-export function ThemePickerSheet() {
-  const { theme, setTheme, closeSheet } = useApp()
+/** 工具卡「提醒通知」状态行：真实接线 lib/notify.ts（浏览器 dev 恒为 unsupported；
+ * v7 插件没有 openSettings，拒绝态只能引导用户去系统设置，不做假跳转） */
+function NotifPermRow() {
+  const { notifPerm, requestNotifPerm, toast } = useApp()
+  const sub = notifPerm === 'granted' ? '已允许 · 日程到点提醒'
+    : notifPerm === 'denied' ? '已被拒绝 · 点看如何重开'
+    : notifPerm === 'prompt' ? '尚未申请 · 点按开启'
+    : '浏览器调试无通知 · 真机生效'
+  const onClick = async () => {
+    if (notifPerm === 'prompt') {
+      const r = await requestNotifPerm()
+      toast(r === 'granted' ? '通知已允许，日程到点会提醒' : '通知被拒绝 · 可去系统设置重开', r === 'granted' ? 'ok' : 'warn')
+    } else if (notifPerm === 'denied') {
+      toast('去系统设置 → 应用 → Phrontis → 通知，允许后回来', 'info')
+    } else if (notifPerm === 'granted') {
+      toast('通知已允许 · 日程到点会提醒', 'ok')
+    }
+  }
   return (
-    <Sheet>
-      <Grip />
-      <div className="aic-head">
-        <div className="aic-title">外观主题</div>
-        <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={closeSheet}><IX size={14} /></button>
-      </div>
-      <div className="theme-grid">
-        {THEME_PICKS.map(t => (
-          <button
-            key={t.id}
-            className={'theme-chip' + (theme === t.id ? ' on' : '')}
-            onClick={() => { setTheme(t.id); closeSheet() }}
-          >
-            <span className="sw" style={{ background: t.bg }}>
-              <span className="dot" style={{ background: t.dot }} />
-              <i className="l1" style={{ background: t.line }} />
-              <i className="l2" style={{ background: t.line }} />
-            </span>
-            <span className="nm">{t.name}</span>
-            {theme === t.id && <span className="tick"><ICheck size={10} /></span>}
-          </button>
-        ))}
-      </div>
-    </Sheet>
+    <button className="tool-row" onClick={() => void onClick()}>
+      <span className="tool-ico"><IBell /></span>
+      <span className="tool-body">
+        <span className="n">提醒通知</span>
+        <span className="s">{sub}</span>
+      </span>
+    </button>
   )
 }
 
@@ -378,17 +392,17 @@ export function AiConfigSheet() {
   const [formId, setFormId] = useState<AiProvider | null>(null)
   const p = formId ? presetOf(formId) : null
   return (
-    <Sheet>
-      <Grip />
-      <div className="aic-head">
-        <button className="icon-btn" style={{ visibility: step === 'form' ? 'visible' : 'hidden' }} onClick={() => setStep('pick')}>
+    <FullPage>
+      <div className="fp-head">
+        <button className="fp-back" onClick={() => (step === 'form' ? setStep('pick') : closeSheet())} aria-label="返回">
           <IChevL size={16} />
         </button>
-        <div className="aic-title">
+        <span className="fp-title">
           {step === 'edit' ? '编辑 AI 配置' : step === 'pick' ? '选择供应商' : `添加「${p?.name}」`}
-        </div>
-        <button className="icon-btn" onClick={closeSheet}><IX size={14} /></button>
+        </span>
+        <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={closeSheet}><IX size={14} /></button>
       </div>
+      <div className="fp-body">
       {step === 'edit' ? (
         <AiEditForm onSaved={closeSheet} />
       ) : step === 'pick' ? (
@@ -406,7 +420,8 @@ export function AiConfigSheet() {
           </div>
         </>
       ) : p && <AiPresetForm key={p.id} preset={p} onSaved={closeSheet} />}
-    </Sheet>
+      </div>
+    </FullPage>
   )
 }
 

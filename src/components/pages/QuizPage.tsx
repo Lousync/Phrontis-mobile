@@ -1,4 +1,12 @@
 import { useMemo, useState } from 'react'
+import {
+  Button,
+  ProgressBar,
+  ProgressBarFill,
+  ProgressBarTrack,
+  ToggleButton,
+  ToggleButtonGroup,
+} from '@heroui/react'
 import { useApp } from '../../lib/store'
 import type { QuizRecord } from '../../lib/types'
 import { IBack, ICheck } from '../../components/icons'
@@ -17,6 +25,9 @@ const shuffle = (arr: QuizRecord[]) => {
   return a
 }
 
+/* HeroUI 试点页：交互控件全部换装 HeroUI v3（Button / ToggleButtonGroup / ProgressBar），
+ * 布局容器仍走本项目自研类；CSS 覆盖见 index.css 末尾「HeroUI 试点」块。
+ * 守纪：不用 Modal/Drawer/Popover（AGENTS.md 禁底部抽屉），全部形态是页内内联。 */
 export function QuizPage({ active }: { active: boolean }) {
   const { quizRecords, answerQuiz } = useApp()
   const [mode, setMode] = useState<'shelf' | 'run'>('shelf')
@@ -95,7 +106,11 @@ export function QuizPage({ active }: { active: boolean }) {
         <div className="quiz-progress">
           <button className="icon-btn" onClick={() => setMode('shelf')} title="退出本轮，返回书架"><IBack /></button>
           <span>第 {idx + 1} / {queue.length} 题</span>
-          <div className="qp-bar"><div style={{ width: ((idx + 1) / queue.length * 100) + '%' }} /></div>
+          <ProgressBar aria-label="刷题进度" value={Math.round((idx + 1) / queue.length * 100)} size="sm" className="qp-hbar">
+            <ProgressBarTrack>
+              <ProgressBarFill />
+            </ProgressBarTrack>
+          </ProgressBar>
           <span className="qp-score">答对 {score.ok}</span>
         </div>
         <div className="quiz-card">
@@ -104,16 +119,17 @@ export function QuizPage({ active }: { active: boolean }) {
           {cur.type === 'choice' ? (
             <div className="qc-opts">
               {cur.options.map(o => {
-                let cls = 'qc-opt'
+                let cls = 'hq-opt'
                 if (revealed) {
-                  if (o.key === cur.answer) cls += ' right'
-                  else if (o.key === picked) cls += ' wrong'
-                } else cls += ''
+                  if (o.key === cur.answer) cls += ' hq-opt--right'
+                  else if (o.key === picked) cls += ' hq-opt--wrong'
+                  else cls += ' hq-opt--dim'
+                }
                 return (
-                  <button key={o.key} className={cls} onClick={() => pickChoice(o.key)} disabled={revealed}>
+                  <Button key={o.key} variant="secondary" fullWidth className={cls} onClick={() => pickChoice(o.key)} isDisabled={revealed}>
                     <span className="k">{o.key}</span>{o.text}
                     {revealed && o.key === cur.answer && <ICheck size={15} />}
-                  </button>
+                  </Button>
                 )
               })}
             </div>
@@ -125,19 +141,19 @@ export function QuizPage({ active }: { active: boolean }) {
                 placeholder="写下你的答案…（写完点「对答案」）"
                 disabled={revealed}
               />
-              {!revealed && <button className="btn-primary" onClick={() => setRevealed(true)} disabled={!shortText.trim()}>对答案</button>}
+              {!revealed && <Button variant="primary" size="sm" onClick={() => setRevealed(true)} isDisabled={!shortText.trim()}>对答案</Button>}
               {revealed && selfOk === null && (
                 <div className="qc-self">
                   <div className="qc-ref"><span className="lbl">参考答案</span>{cur.answer}</div>
                   <div className="qc-selfbtns">
-                    <button className="btn-ok" onClick={() => { answerQuiz(cur.id, true); setScore(s => ({ ok: s.ok + 1, total: s.total + 1 })); setSelfOk(true) }}>我答对了</button>
-                    <button className="btn-bad" onClick={() => { answerQuiz(cur.id, false); setScore(s => ({ ok: s.ok, total: s.total + 1 })); setSelfOk(true) }}>我答错了</button>
+                    <Button variant="primary" size="sm" className="hq-btn--ok" onClick={() => { answerQuiz(cur.id, true); setScore(s => ({ ok: s.ok + 1, total: s.total + 1 })); setSelfOk(true) }}>我答对了</Button>
+                    <Button variant="danger-soft" size="sm" onClick={() => { answerQuiz(cur.id, false); setScore(s => ({ ok: s.ok, total: s.total + 1 })); setSelfOk(true) }}>我答错了</Button>
                   </div>
                 </div>
               )}
             </div>
           )}
-          {!revealed && <button className="quiz-skip" onClick={skipQ}>跳过此题</button>}
+          {!revealed && <Button variant="ghost" size="sm" className="hq-skip" onClick={skipQ}>跳过此题</Button>}
           {revealed && cur.type === 'choice' && (
             <div className="qc-exp"><span className="lbl">解析</span>{cur.explanation}</div>
           )}
@@ -145,7 +161,7 @@ export function QuizPage({ active }: { active: boolean }) {
             <div className="qc-exp"><span className="lbl">解析</span>{cur.explanation}</div>
           )}
           {revealed && (cur.type === 'choice' || selfOk !== null) && (
-            <button className="btn-primary qc-next" onClick={nextQ}>{idx + 1 >= queue.length ? '完成本轮' : '下一题'}</button>
+            <Button variant="primary" fullWidth className="qc-next" onClick={nextQ}>{idx + 1 >= queue.length ? '完成本轮' : '下一题'}</Button>
           )}
         </div>
       </section>
@@ -156,22 +172,28 @@ export function QuizPage({ active }: { active: boolean }) {
   return (
     <section className={'page' + (active ? ' active' : '')}>
       <PageHead title="错题本">
-        <button className="btn-primary quiz-go" onClick={() => startRun()} disabled={!filtered.length}>
+        <Button variant="primary" size="sm" className="quiz-go" onClick={() => startRun()} isDisabled={!filtered.length}>
           刷题 · {filtered.filter(isUnmastered).length || filtered.length} 道
-        </button>
+        </Button>
       </PageHead>
       <div className="quiz-stats">
         <div className="qs"><b>{quizRecords.length}</b><span>总题数</span></div>
         <div className="qs warn"><b>{unmastered.length}</b><span>未掌握</span></div>
         <div className="qs ok"><b>{quizRecords.length - unmastered.length}</b><span>已掌握/未错</span></div>
       </div>
-      <div className="quiz-filters">
+      <ToggleButtonGroup
+        aria-label="档位筛选"
+        size="sm"
+        fullWidth
+        selectionMode="single"
+        disallowEmptySelection
+        selectedKeys={new Set([tier])}
+        onSelectionChange={keys => { const k = [...keys][0]; if (k) setTier(k as typeof tier) }}
+      >
         {[['all', '全部'], ['um', '未掌握'], ['t4', '顽固 ≥4'], ['t2', '中 2-3'], ['t1', '轻 1']].map(([id, label]) => (
-          <button key={id} className={'qf-chip' + (tier === id ? ' on' : '')} onClick={() => setTier(id as typeof tier)}>
-            {label as string}
-          </button>
+          <ToggleButton key={id} id={id}>{label as string}</ToggleButton>
         ))}
-      </div>
+      </ToggleButtonGroup>
       {books.map(b => {
         const worst = b.records.reduce((t, r) => Math.max(t, r.wrongCount), 0)
         const tierLabel = worst >= 4 ? '顽固' : worst >= 2 ? '中' : worst >= 1 ? '轻' : '未错'
@@ -182,7 +204,7 @@ export function QuizPage({ active }: { active: boolean }) {
               <span className={'qb-tier t' + (worst >= 4 ? '4' : worst >= 2 ? '2' : worst >= 1 ? '1' : '0')}>{tierLabel}</span>
               <span className="qb-title">{b.title}</span>
               <span className="qb-count">{b.records.length} 题{um ? ` · ${um} 未掌握` : ''}</span>
-              <button className="qb-run" onClick={() => startRun(b.records)}>刷此书</button>
+              <Button variant="secondary" size="sm" onClick={() => startRun(b.records)}>刷此书</Button>
             </div>
             <div className="qb-list">
               {b.records.map(r => (

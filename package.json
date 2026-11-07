@@ -17,6 +17,9 @@
   "dependencies": {
     "@capacitor/android": "^7.4.4",
     "@capacitor/core": "^7.4.4",
+    "@capacitor/local-notifications": "^7.0.7",
+    "@heroui/react": "^3.2.7",
+    "@heroui/styles": "^3.2.7",
     "dompurify": "^3.4.17",
     "jsqr": "^1.4.0",
     "marked": "^18.1.3",

@@ -1,7 +1,7 @@
 import { useApp } from '../lib/store'
 import { SidebarNotes } from './SidebarNotes'
 import { fmtMoney, TODAY } from '../lib/data'
-import { IBook, ICalendar, IChevL, IChevR, IGear, IQuiz, ISparkle, IWallet } from './icons'
+import { IBook, ICalendar, IChevL, IChevR, IGear, IQuiz, IPin, ISparkle, IWallet } from './icons'
 
 /* 平板侧栏 v3（design.md §10.1）：域切换条 + 上下文内容独占。
  * 顶部一行域图标把导航压到 ~44px，侧栏主体全给当前域内容（笔记=文件树、AI=会话列表…）。
@@ -67,7 +67,7 @@ export function TabletChrome() {
               <div className="tb-tree">
                 {sortedSessions.map(s => (
                   <button key={s.id} className={'tb-row' + (curSession === s.id ? ' on' : '')} onClick={() => switchSession(s.id)}>
-                    <span className="tb-row-t">{s.pinned ? '📌 ' : ''}{s.title}</span>
+                    <span className="tb-row-t">{s.pinned && <IPin size={11} style={{ verticalAlign: '-1.5px', marginRight: 3 }} />}{s.title}</span>
                     <span className="tb-row-v">{new Date(s.ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}</span>
                   </button>
                 ))}
@@ -82,7 +82,7 @@ export function TabletChrome() {
                 {[...books.entries()].map(([title, b]) => (
                   <button key={title} className="tb-row" onClick={e => setActiveTab('quiz', e.currentTarget)}>
                     <span className="tb-row-t">{title}</span>
-                    <span className={'tag ' + (b.worst >= 4 ? 'warn' : b.worst >= 2 ? 'mid' : 'ok')}>
+                    <span className={'ph-tag ' + (b.worst >= 4 ? 'warn' : b.worst >= 2 ? 'mid' : 'ok')}>
                       {b.worst >= 4 ? '顽固' : b.worst >= 2 ? '中' : b.worst >= 1 ? '轻' : '未错'}
                     </span>
                     <span className="tb-row-v">{b.unmastered}/{b.count}</span>
@@ -98,7 +98,7 @@ export function TabletChrome() {
               <div className="tb-tree">
                 {todayTodos.map(t => (
                   <button key={t.id} className="tb-row" onClick={e => setActiveTab('schedule', e.currentTarget)}>
-                    <span className={'tag ' + (t.done ? 'ok' : '')}>{t.done ? '完成' : t.time}</span>
+                    <span className={'ph-tag ' + (t.done ? 'ok' : '')}>{t.done ? '完成' : t.time}</span>
                     <span className="tb-row-t">{t.title}</span>
                   </button>
                 ))}

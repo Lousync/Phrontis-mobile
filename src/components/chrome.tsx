@@ -105,9 +105,9 @@ export function ShellChrome() {
 export function Toasts() {
   const { toasts } = useApp()
   return (
-    <div className="toast-wrap">
+    <div className="ph-toast-wrap">
       {toasts.map(t => (
-        <div key={t.id} className={'toast ' + t.type}>
+        <div key={t.id} className={'ph-toast ' + t.type}>
           <span className="tdot" />
           {t.msg}
         </div>

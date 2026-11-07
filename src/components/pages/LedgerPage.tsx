@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { ToggleButton, ToggleButtonGroup } from '@heroui/react'
 import type { Tx } from '../../lib/types'
 import {
   ACCOUNTS, CATS_EXPENSE, CATS_INCOME, CAT_COLORS, TODAY, fmtMoney,
@@ -6,7 +7,7 @@ import {
 } from '../../lib/data'
 import { useApp } from '../../lib/store'
 import { IChevL, IChevR, IPlus, IBackspace } from '../../components/icons'
-import { Grip, Sheet } from '../../components/Sheet'
+import { FullPage, FullPageHead } from '../../components/FullPage'
 import { PageHead } from '../../components/chrome'
 
 /** 记一笔 / 改一笔 双模式：tx-edit 打开时从 store.editTxId 钉住的条目预填 */
@@ -40,20 +41,29 @@ function TxSheet() {
   }
 
   return (
-    <Sheet>
-      <Grip />
-      <h3>{editing ? '改一笔' : '记一笔'}</h3>
-      <div className="seg">
-        <button className={type === 'expense' ? 'on' : ''} onClick={() => setType('expense')}>支出</button>
-        <button className={type === 'income' ? 'on' : ''} onClick={() => setType('income')}>收入</button>
-      </div>
+    <FullPage>
+      <FullPageHead title={editing ? '改一笔' : '记一笔'} />
+      <div className="fp-body">
+      <ToggleButtonGroup
+        aria-label="收支类型"
+        size="sm"
+        fullWidth
+        selectionMode="single"
+        disallowEmptySelection
+        selectedKeys={new Set([type])}
+        onSelectionChange={keys => { const k = [...keys][0]; if (k) setType(k as 'expense' | 'income') }}
+        style={{ marginBottom: 14 }}
+      >
+        <ToggleButton id="expense">支出</ToggleButton>
+        <ToggleButton id="income">收入</ToggleButton>
+      </ToggleButtonGroup>
       <div className="amt-display"><span className="cur">¥</span><span className="num">{(parseFloat(amt) || 0).toFixed(2)}</span></div>
       <div className="field"><label>日期（可补记）</label><input type="date" value={date} max={TODAY} onChange={e => setDate(e.target.value)} /></div>
       <div className="chip-row">
-        {cats.map(c => <button key={c} className={'chip' + (c === activeCat ? ' on' : '')} onClick={() => setCat(c)}>{c}</button>)}
+        {cats.map(c => <button key={c} className={'ph-chip' + (c === activeCat ? ' on' : '')} onClick={() => setCat(c)}>{c}</button>)}
       </div>
       <div className="chip-row">
-        {ACCOUNTS.map(a => <button key={a} className={'chip' + (a === acc ? ' on' : '')} onClick={() => setAcc(a)}>{a}</button>)}
+        {ACCOUNTS.map(a => <button key={a} className={'ph-chip' + (a === acc ? ' on' : '')} onClick={() => setAcc(a)}>{a}</button>)}
       </div>
       <div className="field">
         <label>名目（可选）</label>
@@ -69,7 +79,8 @@ function TxSheet() {
       <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', marginTop: 10 }}>
         {editing ? '改完待同步 · 与电脑按「最新改动为准」合并' : '保存即入本地账本 · 同步时并入电脑'}
       </div>
-    </Sheet>
+      </div>
+    </FullPage>
   )
 }
 
@@ -141,7 +152,7 @@ export function LedgerPage({ active }: { active: boolean }) {
           <button className="month-arrow" title="下一月" onClick={() => setMonth(m => monthShift(m, 1))}><IChevR size={14} /></button>
         </span>
       </PageHead>
-      <div className="card stat-row">
+      <div className="ph-card stat-row">
         <div className="stat"><div className="lab">支出</div><div className="val">¥{fmtMoney(stats.expense)}</div></div>
         <div className="stat"><div className="lab">收入</div><div className="val income">¥{fmtMoney(stats.income)}</div></div>
         <div className="stat"><div className="lab">结余</div><div className={'val' + (stats.balance > 0 ? ' income' : '')}>{stats.balance < 0 ? '-¥' : '¥'}{fmtMoney(Math.abs(stats.balance))}</div></div>
@@ -152,7 +163,7 @@ export function LedgerPage({ active }: { active: boolean }) {
         return (
           <div className="day-group" key={g.date}>
             <div className="day-label"><span>{txDisplay(g.date, '').date}</span><span>{sum < 0 ? '-' : '+'}¥{fmtMoney(Math.abs(sum))}</span></div>
-            <div className="card" style={{ padding: '2px 14px' }}>
+            <div className="ph-card" style={{ padding: '2px 14px' }}>
               {g.entries.map(e => (
                 <TxRow
                   key={e.id}
