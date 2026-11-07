@@ -1,0 +1,59 @@
+# 出未签名 iOS ipa（SideStore / iloader 免费签名路线）。
+# 本机无 macOS，iOS 原生壳只能在云端编：GitHub Actions 的 macos runner
+# 以 CODE_SIGNING_ALLOWED=NO 出 archive，压成 Payload ipa 传 artifact。
+# SideStore 导入该 ipa 后用免费 Apple ID 证书在本机签名安装（7 天有效，可续签）。
+#
+# 触发：Actions 页手动跑（workflow_dispatch），或推 tag ios-v* 自动出包。
+# 产物：Actions 运行页底部 artifact「phrontis-unsigned-ipa」下载 ipa。
+name: iOS unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['ios-v*']
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build web (tsc + vite)
+        run: npm run build
+
+      - name: Sync iOS platform (copy web assets + pods)
+        run: npx cap sync ios
+
+      - name: Archive unsigned
+        run: |
+          xcodebuild \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -sdk iphoneos \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$GITHUB_WORKSPACE/App.xcarchive" \
+            archive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p Payload
+          cp -R App.xcarchive/Products/Applications/*.app Payload/
+          zip -qr phrontis-unsigned.ipa Payload
+          ls -lh phrontis-unsigned.ipa
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: phrontis-unsigned-ipa
+          path: phrontis-unsigned.ipa
+          retention-days: 14

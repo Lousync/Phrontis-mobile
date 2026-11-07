@@ -9,3 +9,6 @@ Thumbs.db
 
 # 本地环境
 *.local
+
+# ZCode 本地工具配置（不入库）
+.zcode/
