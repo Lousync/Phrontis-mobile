@@ -134,11 +134,6 @@ export function NotesPage({ active }: { active: boolean }) {
             />
           ))}
       </div>
-      <div className="reader-foot">
-        <span className="note">
-          {vaultReader?.kind === 'phone' ? '手机笔记上行后在电脑收件箱继续整理' : '移动端 v1 只读电脑笔记，编辑回电脑进行'}
-        </span>
-      </div>
     </>
   )
 

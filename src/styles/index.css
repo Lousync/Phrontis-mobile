@@ -588,8 +588,6 @@ button.vault-line:disabled { cursor: default; }
 }
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
-.reader-foot { flex: none; padding: 10px 16px 16px; border-top: 1px solid var(--border-soft); background: var(--bg-primary); display: flex; gap: 10px; align-items: center; }
-.reader-foot .note { font-size: 11px; color: var(--text-muted); flex: 1; line-height: 1.5; }
 
 /* ============ AI ============ */
 .chat { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 14px 2px 10px; min-height: 0; }
