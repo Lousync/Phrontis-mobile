@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { AiProvider } from '../lib/types'
 import { fetchModels, presetOf, recTagsOf } from '../lib/ai'
 import { ICheck, IChevL, IRefresh, ISearch, IX } from './icons'
+import { fullPageHost } from './FullPage'
 
 /**
  * 模型选择器（design.md §0 2026-11-06 第 35⑥ 条，原型 prototype/model-picker.html）
@@ -10,7 +11,7 @@ import { ICheck, IChevL, IRefresh, ISearch, IX } from './icons'
  * 形态：**全屏子页从右侧滑入**（同扫码页 scan-full），不是底部上伸抽屉——
  * 项目 UI 硬规则禁止 bottom sheet，别改回去。
  *
- * 为什么用 portal 挂到 .app：它由 AI 配置全屏子页（FullPage，z 50）内部触发，
+ * 为什么用 portal：它由 AI 配置全屏子页（FullPage，z 50）内部触发，
  * portal 进壳层后 z-index 60 才能盖住子页（与扫码页同级）。
  */
 export function ModelPicker({
@@ -140,7 +141,7 @@ export function ModelPicker({
         </button>
       </div>
     </div>,
-    document.querySelector('.app') ?? document.body,
+    fullPageHost(),   // 平板停靠内容区（与 FullPage 的 A+F 落位同口径），手机仍挂 .app
   )
 
   return body
