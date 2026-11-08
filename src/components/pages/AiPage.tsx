@@ -245,10 +245,12 @@ export function SessionSheet() {
   }
 
   let body
+  let listEmpty = false
   if (kw.trim()) {
     const hits = sorted.filter(s => s.title.toLowerCase().includes(kw.trim().toLowerCase()))
     body = hits.map(row)
-    if (!hits.length) body = <div className="empty">没有匹配的会话</div>
+    listEmpty = !hits.length
+    if (listEmpty) body = <div className="empty">没有匹配的会话</div>
   } else {
     const groups: Array<[string, string]> = [['pin', '置顶'], ['today', '今天'], ['yesterday', '昨天'], ['d7', '7 天内'], ['d30', '30 天内'], ['older', '更早']]
     const parts: React.ReactNode[] = []
@@ -257,13 +259,14 @@ export function SessionSheet() {
       if (!items.length) continue
       parts.push(<div className="sess-group-head" key={k}>{label}</div>, ...items.map(row))
     }
+    listEmpty = !parts.length
     body = parts.length ? parts : <div className="empty">还没有会话</div>
   }
 
   return (
     <FullPage>
       <FullPageHead title="会话记录" />
-      <div className="fp-body">
+      <div className="fp-body flex">
       <div className="search-box" style={{ marginBottom: 10 }}>
         <ISearch />
         <input value={kw} onChange={e => setKw(e.target.value)} placeholder="搜索历史会话" />
@@ -272,9 +275,10 @@ export function SessionSheet() {
         onClick={() => { newSession(); resetModes(); closeSheet(); toast('已新建会话', 'ok') }}>
         <IPlus size={13} />开启新对话
       </button>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>{body}</div>
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', marginTop: 14, lineHeight: 1.6 }}>
-        长按会话可置顶 / 重命名 / 删除 · 会话存手机本地，跨端同步放二期
+      {/* 空态时整组（提示 + 用法脚注）垂直居中；有会话时列表顶格，脚注跟在末尾 */}
+      <div className={'sess-list' + (listEmpty ? ' center' : '')}>
+        {body}
+        <div className="sess-foot">长按会话可置顶 / 重命名 / 删除 · 会话存手机本地，跨端同步放二期</div>
       </div>
       </div>
     </FullPage>

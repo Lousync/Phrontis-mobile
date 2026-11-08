@@ -22,3 +22,9 @@
 - **⛔ 手机端只有竖屏，横屏是平板端的事**：手机锁竖屏由 `MainActivity.applyOrientationPolicy()` 按 `sw600dp` 运行时判定（<600dp 锁 PORTRAIT，≥600dp 交给系统）。**不要在 AndroidManifest 里写 `android:screenOrientation`** —— 那是静态值，会把平板一起锁死。前端也不得为「手机横屏」做任何布局分支。
 - ~~`src/components/Sheet.tsx` 历史遗留~~ **已清偿（2026-11-07）**：`Sheet.tsx` 已删除，原调用点全部改为三形态——主题=外观卡内联展开；记一笔 / 添加待办 / 会话记录 / AI 配置=全屏子页（`src/components/FullPage.tsx`，从触发点圆形扩散入场，与全局切页动效同源）。新独立任务一律复用 `FullPage`，bottom sheet 禁令照旧。
 - 类名空间（2026-11-07）：本项目自研类与 HeroUI v3 组件类已隔离，原同名裸类改名为 `.ph-card` / `.ph-chip` / `.ph-tag` / `.ph-toast`；HeroUI 的 Card/Chip/Tag/Toast 可安全使用。**新增自研类不要用裸通用名**（button/field/label 等已被 HeroUI 占用）。
+- **✅ 空态提示垂直居中（2026-11-08 用户拍板）**：界面为空时的提示文字必须「屏幕视觉对齐」——垂直居中于可视内容区，不许贴在页头下沿留一大片空白。工具类都在 `src/styles/index.css`（`.empty` 旁），按场景选：
+  - **页面级空态**（整个内容区为空）→ `.empty.empty-spring`：`flex: 1 0 auto` 撑满 `.page` 剩余空间并居中。flex-grow 先于 auto margin 吸收自由空间，贴底的 fab / add-bar（`margin-top: auto`）位置不受影响。已接入：错题本、记账、日程（待办 + 打卡）、AI 会话记录（还没有会话 / 搜索无匹配，提示与用法脚注整组居中）。
+  - **卡片内空态** → `.empty.empty-box`：`min-height` 对齐有数据时图区的高度，卡片不塌（AI 用量图区）。
+  - **侧栏树空态** → `.tb-tree-empty` 自带 `margin: auto 0`（`.tb-tree` 是定高 flex 列），新增域树空态直接用它。
+  - **段内空态不居中**：页面还有其他内容时（如手机笔记页分组里的「无匹配笔记」），空态是段内提示，保持原位——只有「整个内容区为空」才居中。
+  - **坑**：容器级居中（`justify-content: center` / auto margin）只许在空态分支生效。有数据的列表容器无条件加居中会把数据压到中部——AI 会话记录页踩过（`.sess-list.center` 只在空态时挂）；FullPage 弹层要空态居中用 `.fp-body.flex` 变体（`> *` 一律 `flex: none` 防固定高度控件被压扁，弹簧项 `1 0 auto`）。

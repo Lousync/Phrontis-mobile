@@ -157,7 +157,7 @@ export function LedgerPage({ active }: { active: boolean }) {
         <div className="stat"><div className="lab">收入</div><div className="val income">¥{fmtMoney(stats.income)}</div></div>
         <div className="stat"><div className="lab">结余</div><div className={'val' + (stats.balance > 0 ? ' income' : '')}>{stats.balance < 0 ? '-¥' : '¥'}{fmtMoney(Math.abs(stats.balance))}</div></div>
       </div>
-      {groups.length === 0 && <div className="empty">这个月没有记账</div>}
+      {groups.length === 0 && <div className="empty empty-spring">这个月没有记账</div>}
       {groups.map(g => {
         const sum = g.entries.reduce((s, e) => s + (e.data.type === 'expense' ? -e.data.amount : e.data.amount), 0)
         return (

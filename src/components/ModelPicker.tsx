@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { AiProvider } from '../lib/types'
-import { fetchModels, presetOf } from '../lib/ai'
+import { fetchModels, presetOf, recTagsOf } from '../lib/ai'
 import { ICheck, IChevL, IRefresh, ISearch, IX } from './icons'
 
 /**
@@ -60,14 +60,16 @@ export function ModelPicker({
 
   useEffect(() => { void doFetch() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [provider])
 
-  /* 推荐组：预设默认模型 + 当前已选（去重）；其余进「全部模型」 */
+  /* 推荐组：预设默认模型 + 当前已选 + 免费档（≤4，绿标前置）；其余进「全部模型」。
+     免费档进推荐是 2026-11-08 拍板——用户开选择器要一眼看到「哪些免费」。 */
   const groups = useMemo(() => {
     const all = list.filter(m => m.toLowerCase().includes(kw.trim().toLowerCase()))
     if (!list.length) return null
-    const first = [defaultModel, current].filter((m, i, a) => m && all.includes(m) && a.indexOf(m) === i)
+    const free = all.filter(m => recTagsOf(provider, m).some(([c]) => c === 'free')).slice(0, 4)
+    const first = [defaultModel, current, ...free].filter((m, i, a) => m && all.includes(m) && a.indexOf(m) === i)
     const rest = all.filter(m => !first.includes(m))
     return { first, rest }
-  }, [list, kw, defaultModel, current])
+  }, [list, kw, defaultModel, current, provider])
 
   const body = createPortal(
     <div className={'mp-full' + (open ? ' open' : '')} role="dialog" aria-label="选择模型">
@@ -102,13 +104,13 @@ export function ModelPicker({
             {groups.first.length > 0 && (
               <>
                 <div className="mp-g">推荐</div>
-                {groups.first.map(m => <ModelCard key={'r' + m} name={m} on={m === current} color={preset.color} onPick={onPick} />)}
+                {groups.first.map(m => <ModelCard key={'r' + m} name={m} on={m === current} color={preset.color} rec={recTagsOf(provider, m)} onPick={onPick} />)}
               </>
             )}
             {groups.rest.length > 0 && (
               <>
                 <div className="mp-g">{groups.first.length ? '全部模型' : '模型'}</div>
-                {groups.rest.map(m => <ModelCard key={'a' + m} name={m} on={m === current} color={preset.color} onPick={onPick} />)}
+                {groups.rest.map(m => <ModelCard key={'a' + m} name={m} on={m === current} color={preset.color} rec={recTagsOf(provider, m)} onPick={onPick} />)}
               </>
             )}
             {!groups.first.length && !groups.rest.length && (
@@ -144,15 +146,25 @@ export function ModelPicker({
   return body
 }
 
-/** 模型卡：家族徽标 + mono 名 + 标签 + 选中圆勾 */
-function ModelCard({ name, on, color, onPick }: { name: string; on: boolean; color: string; onPick: (m: string) => void }) {
+/** 模型卡：家族徽标 + mono 名 + 标签（家族静态推断 + 推荐档位）+ 选中圆勾 */
+function ModelCard({ name, on, color, rec, onPick }: {
+  name: string; on: boolean; color: string
+  /** 推荐档位标签（免费/性价比/旗舰，来自 MODEL_RECS） */
+  rec?: Array<['free' | 'eco' | 'flag', string]>
+  onPick: (m: string) => void
+}) {
   const fam = familyOf(name)
   return (
     <button className={'mp-card' + (on ? ' sel' : '')} onClick={() => onPick(name)}>
       <span className="mp-avatar" style={{ background: fam?.color ?? color }}>{(name[0] ?? '?').toUpperCase()}</span>
       <span className="mp-body">
         <span className="mp-name">{name}</span>
-        {fam && <span className="mp-tags">{fam.tags.map(([cls, text]) => <span key={text} className={'mp-tag ' + cls}>{text}</span>)}</span>}
+        {(fam || rec?.length) && (
+          <span className="mp-tags">
+            {rec?.map(([cls, text]) => <span key={'rec' + text} className={'mp-tag ' + cls}>{text}</span>)}
+            {fam?.tags.map(([cls, text]) => <span key={text} className={'mp-tag ' + cls}>{text}</span>)}
+          </span>
+        )}
       </span>
       <span className="mp-tick"><ICheck size={11} /></span>
     </button>
