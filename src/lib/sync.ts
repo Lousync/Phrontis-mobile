@@ -21,13 +21,14 @@ import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core'
 import type { LedgerSyncData, NoteCache, NoteSyncData, NoteTreePage, PairedDevice, QueueOp, ScheduleSyncData, Todo } from './types'
 
 /* 组播发现插件（仅 Android 注册，见 PhrontisDiscover.java；iOS/web 无实现 → 走扫段回退）。
- * selfIp/selfPrefix = 原生层自知出口 IP 与本机 /24 前缀（UDP connect 不发包即得），
- * 组播零应答也照回——JS 扫段回退优先扫自己网段（LocalSend 同款第二条腿）。 */
+ * selfIp/selfPrefix = 原生自知出口 IP 与 /24 前缀；selfPrefixes = 全部可用私有网段
+ * （热点 AP 的段排最前，蜂窝接口已过滤）——热点场景下扫自己网段全靠它。 */
 interface PhrontisDiscoverPlugin {
   discover(opts: { timeoutMs?: number }): Promise<{
     found: Array<{ baseUrl: string; pcName: string; protocol: number; canRequest: boolean }>
     selfIp?: string
     selfPrefix?: string
+    selfPrefixes?: string[]
   }>
 }
 const PhrontisDiscover = registerPlugin<PhrontisDiscoverPlugin>('PhrontisDiscover')
@@ -119,40 +120,43 @@ export async function pairWith(input: string, code: string, deviceName: string):
   const parsed = parsePairInput(input, code)
   if (!parsed) throw new Error('地址格式不对：形如 192.168.1.5:8770，或直接粘贴电脑端整条配对链接')
   const base = 'http://' + parsed.host
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 6000)
+  let body: { ok?: boolean; error?: string; deviceToken?: string; pc?: { name?: string } }
   try {
-    const res = await fetch(base + '/api/pair', {
+    const r = await lanRequest(base + '/api/pair', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: parsed.code, deviceName }),
-      signal: ctrl.signal,
+      body: { code: parsed.code, deviceName },
+      timeoutMs: 6000,
     })
-    const body = await res.json().catch(() => ({})) as { ok?: boolean; error?: string; deviceToken?: string; pc?: { name?: string } }
-    if (!res.ok || !body.ok || !body.deviceToken) {
-      throw new Error(body.error || '配对被拒绝（' + res.status + '）')
+    body = r.data as typeof body
+    if (r.status < 200 || r.status >= 300 || !body?.ok || !body.deviceToken) {
+      throw new Error(body?.error || '配对被拒绝（' + r.status + '）')
     }
-    const device: PairedDevice = {
-      baseUrl: base,
-      token: body.deviceToken,
-      pcName: body.pc?.name || '我的电脑',
-      deviceId: deviceId(),
-      pairedAt: Date.now(),
-    }
-    lsSet(K_PAIRED, device)
-    rememberScanPrefix(parsed.host)
-    return device
   } catch (e) {
-    if (e instanceof DOMException && e.name === 'AbortError') throw new Error('连接超时：确认手机与电脑在同一网络，且电脑端服务已开启')
-    if (e instanceof Error && e.message.includes('fetch')) throw new Error('连不上电脑：检查地址、同一网络与防火墙')
+    if (e instanceof Error && /超时|aborted|abort/i.test(e.message)) throw new Error('连接超时：确认手机与电脑在同一网络，且电脑端服务已开启')
+    if (e instanceof Error && /fetch|network|ERR_/i.test(e.message)) throw new Error('连不上电脑：检查地址、同一网络与防火墙')
     throw e instanceof Error ? e : new Error('配对失败')
-  } finally {
-    clearTimeout(timer)
   }
+  const device: PairedDevice = {
+    baseUrl: base,
+    token: body.deviceToken!,
+    pcName: body.pc?.name || '我的电脑',
+    deviceId: deviceId(),
+    pairedAt: Date.now(),
+  }
+  lsSet(K_PAIRED, device)
+  rememberScanPrefix(parsed.host)
+  const port = Number(parsed.host.split(':')[1])
+  if (Number.isFinite(port)) rememberScanPort(port)
+  return device
 }
 
 export function unpair(): void {
   try { localStorage.removeItem(K_PAIRED) } catch { /* 忽略 */ }
+}
+
+/** 已配对设备的持久化（地址修复：电脑换 IP/网段后仅替换 baseUrl，令牌保留） */
+export function savePaired(device: PairedDevice): void {
+  lsSet(K_PAIRED, device)
 }
 
 /* ================= 配对 v1.5：局域网发现 + 桌面确认 ================= */
@@ -167,20 +171,49 @@ export interface DiscoveredPc {
 }
 
 const K_SCAN_PREFIX = 'pm.lastScanPrefix'
+const K_SCAN_PORT = 'pm.lastScanPort'
+
+/** 热点/常见网段经验清单。2026-11-08 补热点系：Android 热点 192.168.43（旧版）/ 随机段（新 ROM 由
+ *  selfPrefixes 覆盖）、Windows ICS 192.168.137、旧热点 192.168.42/49、Linux 热点 10.42.0。 */
+export const COMMON_PREFIXES = [
+  '192.168.43', '192.168.137', '192.168.42', '192.168.49',
+  '192.168.1', '192.168.0', '192.168.31', '192.168.3', '192.168.2', '192.168.50',
+  '10.0.0', '10.0.1', '10.42.0', '172.20.10',
+]
 
 /**
- * WebView 拿不到本机 IP（无原生桥），只能按经验网段枚举；上次命中的网段排最前（下次秒回）。
- * 常见家用网段：192.168.1（多数光猫）/ .0（老路由）/ .31（小米）/ .3（华为）/ .50（TP-Link 默认）
- * + 10.0.0 / 10.0.1（公司网）+ 172.20.10.1（iPhone 热点）。
+ * 扫描前缀合并（纯函数，契约直测）：原生自知网段（热点 AP/Wi-Fi 段，排最前）→ 记忆段 → 经验清单。
+ * CGNAT（100.64/10，蜂窝流量出口）整段跳过——那是运营商大网，扫 254 个地址既不可能命中也白耗电。
  */
-const COMMON_PREFIXES = ['192.168.1', '192.168.0', '192.168.31', '192.168.3', '192.168.2', '192.168.50', '10.0.0', '10.0.1', '172.20.10']
+export function mergeScanPrefixes(input: {
+  selfPrefixes?: Array<string | null | undefined>
+  remembered?: string | null
+  common?: Array<string | null | undefined>
+}): string[] {
+  const valid = (p: unknown): p is string =>
+    typeof p === 'string' && /^\d{1,3}(\.\d{1,3}){2}$/.test(p) && p.split('.').every(x => Number(x) <= 255)
+  const isCgnat = (p: string): boolean => {
+    const [a, b] = p.split('.').map(Number)
+    return a === 100 && b >= 64 && b <= 127
+  }
+  const self = (input.selfPrefixes ?? []).filter(valid).filter(p => !isCgnat(p))
+  const remembered = valid(input.remembered) ? [input.remembered] : []
+  const common = (input.common ?? []).filter(valid)
+  return [...new Set([...self, ...remembered, ...common])]
+}
 
 function scanPrefixes(): string[] {
-  const last = lsGet<string>(K_SCAN_PREFIX, '')
   /* 记忆的网段不限经验清单——电脑可能活在任何 /24（rememberScanPrefix 自举）；
-     只做格式守卫，合法就排最前（下次搜索秒回） */
-  if (last && /^\d{1,3}(\.\d{1,3}){2}$/.test(last)) return [last, ...COMMON_PREFIXES.filter(p => p !== last)]
-  return COMMON_PREFIXES
+     只做格式守卫，合法就参与合并（下次搜索优先扫它） */
+  const last = lsGet<string>(K_SCAN_PREFIX, '')
+  return mergeScanPrefixes({ remembered: last, common: COMMON_PREFIXES })
+}
+
+/** 扫描端口：上次命中端口排最前（桌面端口漂移后仍可秒回），冻结默认 8770 殿后；上限 5 个防扫爆 */
+function scanPorts(): number[] {
+  const last = lsGet<number>(K_SCAN_PORT, 0)
+  const base = [8770, 8771, 8772, 8773]
+  return Number.isFinite(last) && last > 0 ? [...new Set([last, ...base])].slice(0, 5) : base
 }
 
 /** 手动 IP / 扫码配对成功后记住该网段：下次「搜索电脑」直接首扫这一段——
@@ -190,6 +223,11 @@ export function rememberScanPrefix(host: string): void {
   const ip = host.split(':')[0]
   const m = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}$/.exec(ip)
   if (m) lsSet(K_SCAN_PREFIX, m[1])
+}
+
+/** 记住命中端口（桌面被占回退 8771+ 时扫段仍秒回）；组播应答自带 port，不受此限 */
+export function rememberScanPort(port: number): void {
+  if (Number.isFinite(port) && port > 0) lsSet(K_SCAN_PORT, Math.round(port))
 }
 
 /** 源提示：PWA 页面若直接从电脑的 IP 加载（如局域网 dev / 部署站），主机名就是电脑本身——零配置最先探它。
@@ -203,21 +241,32 @@ function originHintHost(): string | null {
   return h
 }
 
-/** 局域网伴侣请求的统一底层（发现 / 配对 / 轮询）。原生端显式走 CapacitorHttp 插件——
- *  不能用补丁版 window.fetch：CapacitorHttp 开启后 fetch 被接管到原生，但 AbortController
- *  传不到原生层，JS 侧超时了原生任务还在跑。扫段发现 48 并发 × 9 段 × 254 台曾把 iOS
- *  CFNetwork 打到 ENOMEM（toast 原文「Cannot allocate memory」），连带后续单发配对请求全灭
- *  （2026-11-08 iPad 实测，Android 容忍没炸）；显式调用的 connectTimeout/readTimeout 是
- *  真·原生超时，到点任务即回收。web dev 无原生桥，回落普通 fetch + AbortController。 */
-async function lanFetch(url: string, opts: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; timeoutMs: number }): Promise<{ status: number; data: unknown }> {
+/** 局域网伴侣请求的统一底层（发现 / 配对 / 轮询 / 同步全部走它）。
+ *  原生端显式走 CapacitorHttp 插件——不能用补丁版 window.fetch：CapacitorHttp 开启后 fetch 被接管到原生，
+ *  但补丁不传 connectTimeout/readTimeout（HttpURLConnection 默认 0 = 无限等）且忽略 AbortController，
+ *  任何普通 fetch 在真机上都是「可能无限转圈」的假超时（2026-11-08 native-bridge.js 实锤）。
+ *  显式调用的 connectTimeout/readTimeout 是真·原生超时，到点任务即回收。
+ *  扫段发现 48 并发 × 9 段 × 254 台曾把 iOS CFNetwork 打到 ENOMEM（2026-11-08 iPad 实测），
+ *  并发预算由调用方控制（discoverCompanions worker 数）。web dev 无原生桥，回落普通 fetch + AbortController。
+ *  返回 status 供 401/离线区分；HTTP 层错误不在此抛（调用方按 status 分诊）。 */
+interface LanRequestOptions {
+  method?: 'GET' | 'POST'
+  body?: unknown
+  headers?: Record<string, string>
+  /** 读超时（也是 web 端总超时） */
+  timeoutMs: number
+  /** 连接超时（原生独享；缺省 = timeoutMs）。长轮询给小连接超时 + 大读超时 */
+  connectTimeoutMs?: number
+}
+async function lanRequest(url: string, opts: LanRequestOptions): Promise<{ status: number; data: unknown }> {
   if (!Capacitor.isNativePlatform()) {
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs)
     try {
       const res = await fetch(url, {
         method: opts.method ?? 'GET',
-        headers: opts.body ? { 'content-type': 'application/json' } : undefined,
-        body: opts.body ? JSON.stringify(opts.body) : undefined,
+        headers: opts.headers ?? (opts.body ? { 'content-type': 'application/json' } : undefined),
+        body: opts.body != null ? JSON.stringify(opts.body) : undefined,
         signal: ctrl.signal,
       })
       const data: unknown = await res.json().catch(() => ({}))
@@ -229,9 +278,9 @@ async function lanFetch(url: string, opts: { method?: 'GET' | 'POST'; body?: Rec
   const r = await CapacitorHttp.request({
     url,
     method: opts.method ?? 'GET',
-    headers: opts.body ? { 'content-type': 'application/json' } : undefined,
-    data: opts.body,
-    connectTimeout: opts.timeoutMs,
+    headers: opts.headers ?? (opts.body ? { 'content-type': 'application/json' } : undefined),
+    data: opts.body != null ? (opts.body as Record<string, unknown>) : undefined,
+    connectTimeout: opts.connectTimeoutMs ?? opts.timeoutMs,
     readTimeout: opts.timeoutMs,
   })
   let data: unknown = r.data
@@ -239,18 +288,13 @@ async function lanFetch(url: string, opts: { method?: 'GET' | 'POST'; body?: Rec
   return { status: r.status, data }
 }
 
-/** 扫段探的端口清单：8770 = 冻结默认；8771 = 桌面端口被占后的第一回退位——实测 dev HMR 重启竞态
- *  会把伴侣服务顶到 8771 且占用者退出后不回搬，只探 8770 就永远搜不到（2026-11-08 本机复现）。
- *  组播路径桌面自报端口不受此限；8771 上跑别的服务没关系，应答体按 /api/discover 构型校验过滤。 */
-const SCAN_PORTS = [8770, 8771]
-
 /** 探一个 host:port：/api/discover 通且 ok 才算命中；超时/被拒/跨域一律当没有 */
 async function probePort(host: string, port: number, timeoutMs: number): Promise<DiscoveredPc | null> {
   try {
-    const { status, data } = await lanFetch('http://' + host + ':' + port + '/api/discover', { timeoutMs })
+    const { status, data } = await lanRequest('http://' + host + ':' + port + '/api/discover', { timeoutMs })
     if (status < 200 || status >= 300) return null
     const body = data as { ok?: boolean; protocol?: number; pc?: { name?: string }; pairing?: string[] }
-    if (!body.ok) return null
+    if (!body?.ok) return null
     return {
       baseUrl: 'http://' + host + ':' + port,
       pcName: body.pc?.name || '我的电脑',
@@ -262,87 +306,109 @@ async function probePort(host: string, port: number, timeoutMs: number): Promise
   }
 }
 
-/** 探一台：SCAN_PORTS 并发双探，8770 命中优先（find 保序） */
+/** 探一台的全部扫描端口（源提示专用——它就是电脑本身，逐口试） */
 async function probeHost(host: string, timeoutMs: number): Promise<DiscoveredPc | null> {
-  const hits = await Promise.all(SCAN_PORTS.map(p => probePort(host, p, timeoutMs)))
-  return hits.find(x => x !== null) ?? null
+  for (const port of scanPorts()) {
+    const hit = await probePort(host, port, timeoutMs)
+    if (hit) return hit
+  }
+  return null
 }
 
+export interface DiscoverProgress { scanned: number; total: number; found: DiscoveredPc[] }
+
 /**
- * 发现电脑（三层递进，借鉴 LocalSend 的 UDP 组播发现）：
+ * 发现电脑（三层递进，借鉴 LocalSend 的 UDP 组播发现 + 自知网段扫段）：
  *   ① 源提示：页面源即电脑 IP 的场景（dev/部署站）零配置秒回；
- *   ② 组播（Android 原生插件 PhrontisDiscover）：往 239.255.42.42:8771 喊一声、桌面单播应答，
- *      不猜网段、App 重装也不怕——桌面应答端规格见 docs/handoff-multicast-discovery-desktop.md；
- *   ③ 扫段回退（iOS/web/组播不可用时）：经验清单 + 记忆网段逐段并发探 /api/discover
- *      （8770 + 8771 双端口——桌面端口漂移仍可搜到，见 SCAN_PORTS 注释）。
- *      并发按「每 worker 双探」折半（iOS 6 / Android 24），在途请求数与单端口时代持平：
- *      iOS URLSession 短请求风暴会 ENOMEM（见 lanFetch 注释），不能因双探翻倍。
- * 返回 diag 供「没搜到」提示展示——报障带数据，不再盲猜。
- * 扫段探 8770/8771 两个端口（组播路径桌面自报端口，不受扫段限制）。
+ *   ② 组播（Android 原生插件 PhrontisDiscover，注册顺序修好后才真正可用）：双组喊一声、桌面单播应答，
+ *      同时取回 selfPrefixes（热点 AP/Wi-Fi 段，蜂窝接口已过滤）；
+ *   ③ 扫段回退：mergeScanPrefixes 合并网段（自知段 → 记忆段 → 经验清单含热点段）逐段并发探
+ *      /api/discover（端口 = 记忆端口 + 8770-8773）；全局 deadline 兜底 + 首命中即停调度，
+ *      iOS 并发 6（URLSession 短请求风暴会 ENOMEM，见 lanRequest 注释），Android 24。
+ * 返回 diag 供「没搜到」提示展示——报障带数据（本机段/扫了多少），不再盲猜。
  */
-export async function discoverCompanions(opts: { timeoutMs?: number; concurrency?: number } = {}): Promise<{ found: DiscoveredPc[]; diag: string }> {
+export async function discoverCompanions(opts: {
+  timeoutMs?: number
+  concurrency?: number
+  deadlineMs?: number
+  onProgress?: (p: DiscoverProgress) => void
+  signal?: AbortSignal
+} = {}): Promise<{ found: DiscoveredPc[]; diag: string }> {
   const timeoutMs = opts.timeoutMs ?? 350
+  const deadlineMs = opts.deadlineMs ?? 15_000
   const hint = originHintHost()
   if (hint) {
     const hit = await probeHost(hint, 600)
     if (hit) return { found: [hit], diag: '源提示命中' }
   }
   let mcastNote = ''
-  let selfPrefix = ''
+  let selfPrefixes: string[] = []
   if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('PhrontisDiscover')) {
     try {
       const r = await PhrontisDiscover.discover({ timeoutMs: 900 })
       const found = (r.found ?? []).map(f => ({ baseUrl: f.baseUrl, pcName: f.pcName, protocol: f.protocol, canRequest: !!f.canRequest }))
       if (found.length) {
-        const m = /^http:\/\/(\d{1,3}(?:\.\d{1,3}){2}):\d+$/.exec(found[0].baseUrl)
-        if (m) lsSet(K_SCAN_PREFIX, m[1])
+        const m = /^http:\/\/(\d{1,3}(?:\.\d{1,3}){2}):(\d+)$/.exec(found[0].baseUrl)
+        if (m) { lsSet(K_SCAN_PREFIX, m[1]); rememberScanPort(Number(m[2])) }
         return { found, diag: `组播命中 ${found.length} 台` }
       }
-      /* 组播零应答 ≠ 白跑：自知 IP 照拿——AP 整类丢组播的网络（2026-11-08 实测，224/239 组全丢），
-       * 扫自己网段是唯一不依赖组播的发现路（LocalSend 式第二条腿） */
-      selfPrefix = typeof r.selfPrefix === 'string' && /^\d{1,3}(\.\d{1,3}){2}$/.test(r.selfPrefix) ? r.selfPrefix : ''
+      /* 组播零应答 ≠ 白跑：自知网段照拿——扫自己网段是唯一不依赖组播的发现路（LocalSend 式第二条腿） */
+      selfPrefixes = (r.selfPrefixes?.length ? r.selfPrefixes : r.selfPrefix ? [r.selfPrefix] : []).filter(Boolean)
       mcastNote = '组播无应答'
     } catch {
       mcastNote = '组播不可用'
     }
   }
-  /* 每 worker 双探 SCAN_PORTS：worker 数对半折，在途请求数与单端口时代持平（iOS ENOMEM 红线不动） */
+  /* 每 worker 双探（host+port 各一目标）：worker 数对半折，在途请求数与单端口时代持平（iOS ENOMEM 红线不动） */
   const concurrency = opts.concurrency ?? (Capacitor.getPlatform() === 'ios' ? 6 : 24)
+  const prefixes = mergeScanPrefixes({ selfPrefixes, remembered: lsGet<string>(K_SCAN_PREFIX, ''), common: COMMON_PREFIXES })
+  const ports = scanPorts()
   const found: DiscoveredPc[] = []
-  /* 本机所在段最优先（手机现在就在的网段，桌面九成在这），记忆段次之，经验清单垫底 */
-  const prefixes = [...new Set([selfPrefix, ...scanPrefixes()].filter(Boolean))]
-  for (const prefix of prefixes) {
-    const hosts = Array.from({ length: 254 }, (_, i) => prefix + '.' + (i + 1))
-    let cursor = 0
-    const workers = Array.from({ length: concurrency }, async () => {
-      while (cursor < hosts.length) {
-        const host = hosts[cursor++]
-        const hit = await probeHost(host, timeoutMs)
-        if (hit && !found.some(f => f.baseUrl === hit.baseUrl)) found.push(hit)
+  let cursor = 0
+  let scanned = 0
+  const total = prefixes.length * 254 * ports.length
+  const deadline = Date.now() + deadlineMs
+  let stopped = opts.signal?.aborted ?? false
+  const progress = () => opts.onProgress?.({ scanned, total, found: [...found] })
+  progress()
+  const workers = Array.from({ length: Math.min(concurrency, total) }, async () => {
+    while (!stopped) {
+      const i = cursor++
+      if (i >= total || Date.now() > deadline) return
+      /* 目标顺序 = 逐段全扫（自知/记忆段优先吃满并发），段内 host 1-254 × 端口交错 */
+      const host = prefixes[Math.floor(i / (254 * ports.length)) % prefixes.length] + '.' + (Math.floor(i / ports.length) % 254 + 1)
+      const port = ports[i % ports.length]
+      const hit = await probePort(host, port, timeoutMs)
+      scanned++
+      if (hit && !found.some(f => f.baseUrl === hit.baseUrl)) {
+        found.push(hit)
+        if (found.length === 1) stopped = true /* 首命中即停调度：在途的收尾后返回，不再空烧 */
       }
-    })
-    await Promise.all(workers)
-    if (found.length) {
-      lsSet(K_SCAN_PREFIX, prefix)
-      return { found, diag: `${mcastNote ? mcastNote + ' · ' : ''}扫段命中（段 ${prefix}）` }
+      progress()
     }
+  })
+  await Promise.all(workers)
+  if (found.length) {
+    const m = /^http:\/\/(\d{1,3}(?:\.\d{1,3}){2}):(\d+)$/.exec(found[0].baseUrl)
+    if (m) { lsSet(K_SCAN_PREFIX, m[1]); rememberScanPort(Number(m[2])) }
+    return { found, diag: `${mcastNote ? mcastNote + ' · ' : ''}扫段命中（${found[0].baseUrl.replace('http://', '')}，扫了 ${scanned} 个地址）` }
   }
   return {
     found,
-    diag: `${mcastNote ? mcastNote + ' · ' : ''}已扫 ${prefixes.length} 段 × ${SCAN_PORTS.length} 端口（本机段 ${selfPrefix || '拿不到'}）`,
+    diag: `${mcastNote ? mcastNote + ' · ' : ''}已扫 ${scanned}/${total}（本机段 ${selfPrefixes[0] || '拿不到'}）`,
   }
 }
 
 /** 发起配对请求：电脑弹确认框，同屏显示 4 位码（手机与电脑一致才允许） */
 export async function requestPair(baseUrl: string, name: string): Promise<{ requestId: string; code: string; expiresAt: number }> {
-  const res = await fetch(baseUrl + '/api/pair/request', {
+  const { status, data } = await lanRequest(baseUrl + '/api/pair/request', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ deviceName: name }),
+    body: { deviceName: name },
+    timeoutMs: 6000,
   })
-  const body = await res.json().catch(() => ({})) as { ok?: boolean; error?: string; requestId?: string; code?: string; expiresAt?: number }
-  if (!res.ok || !body.ok || !body.requestId || !body.code) {
-    throw new Error(body.error || '电脑端没有响应配对请求（' + res.status + '）')
+  const body = data as { ok?: boolean; error?: string; requestId?: string; code?: string; expiresAt?: number }
+  if (status < 200 || status >= 300 || !body?.ok || !body.requestId || !body.code) {
+    throw new Error(body?.error || '电脑端没有响应配对请求（' + status + '）')
   }
   return { requestId: body.requestId, code: body.code, expiresAt: body.expiresAt || Date.now() + 180_000 }
 }
@@ -351,11 +417,11 @@ export type PairPollStatus = 'pending' | 'approved' | 'rejected' | 'expired'
 
 /** 轮询结果；approved 时顺带落盘长期令牌（与旧路 pairWith 同一条存储） */
 export async function pollPair(baseUrl: string, requestId: string): Promise<{ status: PairPollStatus; device?: PairedDevice }> {
-  const res = await fetch(baseUrl + '/api/pair/status?id=' + encodeURIComponent(requestId))
-  const body = await res.json().catch(() => ({})) as {
+  const { status, data } = await lanRequest(baseUrl + '/api/pair/status?id=' + encodeURIComponent(requestId), { timeoutMs: 5000 })
+  const body = data as {
     ok?: boolean; status?: PairPollStatus; deviceToken?: string; pc?: { name?: string }; error?: string
   }
-  if (!res.ok || !body.ok || !body.status) throw new Error(body.error || '查询配对状态失败')
+  if (status < 200 || status >= 300 || !body?.ok || !body.status) throw new Error(body?.error || '查询配对状态失败')
   if (body.status === 'approved' && body.deviceToken) {
     const device: PairedDevice = {
       baseUrl,
@@ -469,42 +535,33 @@ export function pruneNoteCache(cache: NoteCache, maxChars = NOTE_CACHE_MAX_CHARS
 export async function fetchNoteTree(timeoutMs = 8000): Promise<NoteTreePage[]> {
   const p = getPaired()
   if (!p) throw new Error('尚未配对电脑')
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
-  try {
-    const res = await fetch(p.baseUrl + '/api/notes/tree', { headers: { authorization: 'Bearer ' + p.token }, signal: ctrl.signal })
-    const json = await res.json().catch(() => ({})) as { ok?: boolean; pages?: NoteTreePage[]; error?: string }
-    if (!res.ok || !json.ok || !Array.isArray(json.pages)) throw new Error(json.error || '目录拉取失败（' + res.status + '）')
-    return json.pages.filter(x => x && typeof x.id === 'string')
-  } catch (e) {
-    if (e instanceof DOMException && e.name === 'AbortError') throw new Error('目录拉取超时：确认电脑在线且服务已开启')
-    throw e instanceof Error ? e : new Error('目录拉取失败')
-  } finally {
-    clearTimeout(timer)
+  const r = await lanRequest(p.baseUrl + '/api/notes/tree', {
+    headers: { authorization: 'Bearer ' + p.token },
+    timeoutMs,
+    connectTimeoutMs: 3000,
+  }).catch(() => { throw new Error('目录拉取超时：确认电脑在线且服务已开启') })
+  const json = r.data as { ok?: boolean; pages?: NoteTreePage[]; error?: string }
+  if (r.status < 200 || r.status >= 300 || !json?.ok || !Array.isArray(json.pages)) {
+    throw new Error(json?.error || '目录拉取失败（' + r.status + '）')
   }
+  return json.pages.filter(x => x && typeof x.id === 'string')
 }
 
 /** 按 id 拉正文（GET /api/notes/content?id=，服务端解析路径）。404 → 明确文案 */
 export async function fetchNoteContent(id: string, timeoutMs = 8000): Promise<{ title: string; updatedAt: string; body: string }> {
   const p = getPaired()
   if (!p) throw new Error('尚未配对电脑')
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
-  try {
-    const res = await fetch(p.baseUrl + '/api/notes/content?id=' + encodeURIComponent(id), {
-      headers: { authorization: 'Bearer ' + p.token },
-      signal: ctrl.signal,
-    })
-    const json = await res.json().catch(() => ({})) as { ok?: boolean; title?: string; updatedAt?: string; body?: string; error?: string }
-    if (res.status === 404) throw new Error('笔记在电脑端不存在（可能已被删除或归档）')
-    if (!res.ok || !json.ok || typeof json.body !== 'string') throw new Error(json.error || '正文拉取失败（' + res.status + '）')
-    return { title: json.title || '', updatedAt: json.updatedAt || '', body: json.body }
-  } catch (e) {
-    if (e instanceof DOMException && e.name === 'AbortError') throw new Error('正文拉取超时：确认电脑在线且服务已开启')
-    throw e instanceof Error ? e : new Error('正文拉取失败')
-  } finally {
-    clearTimeout(timer)
+  const r = await lanRequest(p.baseUrl + '/api/notes/content?id=' + encodeURIComponent(id), {
+    headers: { authorization: 'Bearer ' + p.token },
+    timeoutMs,
+    connectTimeoutMs: 3000,
+  }).catch(() => { throw new Error('正文拉取超时：确认电脑在线且服务已开启') })
+  const json = r.data as { ok?: boolean; title?: string; updatedAt?: string; body?: string; error?: string }
+  if (r.status === 404) throw new Error('笔记在电脑端不存在（可能已被删除或归档）')
+  if (r.status < 200 || r.status >= 300 || !json?.ok || typeof json.body !== 'string') {
+    throw new Error(json?.error || '正文拉取失败（' + r.status + '）')
   }
+  return { title: json.title || '', updatedAt: json.updatedAt || '', body: json.body }
 }
 
 /* ================= schedule 域负载构建（纯函数，契约脚本直测） ================= */
@@ -532,23 +589,45 @@ export class AiStopped extends Error {
 
 /* ================= 连接探测与同步 ================= */
 
-/** 电脑是否在线（GET /api/ping 带令牌） */
-export async function probeOnline(timeoutMs = 2500): Promise<boolean> {
-  const p = getPaired()
-  if (!p) return false
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
-  try {
-    const res = await fetch(p.baseUrl + '/api/ping', {
-      headers: { authorization: 'Bearer ' + p.token },
-      signal: ctrl.signal,
-    })
-    return res.ok
-  } catch {
-    return false
-  } finally {
-    clearTimeout(timer)
+/** 令牌失效（401）：与「离线」是两回事——离线等重连，auth 必须重新配对。监督器/UI 据此分诊 */
+export class AuthError extends Error {
+  readonly status: number
+  constructor(message = '电脑不再认识这台设备，请重新配对') {
+    super(message)
+    this.name = 'AuthError'
+    this.status = 401
   }
+}
+
+export type PingResult = { state: 'online' } | { state: 'offline'; error?: string } | { state: 'auth' }
+
+/** 电脑是否在线（GET /api/ping 带令牌）：200=online / 401=auth / 其余与网络错误=offline。
+ *  指定 baseUrl+token 可探「换地址后的同一台电脑」（地址修复用），缺省探当前配对设备。 */
+export async function pingDevice(baseUrl: string, token: string, timeoutMs = 2500): Promise<PingResult> {
+  try {
+    const { status } = await lanRequest(baseUrl + '/api/ping', {
+      headers: { authorization: 'Bearer ' + token },
+      timeoutMs,
+      connectTimeoutMs: Math.min(timeoutMs, 2500),
+    })
+    if (status >= 200 && status < 300) return { state: 'online' }
+    if (status === 401) return { state: 'auth' }
+    return { state: 'offline', error: 'HTTP ' + status }
+  } catch (e) {
+    return { state: 'offline', error: e instanceof Error ? e.message : '网络失败' }
+  }
+}
+
+/** 当前配对设备的连通探测（连接监督器的心跳） */
+export async function pingPaired(timeoutMs = 2500): Promise<PingResult> {
+  const p = getPaired()
+  if (!p) return { state: 'offline', error: '尚未配对' }
+  return pingDevice(p.baseUrl, p.token, timeoutMs)
+}
+
+/** 兼容旧调用的布尔探活（内部走 pingPaired 三态） */
+export async function probeOnline(timeoutMs = 2500): Promise<boolean> {
+  return (await pingPaired(timeoutMs)).state === 'online'
 }
 
 export interface RemoteLedgerItem {
@@ -589,6 +668,8 @@ export interface SyncOutcome {
   remoteNotes: RemoteNoteItem[]
   /** 墓碑下行的条目 id（调用方从本地删除，并丢弃这些 id 的在途队列操作） */
   removedIds: string[]
+  /** 响应游标快照（WP6.3）：应用完成后由调用方 commitPullCursor 提交 */
+  cursor: LastSyncCursor
 }
 
 /* ================= v1.7 实时同步：挂起 pull + 循环驱动器（时机逻辑可注入，契约直测） ================= */
@@ -605,6 +686,14 @@ export function nextBackoffMs(failCount: number): number {
   return seq[i]
 }
 
+/** 连接监督器重探退避（纯函数，契约直测）：1s / 2s / 5s / 10s，n ≥ 5 恒 15s 封顶——
+ *  比同步退避短（监督器只发 ping，代价小，热点场景电脑晚连几秒就该跟上） */
+export function nextProbeDelayMs(failCount: number): number {
+  const seq = [1000, 2000, 5000, 10000, 15000]
+  const i = Math.min(Math.max(Math.round(failCount), 1), seq.length) - 1
+  return seq[i]
+}
+
 /** pull 下行结果（v1.7 自 syncNow 拆出单点化；游标推进也在这里完成） */
 export interface RtPullOutcome {
   /** 本请求确实被挂起处理过（桌面 v1.7+ 才有；缺省 = 对端旧桌面，调用方退回轮询） */
@@ -615,11 +704,31 @@ export interface RtPullOutcome {
   removedIds: string[]
 }
 
+/** pull 下行结果（v1.7 自 syncNow 拆出单点化）。cursor = 响应游标快照：
+ *  2026-11-08 起不再在 pullOnce 内落盘——迟到响应判废后游标已推进过会漏数据（WP6.3），
+ *  改由调用方在「代数校验通过 + 应用数据」后调 commitPullCursor 提交。 */
+export interface RtPullOutcome {
+  /** 本请求确实被挂起处理过（桌面 v1.7+ 才有；缺省 = 对端旧桌面，调用方退回轮询） */
+  waitSupported: boolean
+  remoteLedger: RemoteLedgerItem[]
+  remoteSchedule: RemoteScheduleItem[]
+  remoteNotes: RemoteNoteItem[]
+  removedIds: string[]
+  cursor: LastSyncCursor
+}
+
+/** 提交 pull 游标（应用方专用）：RtDriver 代数校验通过 / syncNow 应用完成后调用 */
+export function commitPullCursor(out: Pick<RtPullOutcome, 'cursor'>): void {
+  setLastSync('ledger', out.cursor.ledger)
+  setLastSync('schedule', out.cursor.schedule)
+  setLastSync('notes', out.cursor.notes)
+}
+
 /**
  * 单次 pull：since 取本地游标（或调用方覆写——push 冲突后全量重对）。
  * waitMs > 0 = v1.7 挂起 pull（请求体才带 wait 字段；轮询模式不带，对旧桌面语义与 v1.6 全同）。
- * 游标只在响应后按响应 cursor 推进（v1.1 规则）。超时：挂起请求 waitMs + 10s 余量，普通 pull 10s。
- * 外部 signal（RtDriver 换代顶掉）联动内部超时控制器。
+ * 游标不在这里落盘（见 RtPullOutcome.cursor）；401 抛 AuthError 供监督器分诊。
+ * 超时：挂起请求 waitMs + 10s 余量，普通 pull 10s；外部 signal（RtDriver 换代顶掉）联动取消。
  */
 export async function pullOnce(opts: { waitMs?: number; signal?: AbortSignal; sinceOverride?: { ledger: number; schedule: number; notes: number } } = {}): Promise<RtPullOutcome> {
   const p = getPaired()
@@ -633,37 +742,40 @@ export async function pullOnce(opts: { waitMs?: number; signal?: AbortSignal; si
   try {
     const cur = getLastSync()
     const since = opts.sinceOverride ?? { ledger: cur.ledger, schedule: cur.schedule, notes: cur.notes }
-    const res = await fetch(p.baseUrl + '/api/sync/pull', {
+    const r = await lanRequest(p.baseUrl + '/api/sync/pull', {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + p.token },
-      body: JSON.stringify(waitMs > 0 ? { since, wait: waitMs } : { since }),
-      signal: ctrl.signal,
+      body: waitMs > 0 ? { since, wait: waitMs } : { since },
+      timeoutMs,
+      connectTimeoutMs: 5000,
     })
-    const json = await res.json().catch(() => ({})) as {
+    const json = r.data as {
       ok?: boolean; error?: string
       changes?: { ledger?: RemoteLedgerItem[]; schedule?: RemoteScheduleItem[]; notes?: RemoteNoteItem[] }
       tombstones?: RemoteTombstone[]
       cursor?: { ledger?: number; schedule?: number; notes?: number }
       waitSupported?: boolean
     }
-    if (!res.ok || !json.ok) {
-      const msg = (json.error as string) || '同步被拒绝（' + res.status + '）'
-      if (res.status === 401) throw new Error('电脑不再认识这台设备，请重新配对')
-      throw new Error(msg)
+    if (r.status < 200 || r.status >= 300 || !json?.ok) {
+      if (r.status === 401) throw new AuthError()
+      throw new Error(json?.error || '同步被拒绝（' + r.status + '）')
     }
-    const out: RtPullOutcome = {
+    const cursor: LastSyncCursor = {
+      ledger: typeof json.cursor?.ledger === 'number' ? json.cursor.ledger : cur.ledger,
+      schedule: typeof json.cursor?.schedule === 'number' ? json.cursor.schedule : cur.schedule,
+      notes: typeof json.cursor?.notes === 'number' ? json.cursor.notes : cur.notes,
+    }
+    return {
       waitSupported: json.waitSupported === true,
       remoteLedger: Array.isArray(json.changes?.ledger) ? json.changes!.ledger! : [],
       remoteSchedule: Array.isArray(json.changes?.schedule) ? json.changes!.schedule! : [],
       /* v1.6 起桌面可回 notes 域（U 盘模式）；旧桌面（v1.5-）不回 → 空数组、notes 游标不动，完全兼容 */
       remoteNotes: Array.isArray(json.changes?.notes) ? json.changes!.notes! : [],
       removedIds: Array.isArray(json.tombstones) ? json.tombstones.map(t => String(t.id)).filter(Boolean) : [],
+      cursor,
     }
-    if (typeof json.cursor?.ledger === 'number') setLastSync('ledger', json.cursor.ledger)
-    if (typeof json.cursor?.schedule === 'number') setLastSync('schedule', json.cursor.schedule)
-    if (typeof json.cursor?.notes === 'number') setLastSync('notes', json.cursor.notes)
-    return out
   } catch (e) {
+    if (e instanceof AuthError) throw e
     if (e instanceof DOMException && e.name === 'AbortError') throw new Error('同步超时：电脑响应太慢或网络不稳')
     throw e instanceof Error ? e : new Error('同步失败')
   } finally {
@@ -679,6 +791,10 @@ export interface RtDeps {
   pullOnce: (opts: { waitMs: number; signal: AbortSignal }) => Promise<RtPullOutcome>
   /** 应用下行变更（store 接 applyRemote* + 墓碑；驱动器不碰存储与游标） */
   apply: (out: RtPullOutcome) => void
+  /** 提交游标（应用完成后调用；WP6.3 游标提交时机修复——pullOnce 不再自行落盘） */
+  commit?: (out: RtPullOutcome) => void
+  /** 错误上抛（auth → 停循环交监督器；网络错误 → 退避继续。不再静默吞 401） */
+  onError?: (err: unknown) => void
   /** 可注入睡眠（契约脚本记录毫秒并即时返回，测时机不测真实等待） */
   sleep?: (ms: number) => Promise<void>
 }
@@ -748,16 +864,19 @@ export class RtDriver {
         this.inFlight = ctrl
         out = await this.deps.pullOnce({ waitMs: wait ? RT_WAIT_MS : 0, signal: ctrl.signal })
         this.inFlight = null
-      } catch {
+      } catch (e) {
         this.inFlight = null
         if (!this.alive(gen)) return // 被换代顶掉：对账/新循环已接管，静默退出
+        this.deps.onError?.(e)
+        if (e instanceof AuthError) return // 令牌失效：循环停，交给监督器/UI 走重新配对
         fails++
         this.setMode('off') // 离线待同步
         await this.sleepFn(nextBackoffMs(fails))
         continue
       }
-      if (!this.alive(gen)) return // 迟到响应：判废丢弃，不应用不推进
+      if (!this.alive(gen)) return // 迟到响应：判废丢弃，不应用不推进（游标也没提交——WP6.3）
       this.deps.apply(out)
+      this.deps.commit?.(out)
       if (out.waitSupported) {
         fails = 0
         wait = true
@@ -781,28 +900,13 @@ export async function syncNow(onPhase?: (pct: number) => void): Promise<SyncOutc
   if (!p) throw new Error('尚未配对电脑')
   const auth = { 'content-type': 'application/json', authorization: 'Bearer ' + p.token }
   const req = async (path: string, body: unknown): Promise<Record<string, unknown>> => {
-    const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), 10000)
-    try {
-      const res = await fetch(p.baseUrl + path, {
-        method: 'POST',
-        headers: auth,
-        body: JSON.stringify(body),
-        signal: ctrl.signal,
-      })
-      const json = await res.json().catch(() => ({})) as Record<string, unknown>
-      if (!res.ok || !json.ok) {
-        const msg = (json.error as string) || '同步被拒绝（' + res.status + '）'
-        if (res.status === 401) throw new Error('电脑不再认识这台设备，请重新配对')
-        throw new Error(msg)
-      }
-      return json
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') throw new Error('同步超时：电脑响应太慢或网络不稳')
-      throw e instanceof Error ? e : new Error('同步失败')
-    } finally {
-      clearTimeout(timer)
+    const r = await lanRequest(p.baseUrl + path, { method: 'POST', headers: auth, body, timeoutMs: 10_000, connectTimeoutMs: 5000 })
+    const json = r.data as Record<string, unknown>
+    if (r.status < 200 || r.status >= 300 || !json?.ok) {
+      if (r.status === 401) throw new AuthError()
+      throw new Error((json?.error as string) || '同步被拒绝（' + r.status + '）')
     }
+    return json
   }
 
   onPhase?.(15)

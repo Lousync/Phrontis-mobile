@@ -45,8 +45,12 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+        /* ★ 注册必须在 super.onCreate 之前：BridgeActivity.onCreate 内部就 load() 建桥，
+         *   之后 registerPlugin 只改 builder、进不了已建好的桥——PhrontisDiscover 因此
+         *   从 0.8.0 起在真机上从未注册成功（isPluginAvailable 恒 false，组播与自知网段
+         *   整条原生路是死的，2026-11-08 复盘实锤）。 */
         registerPlugin(PhrontisDiscover.class);
+        super.onCreate(savedInstanceState);
         applyOrientationPolicy();
         hookInsets();
     }

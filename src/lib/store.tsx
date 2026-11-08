@@ -5,8 +5,8 @@ import type { AppPrefs, AiChatMsg, AiConfig, Card, CardKind, Folder, Habit, Ledg
 import { THEME_IDS } from './types'
 import { TODAY, VOICE_PHRASES, welcomeText, dayIso, fmtMoney, monthOf, monthStats, txToDisplay } from './data'
 import {
-  AiStopped, buildNoteData, buildScheduleData, enqueueOp, getDeviceName, getPaired, getQueue, loadJson, noteLww, pairWith as pairRequest,
-  probeOnline, pullOnce, removeFromQueue, saveJson, syncNow, unpair as unpairDevice, uuid,
+  AiStopped, AuthError, buildNoteData, buildScheduleData, commitPullCursor, enqueueOp, getDeviceName, getPaired, getQueue, loadJson, nextProbeDelayMs,
+  noteLww, pairWith as pairRequest, pingDevice, pingPaired, pullOnce, removeFromQueue, saveJson, savePaired, syncNow, unpair as unpairDevice, uuid,
   RtDriver, type RemoteLedgerItem, type RemoteNoteItem, type RemoteScheduleItem, type RtMode,
 } from './sync'
 import { AI_MAX_ROUNDS, aiConfigReady, chatOnce, loadAiConfig, parseToolArgs, saveAiConfig } from './ai'
@@ -15,6 +15,9 @@ import { fetchNoteContent, fetchNoteTree, loadNoteCache, loadNoteTree, saveNoteC
 import { initNotifPermission, rescheduleReminders, requestNotifPermission, type NotifPerm } from './notify'
 
 export interface ToastItem { id: number; msg: string; type: 'ok' | 'warn' | 'info' }
+
+/** 连接四态（WP4 连接监督器）：online 在线 / offline 离线（自动重连中）/ auth 令牌失效（需重新配对）/ paused 手动暂停 */
+export type ConnState = 'online' | 'offline' | 'auth' | 'paused'
 
 /** 设置页分区（平板侧栏分类导航用；手机单页滚动全展示——usage 分区仅平板渲染，手机走工具二级页） */
 export type SettingsSec = 'sync' | 'tools' | 'ai' | 'usage' | 'appearance' | 'about'
@@ -97,6 +100,12 @@ interface Store {
 
   /* 同步 */
   online: boolean
+  /** 连接四态（conn==='online' 时 online 恒 true）：auth 需重新配对，offline 自动重连中 */
+  conn: ConnState
+  /** 立即重探一次（「重新连接」按钮） */
+  reconnectNow: () => void
+  /** 地址修复：用现有令牌 ping 通才改 baseUrl（电脑换 IP/网段后一键恢复） */
+  repairAddress: (baseUrl: string) => Promise<boolean>
   syncing: boolean
   syncPct: number
   /** v1.7 实时同步三态：hang=实时（挂起中）/ poll=轮询 30s（旧桌面）/ off=离线待同步 */
@@ -104,7 +113,6 @@ interface Store {
   pending: Array<{ label: string; opId?: string }>
   lastSync: string
   paired: PairedDevice | null
-  toggleOnline: () => void
   runSync: () => void
   markPending: (label: string, opId?: string) => void
   pairWith: (input: string, code: string) => Promise<void>
@@ -247,7 +255,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [kbSim, setKbSim] = useState(false)
   const [kbOpen, setKbOpen] = useState(false)
 
-  const [online, setOnline] = useState(true)
+  /* 连接四态（WP4 监督器的被控状态）；online 为派生兼容值（chrome 状态条等旧 UI 继续用） */
+  const [conn, setConn] = useState<ConnState>('online')
+  const online = conn === 'online'
   const [syncing, setSyncing] = useState(false)
   const [syncPct, setSyncPct] = useState(0)
   const [syncMode, setSyncMode] = useState<RtMode>('off')
@@ -325,6 +335,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const revealRef = useRef<{ full: string; done: (finalText: string) => void } | null>(null)
 
   /* 最新状态镜像：供定时器/异步回调读取，避免陈旧闭包 */
+  const connRef = useRef(conn); connRef.current = conn
   const onlineRef = useRef(online); onlineRef.current = online
   const syncingRef = useRef(syncing); syncingRef.current = syncing
   const pendingRef = useRef(pending); pendingRef.current = pending
@@ -500,13 +511,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const markPending = useCallback((label: string, opId?: string) => {
     setPending(p => [...p, opId ? { label, opId } : { label }])
-    /* v1.7：本地写操作 → 防抖立即对账（reconcileQuiet 先顶掉在途挂起，push+pull 后重建循环） */
-    if (getPaired() && onlineRef.current && !document.hidden) {
+    if (!getPaired() || document.hidden) return
+    /* v1.7：本地写操作 → 防抖立即对账（reconcileQuiet 先顶掉在途挂起，push+pull 后重建循环）；
+       离线时改为戳连接监督器（3s 防抖——每个字符都 ping 一次是灾难） */
+    if (onlineRef.current) {
       if (reconcileTimerRef.current) clearTimeout(reconcileTimerRef.current)
       reconcileTimerRef.current = setTimeout(() => {
         reconcileTimerRef.current = null
         reconcileQuietRef.current()
       }, 800)
+    } else {
+      supervisorPokeRef.current?.(3000)
     }
   }, [])
 
@@ -611,12 +626,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         applyRemoteNotes(out.remoteNotes)
         applyTombstones(out.removedIds)
       },
+      /* 游标提交收口（WP6.3）：pullOnce 不再自行落盘，应用完成后这里统一提交 */
+      commit: out => commitPullCursor(out),
+      onError: e => {
+        if (e instanceof AuthError) {
+          setConn('auth')
+          supervisorStopRef.current?.()
+          return
+        }
+        /* 挂起循环网络失败 → 立即进重连节奏（监督器 ping 修正，是抖动就弹回 online） */
+        if (connRef.current === 'online') {
+          setConn('offline')
+          supervisorPokeRef.current?.()
+        }
+      },
     })
-    d.onMode = m => {
-      setSyncMode(m)
-      /* 循环判定「通/断」回写连接态：桌面重启退避重连后绿点自动恢复 */
-      setOnline(m !== 'off')
-    }
+    d.onMode = m => { setSyncMode(m) }
     rtRef.current = d
   }
 
@@ -624,7 +649,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void (async () => {
       if (syncingRef.current) return
       if (!getPaired()) { toast('先到「设置」配对电脑，才能同步', 'warn'); return }
-      if (!onlineRef.current) { toast('电脑不在线，同步搁置', 'warn'); return }
+      /* 离线/失效不再直接搁置：先 ping 一次给机会（auth 引导重新配对，offline 提示后自动重连） */
+      if (!onlineRef.current) {
+        const r = await pingPaired()
+        if (r.state === 'auth') { setConn('auth'); toast('电脑不再认识这台设备，请重新配对', 'warn'); return }
+        if (r.state !== 'online') { toast('连不上电脑：确认同一网络、电脑端服务已开启（会自动重试）', 'warn'); return }
+        setConn('online')
+      }
       /* v1.7：对账前先停挂起循环（顶掉在途，避免双 pull 并发），收尾重建 */
       rtRef.current?.stop()
       /* 真实对账（push 队列 + pull 三域增量 + 墓碑） */
@@ -637,6 +668,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         applyRemoteSchedule(out.remoteSchedule)
         applyRemoteNotes(out.remoteNotes)
         applyTombstones(out.removedIds)
+        commitPullCursor(out)
         const handled = new Set(out.handledIds)
         setPending(list => list.filter(x => !x.opId || !handled.has(x.opId)))
         // notes 域出队 → 对应手机笔记标记已同步（op.id = 笔记 id）
@@ -676,6 +708,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         applyRemoteSchedule(out.remoteSchedule)
         applyRemoteNotes(out.remoteNotes)
         applyTombstones(out.removedIds)
+        commitPullCursor(out)
         const handled = new Set(out.handledIds)
         setPending(list => list.filter(x => !x.opId || !handled.has(x.opId)))
         if (out.handledIds.length) {
@@ -686,27 +719,117 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })()
   }, [applyRemoteLedger, applyRemoteSchedule, applyRemoteNotes, applyTombstones])
 
-  const toggleOnline = useCallback(() => {
-    void (async () => {
-      const device = getPaired()
-      if (!device) { toast('先到「设置」配对电脑，才能连接', 'warn'); return }
-      if (onlineRef.current) {
-        setOnline(false)
-        rtRef.current?.stop() // 手动离线 = 停挂起循环（不再吃电，回连时自动重建）
-        toast('已切到离线 · 数据照常记在手机', 'warn')
-        return
-      }
-      toast('正在连接 ' + device.pcName + '…', 'info')
-      const ok = await probeOnline()
-      setOnline(ok)
-      if (ok) {
-        toast('已连上 ' + device.pcName, 'ok')
-        if (getQueue().length) setTimeout(() => void runSyncRef.current(), 400)
-        else rtRef.current?.maybeStart()
-      } else {
-        toast('连不上电脑：确认同一网络、电脑端服务已开启', 'warn')
-      }
-    })()
+  /* ---------- 连接监督器（WP4）：配对即运行，conn 四态单一真相 ----------
+   * online → 60s keepalive（自愈检测）；offline → 1/2/5/10/15s 退避重探；auth → 停（UI 引导重新配对）。
+   * 回前台 / 离线时本地写（防抖）→ poke 立即探测。RtDriver 的 off 不再驱动 conn（挂起循环失败经 onError 上报）。 */
+  const KEEPALIVE_MS = 60_000
+  const supervisorRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; fails: number; stopped: boolean; gen: number }>({ timer: null, fails: 0, stopped: true, gen: 0 })
+  const pingingRef = useRef(false)
+  const pokePendingRef = useRef(false)
+  const pokeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** 供先定义的回调（markPending / RtDriver.onError）反向调用——真正的实现在下方 */
+  const supervisorPokeRef = useRef<((debounceMs?: number) => void) | null>(null)
+  const supervisorStopRef = useRef<(() => void) | null>(null)
+
+  const supervisorStop = useCallback(() => {
+    const s = supervisorRef.current
+    s.stopped = true
+    s.gen++
+    if (s.timer) clearTimeout(s.timer)
+    s.timer = null
+  }, [])
+  supervisorStopRef.current = supervisorStop
+
+  const supervisorTick = useCallback(async () => {
+    const s = supervisorRef.current
+    const gen = s.gen
+    if (s.stopped || pingingRef.current) return
+    pingingRef.current = true
+    let r: Awaited<ReturnType<typeof pingPaired>>
+    try { r = await pingPaired() } finally { pingingRef.current = false }
+    if (s.stopped || gen !== s.gen) return
+    if (r.state === 'online') {
+      const was = connRef.current
+      s.fails = 0
+      setConn('online')
+      /* 恢复在线（含启动首探）：拉平积压（reconcileQuiet 收尾自会重建挂起循环）；
+         已在线的 keepalive 只确保循环在，不打断在途挂起 */
+      if (was !== 'online') reconcileQuietRef.current()
+      else rtRef.current?.maybeStart()
+      s.timer = setTimeout(() => { s.timer = null; void supervisorTick() }, KEEPALIVE_MS)
+    } else if (r.state === 'auth') {
+      setConn('auth')
+      rtRef.current?.stop() /* 令牌失效：循环停，红条引导重新配对；adoptPaired 后监督器重启 */
+    } else {
+      s.fails++
+      setConn('offline')
+      s.timer = setTimeout(() => { s.timer = null; void supervisorTick() }, nextProbeDelayMs(s.fails))
+    }
+    /* 探测期间收到 poke：立即重探一次（不叠加并发——pingingRef 已放行） */
+    if (!s.stopped && pokePendingRef.current) {
+      pokePendingRef.current = false
+      void supervisorTick()
+    }
+  }, [])
+
+  const supervisorPoke = useCallback((debounceMs = 0) => {
+    const s = supervisorRef.current
+    if (s.stopped) return
+    if (debounceMs > 0) {
+      if (pokeDebounceRef.current) return /* 已有防抖在排队 */
+      pokeDebounceRef.current = setTimeout(() => {
+        pokeDebounceRef.current = null
+        supervisorPoke(0)
+      }, debounceMs)
+      return
+    }
+    pokePendingRef.current = true
+    if (pingingRef.current) return /* 在途：tick 收尾看到 pokePending 会立即续跑 */
+    if (s.timer) clearTimeout(s.timer)
+    void supervisorTick()
+  }, [supervisorTick])
+  supervisorPokeRef.current = supervisorPoke
+
+  const supervisorStart = useCallback(() => {
+    supervisorStop()
+    const s = supervisorRef.current
+    s.stopped = false
+    s.gen++
+    s.fails = 0
+    void supervisorTick()
+  }, [supervisorStop, supervisorTick])
+
+  /* 配对即进监督器（auth/offline 转变不需要重启——tick 内自管）；解除配对/暂停时停 */
+  useEffect(() => {
+    if (!paired) { supervisorStop(); return }
+    supervisorStart()
+    return () => supervisorStop()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paired])
+
+  /** 「重新连接」：立即探测一次（监督器停着时也拉起） */
+  const reconnectNow = useCallback(() => {
+    if (!getPaired()) { toast('先到「设置」配对电脑，才能连接', 'warn'); return }
+    if (supervisorRef.current.stopped) supervisorStart()
+    supervisorPoke()
+    toast('正在连接 ' + (getPaired()?.pcName || '电脑') + '…', 'info')
+  }, [toast, supervisorStart, supervisorPoke])
+
+  /** 地址修复（WP5）：发现到候选后用现有令牌试连，ping 通才替换 baseUrl（本地数据不动） */
+  const repairAddress = useCallback(async (baseUrl: string): Promise<boolean> => {
+    const cur = getPaired()
+    if (!cur) return false
+    const r = await pingDevice(baseUrl, cur.token)
+    if (r.state !== 'online') {
+      if (r.state === 'auth') toast('找到了电脑但令牌已失效，请重新配对', 'warn')
+      else toast('这个地址连不上', 'warn')
+      return false
+    }
+    const next: PairedDevice = { ...cur, baseUrl }
+    savePaired(next)
+    setPaired(next)
+    toast('已改连 ' + baseUrl.replace('http://', ''), 'ok')
+    return true
   }, [toast])
 
   /* ---------- 配对 ---------- */
@@ -716,10 +839,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const device = await pairRequest(input, code, getDeviceName())
       setPaired(device)
       toast('已配对 ' + device.pcName + ' · 开始首次对账', 'ok')
-      const ok = await probeOnline()
-      setOnline(ok)
-      /* v1.7：首次对账走静默对账（push+pull 后自动重建挂起循环），不再依赖有积压 */
-      if (ok) setTimeout(() => reconcileQuietRef.current(), 500)
+      /* 监督器随 paired 变更自动起跑（首探确认后接首次对账）；这里不等探测，500ms 后直接对一次 */
+      setTimeout(() => reconcileQuietRef.current(), 500)
     } catch (e) {
       toast(e instanceof Error ? e.message : '配对失败', 'warn')
     }
@@ -729,17 +850,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const adoptPaired = useCallback(async (device: PairedDevice) => {
     setPaired(device)
     toast('已配对 ' + device.pcName + ' · 开始首次对账', 'ok')
-    const ok = await probeOnline()
-    setOnline(ok)
-    /* v1.7：首次对账走静默对账（push+pull 后自动重建挂起循环） */
-    if (ok) setTimeout(() => reconcileQuietRef.current(), 500)
+    /* 监督器随 paired 变更自动起跑；首次对账不等探测 */
+    setTimeout(() => reconcileQuietRef.current(), 500)
   }, [toast])
 
   const unpair = useCallback(() => {
     rtRef.current?.stop()
+    supervisorStopRef.current?.()
     unpairDevice()
     setPaired(null)
-    setOnline(true)
+    setConn('online')
     toast('已解除配对，数据保留在手机', 'ok')
   }, [toast])
 
@@ -749,27 +869,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     saveAiConfig(cfg)
   }, [])
 
-  /* 已配对：启动即探测电脑——在线则对账（有积压走 runSync）或直接进入挂起循环（v1.7：空队列也拉下行） */
-  useEffect(() => {
-    if (!getPaired()) return
-    void probeOnline().then(ok => {
-      setOnline(ok)
-      if (!ok) return
-      if (getQueue().length) setTimeout(() => void runSyncRef.current(), 800)
-      else rtRef.current?.maybeStart()
-    })
-  }, [])
   runSyncRef.current = runSync
   reconcileQuietRef.current = reconcileQuiet
 
   /* v1.7 前后台（电池硬要求）：退后台暂停挂起循环（取消在途——后台 fetch 被冻结行为不可控）；
-     回前台立即对账一次（不带 wait，拉平积压）→ 重建挂起循环 */
+     回前台无条件戳监督器（不看旧 online——WP4：电脑后开/换 IP 的场景旧值恒 false 会永远离线），
+     监督器首探在线 → reconcileQuiet 拉平积压 → 重建挂起循环 */
   useEffect(() => {
     const onVis = () => {
       if (document.hidden) {
         rtRef.current?.stop()
-      } else if (getPaired() && onlineRef.current) {
-        reconcileQuietRef.current()
+      } else {
+        supervisorPokeRef.current?.()
       }
     }
     document.addEventListener('visibilitychange', onVis)
@@ -1544,7 +1655,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value: Store = {
     theme, setTheme, prefs, setPref, toast, toasts, sheet, openSheet, closeSheet, sheetOrigin, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
     sideCollapsed, toggleSide,
-    online, syncing, syncPct, syncMode, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, adoptPaired, unpair,
+    online, conn, reconnectNow, repairAddress, syncing, syncPct, syncMode, pending, lastSync, paired, runSync, markPending, pairWith, adoptPaired, unpair,
     schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, deleteTodo, habits, toggleHabit, addHabit, updateHabit, deleteHabit, editHabitId, openHabitForm,
     entries, txs, saveTx, updateTx, deleteTx, editTxId, openTxEdit,
     folders, toggleFolder, markCached, phoneNotes, addPhoneNote,

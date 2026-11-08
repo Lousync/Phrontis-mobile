@@ -66,7 +66,7 @@ const AUTO_SW_LINE = { background: '#8a8a8a' }
  * AI 区 = M4a 直连档配置（pm.aiConfig，Key 只在本机）。
  */
 export function SettingsPage({ active }: { active: boolean }) {
-  const { paired, online, syncing, syncPct, syncMode, lastSync, runSync, pairWith, adoptPaired, unpair, theme, setTheme, prefs, setPref, toast, aiConfig, setActiveTab, kbSim, toggleKbSim, openSheet, settingsSec } = useApp()
+  const { paired, online, conn, reconnectNow, repairAddress, syncing, syncPct, syncMode, lastSync, runSync, pairWith, adoptPaired, unpair, theme, setTheme, prefs, setPref, toast, aiConfig, setActiveTab, kbSim, toggleKbSim, openSheet, settingsSec } = useApp()
   const ff = useFormFactor()
   /* 平板：分类隔离——侧栏点哪个分类就只渲染那个分类的设置项，后续设置项增多互不干扰；
    * 手机：单页滚动全展示。分类清单 SETTINGS_SECS 与此处 data-sec 一一对应（加分类两处同步加） */
@@ -80,6 +80,8 @@ export function SettingsPage({ active }: { active: boolean }) {
   const [found, setFound] = useState<DiscoveredPc[]>([])
   const [pairMsg, setPairMsg] = useState('')
   const [manualOpen, setManualOpen] = useState(false)
+  /* 已配对状态下的「重新配对 / 换电脑」内联展开（WP5） */
+  const [repairOpen, setRepairOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [pairReq, setPairReq] = useState<{ baseUrl: string; pcName: string; requestId: string; code: string } | null>(null)
   const pollRef = useRef<number | null>(null)
@@ -101,22 +103,61 @@ export function SettingsPage({ active }: { active: boolean }) {
     }
   }
 
-  /* v1.5：扫段找电脑（WebView 拿不到本机 IP，只能按常见网段枚举） */
+  /* 发现电脑（监督器时代仍是手动入口）：进度可见、可取消；diag 报障带数据 */
+  const [scanPct, setScanPct] = useState<{ scanned: number; total: number } | null>(null)
+  const discoverAbort = useRef<AbortController | null>(null)
   const doDiscover = async () => {
     setDiscovering(true)
     setPairMsg('')
     setFound([])
+    const ac = new AbortController()
+    discoverAbort.current = ac
     try {
-      const { found: list, diag } = await discoverCompanions()
+      const { found: list, diag } = await discoverCompanions({
+        signal: ac.signal,
+        onProgress: p => setScanPct({ scanned: p.scanned, total: p.total }),
+      })
+      if (ac.signal.aborted) return
       setFound(list)
       if (!list.length) {
-        setPairMsg(`没搜到电脑。确认手机与电脑在同一 Wi-Fi（或热点）、电脑端「手机伴侣」已开启；也可以手动配对。（${diag}）`)
+        setPairMsg(`没搜到电脑。确认手机与电脑在同一 Wi-Fi（或手机热点）、电脑端「手机伴侣」已开启；也可以手动配对。（${diag}）`)
       }
     } catch (e) {
-      setPairMsg(e instanceof Error ? e.message : '搜索失败')
+      if (!ac.signal.aborted) setPairMsg(e instanceof Error ? e.message : '搜索失败')
     } finally {
+      if (discoverAbort.current === ac) discoverAbort.current = null
+      setScanPct(null)
       setDiscovering(false)
     }
+  }
+  const stopDiscover = () => {
+    discoverAbort.current?.abort()
+    discoverAbort.current = null
+    setScanPct(null)
+    setDiscovering(false)
+  }
+  /* 已配对时的「重新搜索地址」（WP5 地址修复）：发现 → 同名电脑 → 现有令牌试连 */
+  const [repairing, setRepairing] = useState(false)
+  const doRepair = async () => {
+    if (!paired) return
+    setRepairing(true)
+    setPairMsg('')
+    setFound([])
+    try {
+      const { found: list } = await discoverCompanions()
+      setFound(list)
+      if (!list.length) { setPairMsg('没找到电脑。确认手机与电脑在同一 Wi-Fi（或手机热点）。'); return }
+      const same = list.find(f => f.pcName === paired.pcName) ?? list[0]
+      const okNow = await repairAddress(same.baseUrl)
+      if (okNow) setRepairOpen(false)
+    } finally {
+      setRepairing(false)
+    }
+  }
+  /* 重新配对展开区里点已发现的电脑：同名 → 走地址修复（保令牌）；异名 → 走请求式重配对 */
+  const doPickFound = (pc: DiscoveredPc) => {
+    if (paired && pc.pcName === paired.pcName) void repairAddress(pc.baseUrl).then(ok => { if (ok) setRepairOpen(false) })
+    else void doRequest(pc)
   }
 
   const stopPolling = () => {
@@ -156,6 +197,63 @@ export function SettingsPage({ active }: { active: boolean }) {
       setPairing(false)
     }
   }
+
+/* 配对选择器（未配对主界面与已配对「重新配对/换电脑」展开区共用同一份）：
+   搜索（带进度/取消）→ 发现列表（已配对时同名电脑走地址修复保令牌）→ 扫码 → 手动 */
+const picker = (
+  <>
+    <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+      <button className="btn-primary" style={{ flex: 1 }} disabled={discovering || pairing || repairing} onClick={() => void doDiscover()}>
+        {discovering ? (scanPct ? `搜索中… ${scanPct.scanned}/${scanPct.total}` : '搜索中…') : '搜索电脑'}
+      </button>
+      {discovering ? (
+        <button className="btn-ghost" style={{ height: 44, flex: 'none' }} onClick={stopDiscover}>取消</button>
+      ) : (
+        <button className="btn-ghost" style={{ height: 44, flex: 'none' }} onClick={e => openSheet('scan', e.currentTarget)}>
+          扫码配对
+        </button>
+      )}
+    </div>
+    {found.length > 0 && (
+      <div style={{ marginTop: 8 }}>
+        {found.map(pc => (
+          <button key={pc.baseUrl} className="tool-row" disabled={pairing} onClick={() => doPickFound(pc)}>
+            <span className="tool-ico"><IMonitor size={16} /></span>
+            <span className="tool-body">
+              <span className="n">{pc.pcName}{paired && pc.pcName === paired.pcName ? '（当前电脑）' : ''}</span>
+              <span className="s">{pc.baseUrl.replace('http://', '')}{pc.canRequest ? ' · 请求配对' : ' · 需配对码'}</span>
+            </span>
+            <IChevR size={14} />
+          </button>
+        ))}
+      </div>
+    )}
+    {pairMsg && (
+      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 10 }}>{pairMsg}</div>
+    )}
+    <button className="adv-toggle" style={{ marginTop: 8 }} onClick={() => setManualOpen(v => !v)}>
+      <IChevR size={12} style={{ transform: manualOpen ? 'rotate(90deg)' : 'none', transition: 'transform .16s' }} />
+      手动配对（电脑端出示配对码）
+    </button>
+    {manualOpen && (
+      <>
+        <div className="field" style={{ marginTop: 4 }}>
+          <label>电脑地址或配对链接</label>
+          <input value={pairInput} onChange={e => setPairInput(e.target.value)}
+            placeholder="192.168.43.5:8770 或整条配对链接" />
+        </div>
+        <div className="field">
+          <label>配对码（电脑端 工具箱 → 手机伴侣 出示）</label>
+          <input value={pairCode} onChange={e => setPairCode(e.target.value)}
+            placeholder="8 位数字" inputMode="numeric" />
+        </div>
+        <button className="btn-primary" disabled={pairing || !pairInput.trim()} onClick={() => void doPair()}>
+          {pairing ? '配对中…' : '配对'}
+        </button>
+      </>
+    )}
+  </>
+)
 
   const ready = aiConfigReady(aiConfig)
   const preset = presetOf(aiConfig.provider)
@@ -208,55 +306,10 @@ export function SettingsPage({ active }: { active: boolean }) {
                   <div className="device-ico"><IMonitor /></div>
                   <div className="info">
                     <div className="n">未配对电脑</div>
-                    <div className="s">同一 Wi-Fi 下自动搜索，配对后双向同步</div>
+                    <div className="s">同一 Wi-Fi / 手机热点下自动搜索，配对后双向同步</div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
-                  <button className="btn-primary" style={{ flex: 1 }} disabled={discovering || pairing} onClick={() => void doDiscover()}>
-                    {discovering ? '搜索中…（约几秒）' : '搜索电脑'}
-                  </button>
-                  <button className="btn-ghost" style={{ height: 44, flex: 'none' }} onClick={e => openSheet('scan', e.currentTarget)}>
-                    扫码配对
-                  </button>
-                </div>
-                {found.length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    {found.map(pc => (
-                      <button key={pc.baseUrl} className="tool-row" disabled={pairing} onClick={() => void doRequest(pc)}>
-                        <span className="tool-ico"><IMonitor size={16} /></span>
-                        <span className="tool-body">
-                          <span className="n">{pc.pcName}</span>
-                          <span className="s">{pc.baseUrl.replace('http://', '')}{pc.canRequest ? ' · 请求配对' : ' · 需配对码'}</span>
-                        </span>
-                        <IChevR size={14} />
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {pairMsg && (
-                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 10 }}>{pairMsg}</div>
-                )}
-                <button className="adv-toggle" style={{ marginTop: 8 }} onClick={() => setManualOpen(v => !v)}>
-                  <IChevR size={12} style={{ transform: manualOpen ? 'rotate(90deg)' : 'none', transition: 'transform .16s' }} />
-                  手动配对（电脑端出示配对码）
-                </button>
-                {manualOpen && (
-                  <>
-                    <div className="field" style={{ marginTop: 4 }}>
-                      <label>电脑地址或配对链接</label>
-                      <input value={pairInput} onChange={e => setPairInput(e.target.value)}
-                        placeholder="192.168.1.5:8770 或整条配对链接" />
-                    </div>
-                    <div className="field">
-                      <label>配对码（电脑端 工具箱 → 手机伴侣 出示）</label>
-                      <input value={pairCode} onChange={e => setPairCode(e.target.value)}
-                        placeholder="8 位数字" inputMode="numeric" />
-                    </div>
-                    <button className="btn-primary" disabled={pairing || !pairInput.trim()} onClick={() => void doPair()}>
-                      {pairing ? '配对中…' : '配对'}
-                    </button>
-                  </>
-                )}
+                {picker}
               </>
             )
           ) : (
@@ -266,12 +319,18 @@ export function SettingsPage({ active }: { active: boolean }) {
                 <div className="info">
                   <div className="n">{paired.pcName}</div>
                   <div className="s"><span className="gdot" /><span>
-                    {/* v1.7 同步状态三态：实时（挂起中）/ 轮询 30s（旧桌面）/ 离线待同步 */}
-                    {syncMode === 'hang' ? '已连接 · 实时'
+                    {/* 连接四态 + v1.7 同步三态：auth 是「需重新配对」，不是离线 */}
+                    {conn === 'auth' ? '电脑不认识这台设备 · 需重新配对'
+                      : syncMode === 'hang' ? '已连接 · 实时'
                       : syncMode === 'poll' ? '已连接 · 轮询 30s（电脑版本较旧）'
-                      : online ? '已连接' : '离线待同步'} · 上次同步 {lastSync}</span></div>
+                      : online ? '已连接' : '离线 · 自动重连中'} · 上次同步 {lastSync}</span></div>
                 </div>
               </div>
+              {conn === 'auth' && (
+                <div style={{ fontSize: 12, color: 'var(--danger)', lineHeight: 1.6, marginTop: 8, padding: '8px 10px', border: '1px solid var(--danger)', borderRadius: 8 }}>
+                  电脑端已移除这台设备（或令牌已失效）。本地数据全部保留；下方重新配对后，首次同步会把待上行内容推给电脑。
+                </div>
+              )}
               <div className={'sync-progress' + (syncing ? ' on' : '')}><span className="fill" style={{ width: syncPct + '%' }} /></div>
               <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
                 <button className="btn-primary" style={{ flex: 1 }} onClick={runSync}>立即同步</button>
@@ -285,6 +344,22 @@ export function SettingsPage({ active }: { active: boolean }) {
                   <button className="btn-ghost" style={{ height: 44 }} onClick={() => setConfirmUnpair(true)}>解除配对</button>
                 )}
               </div>
+              {/* WP5：已配对不再把搜索/扫码/手动入口藏死——重新配对 / 换电脑 内联展开（非底部抽屉） */}
+              <button className="adv-toggle" style={{ marginTop: 8 }} onClick={() => setRepairOpen(v => !v)}>
+                <IChevR size={12} style={{ transform: repairOpen ? 'rotate(90deg)' : 'none', transition: 'transform .16s' }} />
+                重新配对 / 换电脑（搜索 · 扫码 · 手动）
+              </button>
+              {repairOpen && (
+                <>
+                  <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+                    <button className="btn-ghost" style={{ height: 40, flex: 1 }} disabled={repairing || discovering} onClick={() => void doRepair()}>
+                      {repairing ? '搜索并修复中…' : '重新搜索电脑地址（保留令牌）'}
+                    </button>
+                    <button className="btn-ghost" style={{ height: 40 }} onClick={reconnectNow}>重新连接</button>
+                  </div>
+                  {picker}
+                </>
+              )}
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 10 }}>
                 {paired.baseUrl.replace('http://', '')} · 同步范围：记账 + 日程 + 笔记（含删除）
               </div>

@@ -45,7 +45,9 @@
 | 2026-11-08 | **设置项第一批拍板（偏好地基 + 两项真设置 + 启动页定死）**。① **偏好持久化地基**：新增 `pm.settings` 单键（`AppPrefs`，与 `DEFAULT_PREFS` 浅合并——新字段自动兜底免迁移，store 暴露 `prefs` + `setPref`）；后续偏好类设置点全部进这一个对象，不再散落 `pm.*` 键。② **跟随系统深浅色**：主题网格加「自动」chip（分景色板）——开=按 `prefers-color-scheme` 映射 dark/light（七主题里只有这两套有系统语义），关=回落手动主题；`effTheme` 只驱动 `data-theme`，手动选择仍存 `pm.theme` 不被自动模式覆盖；点手动 chip 自动关掉跟随。③ **提醒提前量**：`pm.settings.remindLead`（准点/5/10/15/30 分，工具分类 chip 段选）——`rescheduleReminders` 加 `leadMin` 参数，日程与打卡统一在开始时刻上减偏移（负偏移跨零点由 Date 自动回退，d=0「已过点」判断改用偏移后时刻），通知文案带「N 分钟后开始」；改选即随动全清重排。④ **启动页**：不做设置项，`activeTab` 默认 `'ai'` → `'notes'`（直接定死）。浏览器已验证：自动/手动双向映射、提前量落盘与重载保持、启动落笔记区；通知排程为原生路径（浏览器 dev no-op），真机随下次打包验证。 |
 | 2026-11-08 | **配对发现三层化（借鉴 LocalSend 的 UDP 组播发现）+ 修复记忆网段自举断链**。排障实录：配对失败三层叠加——① 新电脑 Linux 的 ufw 默认 DROP 入站（8770 全拦）；② 电脑网段 10.116.216.x 在扫段经验清单外，「搜索电脑」永远扫不到；③ 桌面配对码有时效，调障超时后码过期。期间用 ss 连接监视 + 假伴侣（逐字节记录请求）+ 内核日志三件套定位：App 原生请求字节级完好（CapacitorHttp 显式调用，48 字节 content-length 精确），桌面服务对标准请求 16ms 应答——问题全在网络与码。修复：`lanFetch` 统一局域网请求（原生显式 CapacitorHttp + 真·原生超时，修 iPad 扫段 48 并发把 CFNetwork 打到 ENOMEM「Cannot allocate memory」）；`rememberScanPrefix` 配对成功记忆网段；`scanPrefixes` 尊重清单外记忆（原守卫把 10.116.216 扔了）。**但扫段对「重装丢 localStorage」无解**——按用户指示借鉴 LocalSend：三层发现 = 源提示 → **UDP 组播**（Android 原生插件 `PhrontisDiscover`，发 239.255.42.42:8771 ping、桌面单播应答，不猜网段、重装免疫；桌面应答端 ~25 行交接 `docs/handoff-multicast-discovery-desktop.md`）→ 扫段回退（iOS/web/组播不可用；iPad 因 SideStore 拿不到组播权限不做 iOS 组播，用扫码自举）。「没搜到」提示带 diag（组播无应答/已扫 N 段 M 地址），报障带数据。涉及原生层（MainActivity 注册插件 + PhrontisDiscover.java），**手机必须装新包**；桌面侧待主仓会话照交接落地 + 放行 UDP 8771。0.8.0（semver 新功能 y+1）。 |
 | 2026-11-08 | **配对失联三堵点复盘：端口漂移 / 防火墙 / 扫段单端口**。桌面伴侣服务启动时首选口 8770 被 dev HMR 重启竞态残留占用 → `MAX_PORT_TRIES` 静默回退 8771 且占用者退出后不回搬；手机扫段只探 `:8770` → 兜底路永久失效，叠加 ufw 默认 DROP 入站（UDP 8771 ping + TCP HTTP 都要放行），三堵点叠加即「多轮改代码仍配不上」。修复：扫段升级 8770 + 8771 双端口并发探（`SCAN_PORTS`，worker 数对半折保在途请求数不变——iOS ENOMEM 红线不动）；桌面侧（主仓同批）首选口延迟重试 ride out 竞态 + 回退时告警日志；桌面契约脚本 §9 加环境隔离（外部应答器预探 → 私有端口执行，真 app 在跑不再假 FAIL）。组播路径不受影响（桌面自报端口）。0.8.3（semver 修丁 z+1）。 |
+| 2026-11-08 | **配对链路热点修复轮（DeepSeek 诊断交接 `docs/handoff-pairing-hotspot-repair.md`，手机端 WP2-WP6 落地）**。六大 P0 复盘：① **原生插件自 0.8.0 起从未注册**——`registerPlugin` 写在 `super.onCreate` 之后，Bridge 已建完进不去（真机「本机段 拿不到」「扫 9 段」实锤），注册提到 super 前；② 组播按接口发（热点场景默认路由在蜂窝，不绑接口永远到不了电脑）+ `selfPrefixes` 多网段自知（热点 AP 段排最前、蜂窝 rmnet/ccmni 整类过滤）；③ 经验清单补热点系（192.168.43/137/42/49、10.42.0）+ `mergeScanPrefixes` 纯函数合并（自知段→记忆段→经验，CGNAT 跳过）+ 扫段全局 deadline/首命中即停/进度可取消 + `lastScanPort` 记忆端口；④ **连接监督器**：`conn` 四态（online/offline/auth/paused）取代单布尔——配对即运行，online 60s keepalive、offline 1/2/5/10/15s 退避重探、回前台无条件 poke（电脑后开/换 IP 不再永远离线）、RtDriver 的 off 不再驱动连接态；⑤ **401≠离线**：`pingPaired` 三态 + `AuthError` 贯穿 pull/push，auth 红条「电脑不认识这台设备」；已配对状态开放「重新配对/换电脑」内联展开（同名电脑走地址修复保令牌）；⑥ **原生超时统一**：`lanRequest`（显式 connectTimeout/readTimeout）收编全部局域网请求——fetch 补丁不传超时、忽略 AbortController（native-bridge.js 实锤），配对中无限转圈根除；`pullOnce` 游标不再自行落盘（迟到响应判废不再漏数据），`commitPullCursor` 在应用后提交。涉及原生层，**必须装新包**。桌面端 WP1（地址选择/二维码）/WP7（配对码 UX）另轮。0.9.0（semver 新功能 y+1：重新配对/地址修复/连接四态）。 |
 | 2026-11-08 | **发现改版：自知 IP 扫自己网段为主路，组播降级双组加速器（LocalSend 对齐）**。A/B 实锤：手机本机双组监听对照——Phrontis 的 239 组 ping 与 LocalSend 的 224 组开屏宣告**双双零到达**，即本网络 AP 对客户端组播整类丢弃（与 0.8.0「组播可用」的推断相反，当时实测的其实是 LocalSend 的 HTTP/缓存路径，不是组播）。按 LocalSend 真实骨架重排：① `PhrontisDiscover` 原生加 `selfIpv4()`（UDP connect 公网地址不发包得出口 IP → 本机 /24 前缀），扫段回退**本机段最优先**——不依赖组播通不通、重装免疫、换网自适应；② 组播组改双组——**224.0.0.167 主**（LocalSend 同款，RFC 4541 要求 AP 无条件泛洪）+ 239.255.42.42 过渡兼容旧 APK，手机双组交错发、桌面双组逐接口收；③ diag 带「本机段」——报障自带手机所在网段，与桌面网段一比对即可判「不同网」还是「被防火墙拦」。涉及原生层，**必须装新包验收**。0.8.4（semver 修丁 z+1，修复 0.8.0 发现功能在本网络的失效）。 |
+| 2026-11-08 | **配对链路修复·桌面侧拍板（交接文档 `docs/handoff-pairing-hotspot-repair.md` WP1/WP5/WP7 桌面部分）**。① **地址推荐**：桌面 `getLanAddresses` 不再把 docker 网桥（`br-…`/`veth…`）排前——新增纯函数 `orderLanAddresses`（手机最近来源 IP 同 /24 最优先 → 默认路由出口次之 → 真实网卡 → 虚拟网卡 → link-local），面板列全部地址供选、二维码用选中项；`status.urls` **不再嵌过期配对码**（无有效码时 URL 不带码段）。② **双向解除**：新增 `POST /api/unpair`（Bearer 设备令牌，见 §2.2）——手机解除配对时 best-effort 调它再清本地，旧桌面 404 忽略；桌面面板删除设备同时**立即失效内存 tokenIndex**（此前只删设备文件，运行中令牌仍可用，手机侧 401「重新配对」提示永不触发）。③ **配对确认全局可见**：桌面任意页面收到 `companion:pairRequest` 广播弹 toast（此前确认框只在手机伴侣面板打开时出现）；过期待确认请求不再永久挂在面板。手机侧 401→auth 提示 / 离线重连监督器 / 热点前缀归 WP4/WP5/WP2（另批）。 |
 | 2026-11-08 | **平板全屏子页落位拍板（A+F 合并，原型 `prototype/tablet-panel.html` 七案对比后定稿）**。问题：`.full-page` 容器 `inset:0` 盖满含侧栏的整窗，手机密度表单在 ~1200px 下被拉成通栏（添加习惯为典型；受影响面 = 习惯/待办/记一笔/会话记录/AI 配置五处 FullPage + ModelPicker，共用容器修一处全好——常规内容页早有 `.app.tablet .page > * max-width:760px` 先例，全屏子页漏了同款）。对比过 0 现状 / A 全屏限宽 / B 居中浮卡 / C 右侧抽屉 / D 内联展开 / E 内容区分栏 / F 内容区切页七案，拍板 **A+F 合并**：子页 portal 进 `.pages` **停靠内容区**（侧栏纹丝不动、恒定两栏铁律不破、随侧栏折叠自适应），头与体收进 **640px 居中列**（内容页 760px 同族、表单密度窄一档），入场保留**从触发点圆形扩散**（clip 坐标改相对子页自身盒，`circleFrom(sheetOrigin, el)`，手机端与原行为完全等价）。落码：`FullPage` 平板分支 portal 进 `.pages`（`.pages` 本就是 position:relative 定位上下文）+ `fullPageHost()` 助手（平板=.pages / 手机=.app）；ModelPicker 同口径换宿主（嵌套时在内容列内盖住配置页，z 60>50 不变）；`index.css` 仅增 `.app.tablet .full-page .fp-head/.fp-body { max-width:640px }` 一组。已验证：平板停靠/限宽/侧栏可见、选择器嵌套、手机端盖整窗零回归。手机端行为零改动，不碰协议与原生层。 |
 
 ---
@@ -192,6 +194,19 @@ mDNS 自动发现是锦上添花，二维码方案第一版就够。
 - **兜底 · 扫桌面二维码**：发现不了（AP 隔离、跨网段、防火墙）时走相机扫码（配对链接格式沿用 `http://<ip>:8770/pair#<配对码>`），IP/端口/令牌一次带齐一键配对。
 - **末位 · 手动配对**：M1 的手输 IP + 配对码流程原样保留，降级为折叠的「手动配对」高级选项（也服务无法开相机的场景）。
 - **连接历史 = 设备管理**：配对一生一次，之后同网自动 ping + 对账（既有机制不变）。设置页「设备管理」列出已配对电脑：pcName、**已配对仓库**（vault 名，见 §2.1 v1.4）、在线状态（ping 结果）、上次同步时间、解除配对（双向清 token）。重新发现/扫码入口只在未配对状态露出；仓库不符时露出「改配对到当前仓库」。
+
+**双向解除端点（2026-11-08 增补，随配对链路修复落地）**：
+
+```
+POST /api/unpair
+Authorization: Bearer <deviceToken>
+body: {}
+→ { ok: true }
+```
+
+- 手机侧「解除配对」先 best-effort 调它（超时/404/网络失败一律忽略），再清本地配对数据——旧桌面无此端点回 404，语义即「桌面稍后由 ping 401 收敛」，零破坏；
+- 桌面侧：注销该设备令牌（内存 tokenIndex 立即失效，不等重启）+ 设备表移除；`notesStates` 保留（重配对后新 deviceId 重建，旧 state 由后续清理策略处理）；
+- 桌面面板主动删除设备仍无法实时通知手机，手机下次 ping 401 → UI 显示「重新配对」而非「离线」。
 
 ## 3. AI（单档：手机直连）
 

@@ -19,14 +19,16 @@ const PAGE_TITLES: Record<string, string> = {
 
 /** 标题下元信息行（备忘录式）：同步状态进排版，不再做漂浮胶囊；异常态变色 */
 export function SyncMeta() {
-  const { online, syncing, pending, paired, lastSync, setActiveTab } = useApp()
+  const { online, conn, syncing, pending, paired, lastSync, setActiveTab } = useApp()
   if (syncing) return <div className="c-meta"><span className="c-mdot sync" />正在对账…</div>
   if (!paired) return (
     <button className="c-meta unp" onClick={e => setActiveTab('settings', e.currentTarget)} title="去设置页配对电脑">
       <span className="c-mdot" />未配对电脑 · 点此去设置
     </button>
   )
-  if (!online) return <div className="c-meta off"><span className="c-mdot" />电脑离线 · 数据照常记在本机</div>
+  /* WP5：auth（令牌失效）与 offline 是两回事——前者要去重新配对，不是干等重连 */
+  if (conn === 'auth') return <div className="c-meta off"><span className="c-mdot" />电脑不认识这台设备 · 去设置重新配对</div>
+  if (!online) return <div className="c-meta off"><span className="c-mdot" />电脑离线 · 自动重连中 · 数据照常记在本机</div>
   if (pending.length) return <div className="c-meta warn"><span className="c-mdot" />待同步 {pending.length} 条 · 联网后自动重试</div>
   return <div className="c-meta"><span className="c-mdot" />已连接 {paired.pcName} · 上次同步 {lastSync}</div>
 }

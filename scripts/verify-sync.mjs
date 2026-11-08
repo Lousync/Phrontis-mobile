@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { parsePairInput, uuid, buildScheduleData, buildNoteData, pruneNoteCache, getLastSync, noteLww, nextBackoffMs, RtDriver, RT_WAIT_MS } from '../src/lib/sync.ts'
+import { parsePairInput, uuid, buildScheduleData, buildNoteData, pruneNoteCache, getLastSync, noteLww, nextBackoffMs, nextProbeDelayMs, mergeScanPrefixes, COMMON_PREFIXES, AuthError, RtDriver, RT_WAIT_MS } from '../src/lib/sync.ts'
 import { txToDisplay, monthOf, monthShift, monthStats, groupEntriesByDay, weekOf, TODAY, chipListWith, catColorOf } from '../src/lib/data.ts'
 import { AI_TOOLS, validateLedgerAdd, validateTodoAdd, validateNoteCreate, buildSystemPrompt } from '../src/lib/aiTools.ts'
 
@@ -267,6 +267,51 @@ console.log('\n§2d-2 v1.7 实时同步（挂起循环时机机：退避 / waitS
   const sp = buildSystemPrompt('2026-11-01', 'TEST-PC')
   check('系统提示含真实日期与写入纪律', sp.includes('2026-11-01') && sp.includes('不要说「已经记好了」'))
   check('系统提示区分未配对', buildSystemPrompt('2026-11-01', null).includes('尚未配对'))
+}
+
+/* ---- §2f 连接监督器与发现策略（2026-11-08 热点修复轮：WP2/WP3/WP4/WP6 防回归） ---- */
+console.log('\n§2f 连接监督器与发现策略（热点修复轮）')
+{
+  /* mergeScanPrefixes：自知网段优先 → 记忆段 → 经验清单；去重/非法过滤/CGNAT 跳过 */
+  check('mergeScanPrefixes：selfPrefixes 排最前', eq(mergeScanPrefixes({ selfPrefixes: ['192.168.43', '10.116.216'], remembered: '10.0.0', common: ['192.168.1'] }), ['192.168.43', '10.116.216', '10.0.0', '192.168.1']))
+  check('mergeScanPrefixes：去重', eq(mergeScanPrefixes({ selfPrefixes: ['192.168.1'], common: ['192.168.1', '192.168.0'] }), ['192.168.1', '192.168.0']))
+  check('mergeScanPrefixes：非法段过滤（格式/越界）', eq(mergeScanPrefixes({ selfPrefixes: ['abc', '192.168.999', '1.2.3.4', null, undefined], remembered: '', common: ['10.0.0'] }), ['10.0.0']))
+  check('mergeScanPrefixes：CGNAT（蜂窝 100.64/10）整段跳过', eq(mergeScanPrefixes({ selfPrefixes: ['100.72.16', '192.168.43'] }), ['192.168.43']))
+  check('mergeScanPrefixes：空 self 回落 remembered+common', eq(mergeScanPrefixes({ remembered: '10.116.216', common: ['192.168.1'] }), ['10.116.216', '192.168.1']))
+  check('经验清单含热点系网段（Android 43 / Windows ICS 137 / Linux 10.42.0）', COMMON_PREFIXES.includes('192.168.43') && COMMON_PREFIXES.includes('192.168.137') && COMMON_PREFIXES.includes('10.42.0'))
+
+  /* 连接监督器退避序列 */
+  check('nextProbeDelayMs：1s/2s/5s/10s，n≥5 恒 15s 封顶', nextProbeDelayMs(1) === 1000 && nextProbeDelayMs(2) === 2000 && nextProbeDelayMs(3) === 5000 && nextProbeDelayMs(4) === 10000 && nextProbeDelayMs(9) === 15000)
+
+  /* 401 分诊：AuthError 与离线是两回事 */
+  const ae = new AuthError()
+  check('AuthError：是 Error 且 status=401', ae instanceof Error && ae.status === 401)
+
+  /* WP2 静态断言：原生插件注册顺序 + 自知网段 + 按接口组播（原生难直测，以静态 + 真机验收为准） */
+  const { readFileSync: rf } = await import('node:fs')
+  const { dirname: dn, join: jn } = await import('node:path')
+  const here = dn(fileURLToPath(import.meta.url))
+  let main = ''
+  try { main = rf(jn(here, '../android/app/src/main/java/com/lousync/phrontis/MainActivity.java'), 'utf-8') } catch { /* 下面报 */ }
+  const regIdx = main.indexOf('registerPlugin(PhrontisDiscover.class)')
+  const superIdx = main.indexOf('super.onCreate(savedInstanceState)')
+  check('MainActivity：registerPlugin 在 super.onCreate 之前（0.8.0-0.8.5 插件从未注册的根因，防回归）',
+    regIdx >= 0 && superIdx >= 0 && regIdx < superIdx)
+  let java = ''
+  try { java = rf(jn(here, '../android/app/src/main/java/com/lousync/phrontis/PhrontisDiscover.java'), 'utf-8') } catch { /* 下面报 */ }
+  check('PhrontisDiscover：返回 selfPrefixes 多网段（热点 AP 段）', java.includes('selfPrefixes'))
+  check('PhrontisDiscover：组播按接口发（setNetworkInterface）', java.includes('setNetworkInterface'))
+  check('PhrontisDiscover：蜂窝接口过滤（rmnet/ccmni 不进扫描清单）', java.includes('isCellular') && java.includes('rmnet') && java.includes('ccmni'))
+  check('PhrontisDiscover：双组交错（224 主组 + 239 过渡）', java.includes('"224.0.0.167"') && java.includes('"239.255.42.42"'))
+
+  /* WP6.3 游标提交时机：pullOnce 不再自行落盘（迟到响应判废不再漏数据） */
+  let syncSrc = ''
+  try { syncSrc = rf(jn(here, '../src/lib/sync.ts'), 'utf-8') } catch { /* 下面报 */ }
+  const pullStart = syncSrc.indexOf('export async function pullOnce')
+  const pullEnd = syncSrc.indexOf('export type RtMode', pullStart)
+  check('pullOnce：函数体内不再调用 setLastSync（游标提交收口到 commitPullCursor）',
+    pullStart >= 0 && pullEnd > pullStart && !syncSrc.slice(pullStart, pullEnd).includes('setLastSync('))
+  check('commitPullCursor 存在且导出', syncSrc.includes('export function commitPullCursor'))
 }
 
 console.log('\n§3 协议文档契约（docs/design.md §2.1 与手机实现一致）')
