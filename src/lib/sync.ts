@@ -17,6 +17,7 @@
  * M1 存储用 localStorage（等价 Preferences 形态），M2b 评估 SQLite 迁移；
  * 所有键带 pm. 前缀，迁移时整体搬运。
  */
+import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import type { LedgerSyncData, NoteCache, NoteSyncData, NoteTreePage, PairedDevice, QueueOp, ScheduleSyncData, Todo } from './types'
 
 const K_DEVICE_ID = 'pm.deviceId'
@@ -127,6 +128,7 @@ export async function pairWith(input: string, code: string, deviceName: string):
       pairedAt: Date.now(),
     }
     lsSet(K_PAIRED, device)
+    rememberScanPrefix(parsed.host)
     return device
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') throw new Error('连接超时：确认手机与电脑在同一网络，且电脑端服务已开启')
@@ -167,6 +169,15 @@ function scanPrefixes(): string[] {
   return [last, ...COMMON_PREFIXES.filter(p => p !== last)]
 }
 
+/** 手动 IP / 扫码配对成功后记住该网段：下次「搜索电脑」直接首扫这一段——
+ *  电脑可能活在经验清单外的网段（2026-11-08 实测 10.116.216.x 全网段扫不到），
+ *  只要成功连过一次（配对/扫码），发现就能自举到正确网段 */
+export function rememberScanPrefix(host: string): void {
+  const ip = host.split(':')[0]
+  const m = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}$/.exec(ip)
+  if (m) lsSet(K_SCAN_PREFIX, m[1])
+}
+
 /** 源提示：PWA 页面若直接从电脑的 IP 加载（如局域网 dev / 部署站），主机名就是电脑本身——零配置最先探它。
  * localhost（127.0.0.1 同理）也保留为提示：桌面浏览器 dev 时电脑伴侣就在本机，
  * 页面在 localhost:5180 而伴侣在 localhost:8770，不探就永远扫不到（2026-11-08 实测）。
@@ -178,14 +189,48 @@ function originHintHost(): string | null {
   return h
 }
 
+/** 局域网伴侣请求的统一底层（发现 / 配对 / 轮询）。原生端显式走 CapacitorHttp 插件——
+ *  不能用补丁版 window.fetch：CapacitorHttp 开启后 fetch 被接管到原生，但 AbortController
+ *  传不到原生层，JS 侧超时了原生任务还在跑。扫段发现 48 并发 × 9 段 × 254 台曾把 iOS
+ *  CFNetwork 打到 ENOMEM（toast 原文「Cannot allocate memory」），连带后续单发配对请求全灭
+ *  （2026-11-08 iPad 实测，Android 容忍没炸）；显式调用的 connectTimeout/readTimeout 是
+ *  真·原生超时，到点任务即回收。web dev 无原生桥，回落普通 fetch + AbortController。 */
+async function lanFetch(url: string, opts: { method?: 'GET' | 'POST'; body?: Record<string, unknown>; timeoutMs: number }): Promise<{ status: number; data: unknown }> {
+  if (!Capacitor.isNativePlatform()) {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs)
+    try {
+      const res = await fetch(url, {
+        method: opts.method ?? 'GET',
+        headers: opts.body ? { 'content-type': 'application/json' } : undefined,
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+        signal: ctrl.signal,
+      })
+      const data: unknown = await res.json().catch(() => ({}))
+      return { status: res.status, data }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  const r = await CapacitorHttp.request({
+    url,
+    method: opts.method ?? 'GET',
+    headers: opts.body ? { 'content-type': 'application/json' } : undefined,
+    data: opts.body,
+    connectTimeout: opts.timeoutMs,
+    readTimeout: opts.timeoutMs,
+  })
+  let data: unknown = r.data
+  if (typeof data === 'string') { try { data = JSON.parse(data) } catch { /* 非 JSON 当空体 */ } }
+  return { status: r.status, data }
+}
+
 /** 探一台：/api/discover 通且 ok 才算命中；超时/被拒/跨域一律当没有 */
 async function probeHost(host: string, timeoutMs: number): Promise<DiscoveredPc | null> {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const res = await fetch('http://' + host + ':8770/api/discover', { signal: ctrl.signal })
-    if (!res.ok) return null
-    const body = await res.json() as { ok?: boolean; protocol?: number; pc?: { name?: string }; pairing?: string[] }
+    const { status, data } = await lanFetch('http://' + host + ':8770/api/discover', { timeoutMs })
+    if (status < 200 || status >= 300) return null
+    const body = data as { ok?: boolean; protocol?: number; pc?: { name?: string }; pairing?: string[] }
     if (!body.ok) return null
     return {
       baseUrl: 'http://' + host + ':8770',
@@ -195,19 +240,19 @@ async function probeHost(host: string, timeoutMs: number): Promise<DiscoveredPc 
     }
   } catch {
     return null
-  } finally {
-    clearTimeout(timer)
   }
 }
 
 /**
  * 扫段发现：按网段顺序，每段并发探 .1–.254，命中即记住该段并停止。
  * 单段 254 台 ÷ 48 并发 × 350ms ≈ 2s；最常见的 192.168.1 排第一，通常一两秒出结果。
+ * iOS 并发压到 12：URLSession 对「连不上但路由在」的主机要吃满超时，并发太高再叠
+ * 上百个短请求容易触发系统网络栈 ENOMEM（见 lanFetch 注释）。
  * 只探 8770 默认端口（电脑端换端口时退回手动配对）。
  */
 export async function discoverCompanions(opts: { timeoutMs?: number; concurrency?: number } = {}): Promise<DiscoveredPc[]> {
   const timeoutMs = opts.timeoutMs ?? 350
-  const concurrency = opts.concurrency ?? 48
+  const concurrency = opts.concurrency ?? (Capacitor.getPlatform() === 'ios' ? 12 : 48)
   const found: DiscoveredPc[] = []
   /* 源提示最先探：页面源即电脑 IP 的场景（dev/部署站）零配置秒回，扫不到经验网段外的情况 */
   const hint = originHintHost()
@@ -266,6 +311,7 @@ export async function pollPair(baseUrl: string, requestId: string): Promise<{ st
       pairedAt: Date.now(),
     }
     lsSet(K_PAIRED, device)
+    rememberScanPrefix(baseUrl.replace(/^https?:\/\//, ''))
     return { status: 'approved', device }
   }
   return { status: body.status }
