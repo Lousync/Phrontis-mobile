@@ -165,8 +165,10 @@ const COMMON_PREFIXES = ['192.168.1', '192.168.0', '192.168.31', '192.168.3', '1
 
 function scanPrefixes(): string[] {
   const last = lsGet<string>(K_SCAN_PREFIX, '')
-  if (!last || !COMMON_PREFIXES.includes(last)) return COMMON_PREFIXES
-  return [last, ...COMMON_PREFIXES.filter(p => p !== last)]
+  /* 记忆的网段不限经验清单——电脑可能活在任何 /24（rememberScanPrefix 自举）；
+     只做格式守卫，合法就排最前（下次搜索秒回） */
+  if (last && /^\d{1,3}(\.\d{1,3}){2}$/.test(last)) return [last, ...COMMON_PREFIXES.filter(p => p !== last)]
+  return COMMON_PREFIXES
 }
 
 /** 手动 IP / 扫码配对成功后记住该网段：下次「搜索电脑」直接首扫这一段——
