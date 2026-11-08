@@ -25,8 +25,8 @@ const FONT_KEY = 'tb-reader-font'
 
 export function NotesPage({ active }: { active: boolean }) {
   const {
-    phoneNotes, toast, createPhoneNote, updatePhoneNote, discardPhoneNote, syncPhoneNote, quizRecords,
-    vaultReader, setVaultReader, vaultBody, vaultState, vaultTree, vaultLoading, paired, fetchVaultTree,
+    phoneNotes, toast, createPhoneNote, updatePhoneNote, deletePhoneNote, syncPhoneNote, quizRecords,
+    vaultReader, setVaultReader, setVaultBody, vaultBody, vaultState, vaultTree, vaultLoading, paired, fetchVaultTree,
     openVaultNote, openPhoneNote, vaultKw, setVaultKw, vaultCache,
   } = useApp()
   const tablet = useFormFactor() === 'tablet'
@@ -63,11 +63,25 @@ export function NotesPage({ active }: { active: boolean }) {
   /* ---------- 备忘录式即建即编（弃抽屉表单） ---------- */
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  /* 'new' = 从空白新建；'edit' = 从阅读器右上角笔进入（回填已有内容） */
+  const [editorMode, setEditorMode] = useState<'new' | 'edit'>('new')
 
   const startNewNote = () => {
     setVaultReader(null)
+    setEditorMode('new')
     setEditingId(createPhoneNote())
     setDraft('')
+  }
+  /* 阅读器右上角的笔：读的是手机笔记 → 编辑当前这篇（此前保存后没有任何编辑入口，
+     笔是用户唯一预期的编辑位；旧实现永远开新笔记，被用户指为反直觉） */
+  const editCurrentNote = () => {
+    const id = vaultReader?.phoneId
+    const hit = id ? phoneNotes.find(x => x.id === id) : undefined
+    if (!hit) return
+    setEditorMode('edit')
+    setEditingId(hit.id)
+    /* 编辑器约定首行即标题：回填 标题\n正文，完成后 splitTitleBody 原样拆回 */
+    setDraft(hit.body ? hit.title + '\n' + hit.body : hit.title)
   }
   const onDraft = (v: string) => {
     setDraft(v)
@@ -78,8 +92,17 @@ export function NotesPage({ active }: { active: boolean }) {
   const exitEditor = () => {
     if (!editingId) return
     const { title, body } = splitTitleBody(draft)
-    if (!title || title === '无标题') { discardPhoneNote(editingId); toast('空笔记已丢弃', 'ok') }
-    else { updatePhoneNote(editingId, title, body); syncPhoneNote(editingId, title, body) }
+    /* v1.6 U 盘模式：清空标题保存 = 删除这篇笔记（墓碑上行，桌面设备文件夹同删）；空新建即丢，桌面端忽略未知 id */
+    if (!title || title === '无标题') { deletePhoneNote(editingId); toast('空笔记已删除', 'ok') }
+    else {
+      updatePhoneNote(editingId, title, body)
+      syncPhoneNote(editingId, title, body)
+      /* 从阅读态进来编辑的：完成后回到同一篇的阅读态，正文就地刷新（标题也可能改了） */
+      if (vaultReader?.kind === 'phone' && vaultReader.phoneId === editingId) {
+        setVaultReader({ title, path: '手机笔记 / ' + title, kind: 'phone', phoneId: editingId })
+        setVaultBody('# ' + title + '\n\n' + body)
+      }
+    }
     setEditingId(null)
     setDraft('')
   }
@@ -102,8 +125,11 @@ export function NotesPage({ active }: { active: boolean }) {
         )}
         <button className="icon-btn fs-btn" onClick={() => setFontSz(s => Math.max(12, s - 1))} title="缩小字号">A-</button>
         <button className="icon-btn fs-btn" onClick={() => setFontSz(s => Math.min(22, s + 1))} title="放大字号">A+</button>
-        {/* 对照备忘录：阅读态也能直接新建（平板显示，手机保持 v1 无此钮） */}
-        <button className="icon-btn tb-only" onClick={startNewNote} title="新建笔记"><IPen size={17} /></button>
+        {/* 笔随内容走：手机笔记（可编辑）= 编辑当前这篇（平板手机都显示）；
+            电脑笔记（只读，手机上不可改）= 新建，维持原语义（仅平板） */}
+        {vaultReader?.kind === 'phone'
+          ? <button className="icon-btn" onClick={editCurrentNote} title="编辑当前笔记"><IPen size={17} /></button>
+          : <button className="icon-btn tb-only" onClick={startNewNote} title="新建笔记"><IPen size={17} /></button>}
         <span className={'badge-sync ' + (vaultState === 'cached' ? 'synced' : 'pending')} style={{ marginLeft: 'auto' }}>
           {vaultState === 'cached' ? '已缓存'
             : vaultState === 'stale' ? '旧版缓存 · 联网后自动更新'
@@ -142,7 +168,7 @@ export function NotesPage({ active }: { active: boolean }) {
     <div className="reader open note-editor">
       <div className="reader-top">
         <button className="icon-btn" onClick={exitEditor} title="完成并返回"><IBack /></button>
-        <span className="path">新笔记 · 首行即标题</span>
+        <span className="path">{editorMode === 'edit' ? '编辑笔记 · 首行即标题' : '新笔记 · 首行即标题'}</span>
         <button className="btn-done" onClick={exitEditor}>完成</button>
       </div>
       <textarea

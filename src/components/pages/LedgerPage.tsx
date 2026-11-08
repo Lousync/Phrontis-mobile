@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { ToggleButton, ToggleButtonGroup } from '@heroui/react'
 import type { Tx } from '../../lib/types'
 import {
-  ACCOUNTS, CATS_EXPENSE, CATS_INCOME, CAT_COLORS, TODAY, fmtMoney,
+  ACCOUNTS, CATS_EXPENSE, CATS_INCOME, catColorOf, chipListWith, TODAY, fmtMoney,
   groupEntriesByDay, monthLabel, monthOf, monthShift, monthStats, txDisplay, txToDisplay,
 } from '../../lib/data'
 import { useApp } from '../../lib/store'
@@ -20,8 +20,10 @@ function TxSheet() {
   const [acc, setAcc] = useState(editing?.data.payment ?? '微信')
   const [name, setName] = useState(editing?.data.merchant ?? '')
   const [date, setDate] = useState(editing?.data.date ?? TODAY)
-  const cats = type === 'expense' ? CATS_EXPENSE : CATS_INCOME
-  const activeCat = cats.includes(cat) ? cat : cats[0]
+  /* 电脑拉回的分类/账户可能不在手机内置清单里：原样保留为首位 chip，保存原样带回
+   * （此前 activeCat 回落清单首项——编辑「居住」条目保存会被静默改成「餐饮」，数据破坏） */
+  const cats = chipListWith(type === 'expense' ? CATS_EXPENSE : CATS_INCOME, cat)
+  const accs = chipListWith(ACCOUNTS, acc)
 
   const press = (k: string) => {
     if (k === 'del') setAmt(v => (v.length > 1 ? v.slice(0, -1) : '0'))
@@ -35,8 +37,8 @@ function TxSheet() {
   const save = () => {
     const amount = parseFloat(amt) || 0
     if (amount <= 0) { toast('金额还没填', 'warn'); return }
-    if (editing) updateTx(editing.id, { type, amount, cat: activeCat, acc, merchant: name.trim(), date })
-    else saveTx({ type, amount, cat: activeCat, acc, merchant: name.trim(), date })
+    if (editing) updateTx(editing.id, { type, amount, cat, acc, merchant: name.trim(), date })
+    else saveTx({ type, amount, cat, acc, merchant: name.trim(), date })
     closeSheet()
   }
 
@@ -60,14 +62,14 @@ function TxSheet() {
       <div className="amt-display"><span className="cur">¥</span><span className="num">{(parseFloat(amt) || 0).toFixed(2)}</span></div>
       <div className="field"><label>日期（可补记）</label><input type="date" value={date} max={TODAY} onChange={e => setDate(e.target.value)} /></div>
       <div className="chip-row">
-        {cats.map(c => <button key={c} className={'ph-chip' + (c === activeCat ? ' on' : '')} onClick={() => setCat(c)}>{c}</button>)}
+        {cats.map(c => <button key={c} className={'ph-chip' + (c === cat ? ' on' : '')} onClick={() => setCat(c)}>{c}</button>)}
       </div>
       <div className="chip-row">
-        {ACCOUNTS.map(a => <button key={a} className={'ph-chip' + (a === acc ? ' on' : '')} onClick={() => setAcc(a)}>{a}</button>)}
+        {accs.map(a => <button key={a} className={'ph-chip' + (a === acc ? ' on' : '')} onClick={() => setAcc(a)}>{a}</button>)}
       </div>
       <div className="field">
         <label>名目（可选）</label>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder={activeCat} />
+        <input value={name} onChange={e => setName(e.target.value)} placeholder={cat} />
       </div>
       <div className="keypad">
         {['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'del'].map(k => (
@@ -106,7 +108,7 @@ function TxRow({ t, confirming, onAsk, onConfirm, onCancel, onEdit }: {
       onAsk(t.id)
     }, 550)
   }
-  const color = CAT_COLORS[t.cat] || '#969696'
+  const color = catColorOf(t.cat)
   return (
     <div
       className="tx-item"
@@ -157,7 +159,7 @@ export function LedgerPage({ active }: { active: boolean }) {
         <div className="stat"><div className="lab">收入</div><div className="val income">¥{fmtMoney(stats.income)}</div></div>
         <div className="stat"><div className="lab">结余</div><div className={'val' + (stats.balance > 0 ? ' income' : '')}>{stats.balance < 0 ? '-¥' : '¥'}{fmtMoney(Math.abs(stats.balance))}</div></div>
       </div>
-      {groups.length === 0 && <div className="empty">这个月没有记账</div>}
+      {groups.length === 0 && <div className="empty empty-spring">这个月没有记账</div>}
       {groups.map(g => {
         const sum = g.entries.reduce((s, e) => s + (e.data.type === 'expense' ? -e.data.amount : e.data.amount), 0)
         return (

@@ -23,7 +23,10 @@ export interface Habit {
   weekDone: number
   target: number
   streak: number
+  /** 按星期索引（[0]=周一 … [6]=周日，toggleHabit 按 (getDay()+6)%7 写入） */
   hist: number[]
+  /** 每日打卡提醒时刻（自 0 点起的分钟数 0–1439；缺省 = 不提醒）。原生壳内按天排本地通知 */
+  remind?: number
 }
 
 export interface Tx {
@@ -54,6 +57,8 @@ export interface PhoneNote {
   title: string
   body: string
   synced: boolean
+  /** 内容最后改动时间（ISO）。v1.6 笔记 U 盘模式：与桌面版 LWW 裁决的本地依据；pull 覆盖时写远端时间 */
+  updatedAt: string
 }
 
 export type CardKind = 'tx' | 'todo' | 'note' | 'move' | 'quiz' | 'quiz-note' | 'quiz-del'
@@ -92,7 +97,7 @@ export interface Session {
 /** 主题：内置深浅两套 + 移植桌面「主题合集」插件的 5 套（OpenCode 终端灰 / 四季包，色值出自该插件 plugin.json） */
 export const THEME_IDS = ['dark', 'light', 'opencode', 'spring', 'summer', 'autumn', 'winter'] as const
 export type ThemeName = (typeof THEME_IDS)[number]
-export type SheetId = 'tx' | 'tx-edit' | 'todo' | 'sessions' | 'ai-config' | 'scan' | null
+export type SheetId = 'tx' | 'tx-edit' | 'todo' | 'habit' | 'sessions' | 'ai-config' | 'scan' | null
 
 /* ---------- 同步（M1，协议 docs/design.md §2.1） ---------- */
 
@@ -201,6 +206,8 @@ export interface AiConfig {
   model: string
   /** 用户自定义请求头（高级项，JSON 解析后落盘；与预设自带头合并，用户优先） */
   headers?: Record<string, string>
+  /** 工具循环轮数上限（高级项，1–24；缺省 = AI_MAX_ROUNDS 默认值） */
+  maxRounds?: number
 }
 
 /** OpenAI 兼容 tool_calls 元素 */

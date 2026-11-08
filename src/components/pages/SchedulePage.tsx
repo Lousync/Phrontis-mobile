@@ -5,7 +5,7 @@ import { TODO_TYPE_LABEL, TODAY, dayIso, fmtMin, weekOf } from '../../lib/data'
 import { burstAt } from '../../lib/fx'
 import { useApp } from '../../lib/store'
 import { useFormFactor } from '../../lib/useFormFactor'
-import { ICheck, IChevL, IChevR, IPlus } from '../../components/icons'
+import { IBell, ICheck, IChevL, IChevR, IDots, IPlus } from '../../components/icons'
 import { FullPage, FullPageHead } from '../../components/FullPage'
 import { PageHead } from '../../components/chrome'
 
@@ -112,7 +112,7 @@ function renderTodoList(dayTodos: Todo[], delId: string | null, ask: (id: string
       </div>,
     )
   }
-  return html.length ? html : <div className="empty">这一天没有待办</div>
+  return html.length ? html : <div className="empty empty-spring">这一天没有待办</div>
 }
 
 function DayGrid({ dayTodos }: { dayTodos: Todo[] }) {
@@ -158,9 +158,11 @@ function DayGrid({ dayTodos }: { dayTodos: Todo[] }) {
 }
 
 function HabitCard({ h }: { h: Habit }) {
-  const { toggleHabit } = useApp()
+  const { toggleHabit, openHabitForm } = useApp()
   const btnRef = useRef<HTMLButtonElement>(null)
-  const doneToday = !!h.hist[5]
+  /* 今天按真实星期几定位（hist 是周一…周日索引）——旧实现硬编码 hist[5]，一周里 6 天都看错 */
+  const todayIdx = (new Date().getDay() + 6) % 7
+  const doneToday = !!h.hist[todayIdx]
   const pct = Math.min(100, h.weekDone / h.target * 100)
   const WD = ['一', '二', '三', '四', '五', '六', '日']
   return (
@@ -168,11 +170,15 @@ function HabitCard({ h }: { h: Habit }) {
       <div className="habit-top">
         <div className="habit-dot" style={{ background: `color-mix(in srgb, ${h.color} 15%, transparent)`, color: h.color }}>{h.char}</div>
         <div className="habit-name">{h.name}</div>
+        {h.remind != null && <span className="habit-remind"><IBell size={11} />每天 {fmtMin(h.remind)}</span>}
         <div className="habit-streak">连续 {h.streak} 天</div>
+        <button className="habit-edit" aria-label="编辑习惯" onClick={e => { e.stopPropagation(); openHabitForm(h.id, e.currentTarget) }}>
+          <IDots size={14} />
+        </button>
       </div>
       <div className="hdots">
         {WD.map((wd, i) => {
-          const cls = i === 6 ? 'future' : i === 5 ? (doneToday ? 'today-done' : 'today-pending') : (h.hist[i] ? 'done' : '')
+          const cls = i > todayIdx ? 'future' : i === todayIdx ? (doneToday ? 'today-done' : 'today-pending') : (h.hist[i] ? 'done' : '')
           return <div key={wd} className={'hday ' + cls}><div className="hl">{wd}</div><div className="hdot" /></div>
         })}
       </div>
@@ -224,6 +230,60 @@ function TodoSheet({ selDate }: { selDate: string }) {
       <div className="field"><label>日期</label><input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
       <div className="field"><label>时间（可选）</label><input type="time" value={time} onChange={e => setTime(e.target.value)} /></div>
       <button className="btn-primary" onClick={save}>保存到手机</button>
+      </div>
+    </FullPage>
+  )
+}
+
+/**
+ * 习惯增改子页（2026-11-08 打卡提醒落地）：无 editHabitId = 新增；带 id = 编辑（含行内删除确认）。
+ * 提醒时间用原生 <input type=time>（WebView 弹系统时间选择器），留空 = 不提醒；
+ * 到点排本地通知（原生壳内），当天已打卡的槽在重排时丢弃，不会「打完卡还催」。
+ */
+function HabitForm() {
+  const { closeSheet, habits, editHabitId, addHabit, updateHabit, deleteHabit } = useApp()
+  const editing = editHabitId ? habits.find(h => h.id === editHabitId) : undefined
+  const [name, setName] = useState(editing?.name ?? '')
+  const [target, setTarget] = useState(String(editing?.target ?? 7))
+  const [remind, setRemind] = useState(editing?.remind != null ? fmtMin(editing.remind) : '')
+  const [delConfirm, setDelConfirm] = useState(false)
+  const save = () => {
+    if (!name.trim()) return
+    let remindMin: number | undefined
+    const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(remind.trim())
+    if (m) remindMin = Number(m[1]) * 60 + Number(m[2])
+    if (editing) updateHabit(editing.id, { name, target: Number(target), remind: remindMin ?? null })
+    else addHabit({ name, target: Number(target) || 7, remind: remindMin })
+    closeSheet()
+  }
+  return (
+    <FullPage>
+      <FullPageHead title={editing ? '编辑习惯' : '添加习惯'} />
+      <div className="fp-body">
+        <div className="field"><label>名称</label><input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="比如：背单词" onKeyDown={e => { if (e.key === 'Enter') save() }} /></div>
+        <div className="field"><label>每周目标（天）</label><input className="mono" type="number" inputMode="numeric" min={1} max={7} value={target} onChange={e => setTarget(e.target.value)} /></div>
+        <div className="field">
+          <label>每天提醒（可选）</label>
+          <div className="remind-row">
+            <input type="time" value={remind} onChange={e => setRemind(e.target.value)} />
+            {remind && <button className="btn-ghost" onClick={() => setRemind('')}>清除</button>}
+          </div>
+          <div className="model-cnt">到点发本地通知提醒打卡；当天已打卡就不再提醒。通知权限在「设置 → 工具」查看。</div>
+        </div>
+        {editing && (
+          <div className="field" style={{ marginTop: 6 }}>
+            {!delConfirm ? (
+              <button className="btn-ghost del-habit-btn" onClick={() => setDelConfirm(true)}>删除这个习惯</button>
+            ) : (
+              <div className="del-confirm">
+                <span className="dc-q">删除「{editing.name}」？打卡历史一并清除。</span>
+                <button className="dc-btn dc-yes" onClick={() => { deleteHabit(editing.id); closeSheet() }}>删除</button>
+                <button className="dc-btn dc-no" onClick={() => setDelConfirm(false)}>取消</button>
+              </div>
+            )}
+          </div>
+        )}
+        <button className="btn-primary" onClick={save}>{editing ? '保存' : '保存到手机'}</button>
       </div>
     </FullPage>
   )
@@ -285,7 +345,7 @@ function QuickTodoAdd({ selDate, onClose }: { selDate: string; onClose: () => vo
 }
 
 export function SchedulePage({ active }: { active: boolean }) {
-  const { todos, habits, selDate, setSelDate, schedView, setSchedView, openSheet, deleteTodo } = useApp()
+  const { todos, habits, selDate, setSelDate, schedView, setSchedView, openSheet, deleteTodo, openHabitForm } = useApp()
   const tablet = useFormFactor() === 'tablet'
   const [delId, setDelId] = useState<string | null>(null)
   const [quickAdd, setQuickAdd] = useState(false)
@@ -362,11 +422,21 @@ export function SchedulePage({ active }: { active: boolean }) {
       {schedView === 'grid' && <DayGrid key={selDate} dayTodos={dayTodos} />}
       {schedView === 'habit' && (habits.length
         ? habits.map(h => <HabitCard key={h.id} h={h} />)
-        : <div className="empty">还没有打卡习惯</div>)}
+        : <div className="empty empty-spring">还没有打卡习惯</div>)}
 
       {schedView === 'list' && !tablet && (
         <button className="add-bar" onClick={e => openSheet('todo', e.currentTarget)}>
           <IPlus />添加待办
+        </button>
+      )}
+      {schedView === 'habit' && !tablet && (
+        <button className="add-bar" onClick={e => openHabitForm(undefined, e.currentTarget)}>
+          <IPlus />添加习惯
+        </button>
+      )}
+      {schedView === 'habit' && tablet && (
+        <button className="tb-add" onClick={e => openHabitForm(undefined, e.currentTarget)} title="添加习惯">
+          <IPlus size={20} />
         </button>
       )}
       {schedView === 'list' && tablet && (
@@ -385,4 +455,4 @@ export function SchedulePage({ active }: { active: boolean }) {
   )
 }
 
-export { TodoSheet }
+export { TodoSheet, HabitForm }

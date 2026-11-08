@@ -7,6 +7,9 @@
  *
  * v1.1（M2a）：schedule 域上线；删除走墓碑（data:{deleted:true}）；
  * 游标只在 pull 完成后推进（M1 在 push 时推进，会漏拉电脑侧早于本次 push 的变更——已修正）。
+ * v1.6（2026-11-08）：notes 域升级为双向（U 盘模式）——桌面把设备文件夹里的增删改
+ * 经 pull 下行（changes.notes + tombstones domain='notes'），手机 LWW 合并；
+ * 旧桌面不回 notes 域 → 空数组、游标不动，向后完全兼容。协议见 docs/design.md §2.1。
  *
  * M1 存储用 localStorage（等价 Preferences 形态），M2b 评估 SQLite 迁移；
  * 所有键带 pm. 前缀，迁移时整体搬运。
@@ -53,6 +56,18 @@ export function uuid(): string {
   b[8] = (b[8] & 0x3f) | 0x80
   const h = Array.from(b, x => x.toString(16).padStart(2, '0')).join('')
   return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20)
+}
+
+const K_DEVICE_NAME = 'pm.deviceName'
+
+/** 上报给桌面的设备名（v1.6 U 盘模式：桌面按它建「移动端/<设备名>/」文件夹）。
+ * 默认 Phrontis 手机；同名设备的防撞由桌面处理（追加 deviceId 短后缀），手机端不感知。 */
+export function getDeviceName(): string {
+  return lsGet<string>(K_DEVICE_NAME, '') || 'Phrontis 手机'
+}
+
+export function setDeviceName(name: string): void {
+  lsSet(K_DEVICE_NAME, String(name || '').trim().slice(0, 24))
 }
 
 function deviceId(): string {
@@ -272,14 +287,14 @@ export function removeFromQueue(ids: string[]): void {
   lsSet(K_QUEUE, getQueue().filter(op => !drop.has(op.id)))
 }
 
-export interface LastSyncCursor { ledger: number; schedule: number }
+export interface LastSyncCursor { ledger: number; schedule: number; notes: number }
 
 export function getLastSync(): LastSyncCursor {
   const raw = lsGet<Partial<LastSyncCursor>>(K_LAST_SYNC, {})
-  return { ledger: Number(raw.ledger) || 0, schedule: Number(raw.schedule) || 0 }
+  return { ledger: Number(raw.ledger) || 0, schedule: Number(raw.schedule) || 0, notes: Number(raw.notes) || 0 }
 }
 
-function setLastSync(domain: 'ledger' | 'schedule', ms: number): void {
+function setLastSync(domain: 'ledger' | 'schedule' | 'notes', ms: number): void {
   lsSet(K_LAST_SYNC, { ...getLastSync(), [domain]: ms })
 }
 
@@ -288,6 +303,27 @@ function setLastSync(domain: 'ledger' | 'schedule', ms: number): void {
 /** 手机闪念 → notes 域负载（v1.2）。标题截 120、正文截 10 万，与桌面 normalizeNoteData 同口径 */
 export function buildNoteData(title: string, body: string): NoteSyncData {
   return { title: title.trim().slice(0, 120), body: String(body || '').slice(0, 100_000) }
+}
+
+/* ---- v1.6 笔记 U 盘模式：下行负载与 LWW（纯函数，契约脚本直测） ---- */
+
+/** 桌面下行的笔记变更（设备文件夹内桌面侧的增改；删除走 tombstones，domain='notes'） */
+export interface RemoteNoteItem {
+  id: string
+  updatedAt: string
+  data: { title: string; body: string }
+}
+
+/**
+ * 笔记 LWW 裁决：updatedAt（ISO）新者赢。两侧都缺时间按旧处理（pull 版让位本地）；
+ * 相等视为远端赢（同刻无法分先后，取桌面版收敛——与 ledger「conflict 以服务端为准」同精神）。
+ */
+export function noteLww(localUpdatedAt: string | undefined, remoteUpdatedAt: string): 'local' | 'remote' {
+  const l = Date.parse(localUpdatedAt || '')
+  const r = Date.parse(remoteUpdatedAt || '')
+  if (!Number.isFinite(r)) return 'local'
+  if (!Number.isFinite(l)) return 'remote'
+  return r >= l ? 'remote' : 'local'
 }
 
 /* ================= 电脑笔记内容缓存（v1.2 内容 API） ================= */
@@ -446,6 +482,8 @@ export interface SyncOutcome {
   remoteLedger: RemoteLedgerItem[]
   /** 拉回的日程条目（含子任务行，调用方聚合计数展示） */
   remoteSchedule: RemoteScheduleItem[]
+  /** 拉回的笔记变更（v1.6 U 盘模式：桌面端在设备文件夹里的增改，调用方 LWW 合并） */
+  remoteNotes: RemoteNoteItem[]
   /** 墓碑下行的条目 id（调用方从本地删除，并丢弃这些 id 的在途队列操作） */
   removedIds: string[]
 }
@@ -513,17 +551,21 @@ export async function syncNow(onPhase?: (pct: number) => void): Promise<SyncOutc
   const since = {
     ledger: conflicts > 0 ? 0 : cursors.ledger,
     schedule: conflicts > 0 ? 0 : cursors.schedule,
+    notes: conflicts > 0 ? 0 : cursors.notes,
   }
   const pullRes = await req('/api/sync/pull', { since }) as {
-    changes?: { ledger?: RemoteLedgerItem[]; schedule?: RemoteScheduleItem[] }
+    changes?: { ledger?: RemoteLedgerItem[]; schedule?: RemoteScheduleItem[]; notes?: RemoteNoteItem[] }
     tombstones?: RemoteTombstone[]
-    cursor?: { ledger?: number; schedule?: number }
+    cursor?: { ledger?: number; schedule?: number; notes?: number }
   }
   const remoteLedger = Array.isArray(pullRes.changes?.ledger) ? pullRes.changes!.ledger! : []
   const remoteSchedule = Array.isArray(pullRes.changes?.schedule) ? pullRes.changes!.schedule! : []
+  /* v1.6 起桌面可回 notes 域（U 盘模式）；旧桌面（v1.5-）不回 → 空数组、notes 游标不动，完全兼容 */
+  const remoteNotes = Array.isArray(pullRes.changes?.notes) ? pullRes.changes!.notes! : []
   const removedIds = Array.isArray(pullRes.tombstones) ? pullRes.tombstones.map(t => String(t.id)).filter(Boolean) : []
   if (typeof pullRes.cursor?.ledger === 'number') setLastSync('ledger', pullRes.cursor.ledger)
   if (typeof pullRes.cursor?.schedule === 'number') setLastSync('schedule', pullRes.cursor.schedule)
+  if (typeof pullRes.cursor?.notes === 'number') setLastSync('notes', pullRes.cursor.notes)
   onPhase?.(100)
 
   return {
@@ -531,9 +573,10 @@ export async function syncNow(onPhase?: (pct: number) => void): Promise<SyncOutc
     handledIds: doneIds,
     applied,
     conflicts,
-    pulled: remoteLedger.length + remoteSchedule.length,
+    pulled: remoteLedger.length + remoteSchedule.length + remoteNotes.length,
     remoteLedger,
     remoteSchedule,
+    remoteNotes,
     removedIds,
   }
 }

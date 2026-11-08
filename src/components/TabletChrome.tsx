@@ -1,4 +1,4 @@
-import { useApp } from '../lib/store'
+import { useApp, SETTINGS_SECS } from '../lib/store'
 import { SidebarNotes } from './SidebarNotes'
 import { fmtMoney, TODAY } from '../lib/data'
 import { IBook, ICalendar, IChevL, IChevR, IGear, IQuiz, IPin, ISparkle, IWallet } from './icons'
@@ -18,6 +18,7 @@ export function TabletChrome() {
   const {
     activeTab, setActiveTab, sideCollapsed, toggleSide,
     sessions, curSession, switchSession, quizRecords, todos, txs,
+    settingsSec, setSettingsSec,
   } = useApp()
   const side = sideCollapsed ? ' min' : ''
 
@@ -117,6 +118,18 @@ export function TabletChrome() {
                   </button>
                 ))}
                 {!recentTxs.length && <div className="tb-tree-empty">还没有流水</div>}
+              </div>
+            </div>
+          )}
+          {activeTab === 'settings' && (
+            <div className="tb-domain-body">
+              <div className="dom-title">设置 <span className="more">点分类直达</span></div>
+              <div className="tb-tree">
+                {SETTINGS_SECS.map(sec => (
+                  <button key={sec.id} className={'tb-row' + (settingsSec === sec.id ? ' on' : '')} onClick={() => setSettingsSec(sec.id)}>
+                    <span className="tb-row-t">{sec.label}</span>
+                  </button>
+                ))}
               </div>
             </div>
           )}

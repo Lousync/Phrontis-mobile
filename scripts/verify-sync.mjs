@@ -16,8 +16,8 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { parsePairInput, uuid, buildScheduleData, buildNoteData, pruneNoteCache, getLastSync } from '../src/lib/sync.ts'
-import { txToDisplay, monthOf, monthShift, monthStats, groupEntriesByDay, weekOf, TODAY } from '../src/lib/data.ts'
+import { parsePairInput, uuid, buildScheduleData, buildNoteData, pruneNoteCache, getLastSync, noteLww } from '../src/lib/sync.ts'
+import { txToDisplay, monthOf, monthShift, monthStats, groupEntriesByDay, weekOf, TODAY, chipListWith, catColorOf } from '../src/lib/data.ts'
 import { AI_TOOLS, validateLedgerAdd, validateTodoAdd, validateNoteCreate, buildSystemPrompt } from '../src/lib/aiTools.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -56,7 +56,7 @@ console.log('\n§2b schedule 负载构建（与桌面 TodoRow 映射口径一致
   check('非 HH:MM 的 time 视为无', buildScheduleData({ ...t, time: '' }).time === '' && buildScheduleData({ ...t, time: '9:3' }).time === '')
   check('子任务行携带 parentId', buildScheduleData({ ...t, parentId: 'p-1' }).parentId === 'p-1')
   check('done 原样透传（翻转由调用方先改对象）', buildScheduleData({ ...t, done: true }).done === true)
-  check('游标结构含双域（Node 无 localStorage 走兜底 0）', eq(getLastSync(), { ledger: 0, schedule: 0 }))
+  check('游标结构含三域（v1.6 起 notes 入列；Node 无 localStorage 走兜底 0）', eq(getLastSync(), { ledger: 0, schedule: 0, notes: 0 }))
 }
 
 console.log('\n§2c 账本派生与月视图（同步形态 → 展示/统计，M2b）')
@@ -78,6 +78,13 @@ console.log('\n§2c 账本派生与月视图（同步形态 → 展示/统计，
   const st = monthStats(list, '2026-11')
   check('月统计：支出/收入/结余', st.expense === 28 && st.income === 800 && st.balance === 772)
   check('月统计：跨月条目不计入', monthStats(list, '2026-10').expense === 4 && monthStats(list, '2026-12').expense === 0)
+  /* 2026-11-08 记账对齐：电脑拉回的分类/账户不在手机内置清单 → 保留原值（此前编辑保存被静默改写，数据破坏） */
+  check('未知分类/账户保留为首位 chip', eq(chipListWith(['餐饮', '交通'], '居住'), ['居住', '餐饮', '交通']))
+  check('已知值与空值不改清单', eq(chipListWith(['餐饮', '交通'], '交通'), ['餐饮', '交通']) && eq(chipListWith(['餐饮'], ''), ['餐饮']))
+  /* 分类色与桌面同源：内置 seed 色 + 手机独有分类 = 桌面 colorForName 同 hash */
+  check('分类色：内置 seed 与桌面 DEFAULT_CATEGORIES 一致', catColorOf('餐饮') === '#e8842c' && catColorOf('居住') === '#8a7f5c' && catColorOf('其他') === '#7a7a7a')
+  check('分类色：手机独有 = 桌面自动建时的 hash 值', catColorOf('日用') === '#c9922e' && catColorOf('理财') === '#e8842c')
+  check('分类色：未知名 hash 兜底（不再一律灰）', catColorOf('宠物') === '#9157d6')
   const g = groupEntriesByDay(list, '2026-11')
   check('按日分组：新日在前', g.length === 2 && g[0].date === '2026-11-02' && g[1].date === '2026-11-01')
   check('组内 updatedAt 倒序（后记的在上）', groupEntriesByDay([a, e('a2', '2026-11-02', '08:00', 'expense', 6, '交通', '现金', '早地铁', '2026-11-02T00:00:00.000Z')], '2026-11')[0].entries[0].id === 'a')
@@ -96,11 +103,18 @@ console.log('\n§2c-2 周导航（weekOf：日程页周条翻周的数据源）'
   check('WEEK 常量 = weekOf(0)', weekOf(0)[0].iso === wk[0].iso && weekOf(0)[6].iso === wk[6].iso)
 }
 
-console.log('\n§2d 笔记负载与缓存（v1.2：上行 + LRU 缓存）')
+console.log('\n§2d 笔记负载与缓存（v1.2 上行 + LRU 缓存；v1.6 U 盘模式）')
 {
   check('notes 负载：标题去空白，正文原样', eq(buildNoteData('  标题  ', '想到什么记什么'), { title: '标题', body: '想到什么记什么' }))
   check('notes 负载：标题截 120', buildNoteData('x'.repeat(200), '').title.length === 120)
   check('notes 负载：正文截 10 万', buildNoteData('', 'y'.repeat(200000)).body.length === 100000)
+
+  // v1.6 笔记 U 盘模式：LWW 裁决纯函数（与桌面裁决语义同源：新者赢、同刻桌面赢、缺时间按旧）
+  check('LWW：远端新 → remote', noteLww('2026-11-08T10:00:00.000Z', '2026-11-08T11:00:00.000Z') === 'remote')
+  check('LWW：本地新 → local（自愈上行）', noteLww('2026-11-08T12:00:00.000Z', '2026-11-08T11:00:00.000Z') === 'local')
+  check('LWW：同刻 → remote（桌面赢，收敛）', noteLww('2026-11-08T10:00:00.000Z', '2026-11-08T10:00:00.000Z') === 'remote')
+  check('LWW：本地缺时间 → remote', noteLww(undefined, '2026-11-08T10:00:00.000Z') === 'remote')
+  check('LWW：远端缺时间 → local（pull 版让位）', noteLww('2026-11-08T10:00:00.000Z', '') === 'local')
 
   const mk = (id, bodyLen, at) => [id, { title: 't', body: 'x'.repeat(bodyLen), mtimeMs: 1, at }]
   const small = Object.fromEntries([mk('a', 10, 1), mk('b', 10, 2)])
@@ -158,7 +172,13 @@ console.log('\n§3 协议文档契约（docs/design.md §2.1 与手机实现一�
   check('§2.1 记录游标只在 pull 后推进（v1.1 修正）', design.includes('只在 pull 完成后推进'))
   check('§2.1 记录墓碑下行 tombstones', design.includes('tombstones'))
   // v1.2 契约
-  check('§2.1 v1.2 记录 notes 上行域与无条件应用', design.includes('v1.2 笔记') && design.includes('无条件应用'))
+  check('§2.1 v1.2 记录 notes 上行域（v1.6 已标注取代）', design.includes('v1.2 笔记') && design.includes('v1.6 笔记 U 盘模式'))
+  // v1.6 契约（2026-11-08 笔记 U 盘模式）
+  check('§2.1 v1.6 记录设备文件夹布局', design.includes('移动端/<设备名>') && design.includes('deviceName'))
+  check('§2.1 v1.6 记录 frontmatter 锚点（id + updated + tags 手机）', design.includes('id: <手机笔记 uuid>') && design.includes('updated: <ISO>') && design.includes('tags: [手机]'))
+  check('§2.1 v1.6 记录 pull 下行 notes 域与墓碑', design.includes("changes.notes") && design.includes("domain: 'notes'"))
+  check('§2.1 v1.6 记录在线可见性 + 离线数据保留', design.includes('仅在该设备在线时') && design.includes('磁盘上文件永久保留'))
+  check('§2.1 v1.6 记录旧桌面兼容口径', design.includes('旧桌面（v1.5-）不回 notes 域'))
   check('§2.1 记录内容 API 端点', design.includes('/api/notes/tree') && design.includes('/api/notes/content'))
   check('§2.1 记录缓存上限与按 id 解析路径', design.includes('1.5MB') && design.includes('按 id 服务端解析路径'))
   // v1.3 契约（2026-11-06 电脑档整体移除，改为反向断言；决策记录里仍会提到该端点，故只查端点表行）

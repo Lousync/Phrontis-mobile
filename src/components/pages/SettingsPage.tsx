@@ -1,13 +1,42 @@
 import { useEffect, useRef, useState } from 'react'
 import { Switch, SwitchContent, SwitchControl, SwitchThumb } from '@heroui/react'
+import { Clipboard } from '@capacitor/clipboard'
 import type { AiConfig, AiProvider, ThemeName } from '../../lib/types'
-import { AI_PRESETS, aiConfigReady, fetchModels, presetOf, testAiConfig, type AiPreset } from '../../lib/ai'
-import { discoverCompanions, pollPair, requestPair, type DiscoveredPc } from '../../lib/sync'
-import { useApp } from '../../lib/store'
-import { IBars, IBell, ICheck, IChevL, IChevR, IKeyboard, IMonitor, IRefresh, ISparkle, IX, IEye } from '../../components/icons'
+import { AI_MAX_ROUNDS, AI_PRESETS, aiConfigReady, fetchModels, parseMaxRounds, presetOf, recOf, testAiConfig, type AiPreset } from '../../lib/ai'
+import { discoverCompanions, getDeviceName, pollPair, requestPair, type DiscoveredPc } from '../../lib/sync'
+import { useApp, type SettingsSec } from '../../lib/store'
+import { useFormFactor } from '../../lib/useFormFactor'
+import { UsagePanel } from './UsagePage'
+import { IBars, IBell, ICheck, IChevL, IChevR, IClip, IKeyboard, IMonitor, IRefresh, ISparkle, IX, IEye } from '../../components/icons'
 import { PageHead } from '../../components/chrome'
 import { ModelPicker } from '../../components/ModelPicker'
 import { FullPage } from '../FullPage'
+
+/* API Key 输入的安全键盘问题（2026-11-08 用户反馈）：type=password 会唤起国产输入法的「安全键盘」，
+ * 粘贴被禁——Key 手敲不现实。支持 -webkit-text-security 的内核（Android WebView / 桌面 Chromium）
+ * 改走 text + .mask 视觉打码：键盘恢复普通态，长按粘贴照常；不支持的内核（iOS WKWebView）
+ * 保持 type=password——iOS 密码框可长按粘贴，无安全键盘问题。 */
+const MASK_OK = typeof CSS !== 'undefined' && !!CSS.supports?.('-webkit-text-security', 'disc')
+
+type ToastFn = (msg: string, type?: 'ok' | 'warn' | 'info') => void
+
+/** 一键粘贴 Key：统一走 @capacitor/clipboard——打包壳内是原生 ClipboardManager（可靠），
+ * 纯网页环境自动落到其 web 实现（异步剪贴板 API，权限被拒时走兜底提示）。
+ * 长按粘贴路径由 text+mask 方案保底（不再触发安全键盘）。 */
+async function pasteKeyInto(set: (v: string) => void, toast: ToastFn) {
+  try {
+    /* 5s 上限：个别嵌入内核的剪贴板权限弹窗无人应答时 read 会永远 pending（IAB 实测），不能无声无息 */
+    const { value } = await Promise.race([
+      Clipboard.read(),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('clipboard-timeout')), 5000)),
+    ])
+    if (!value.trim()) { toast('剪贴板是空的', 'info'); return }
+    set(value.trim())
+    toast('Key 已粘贴', 'ok')
+  } catch {
+    toast('读不到剪贴板——长按输入框选「粘贴」', 'info')
+  }
+}
 
 /** 主题选择器清单（色板预览用固定色值——色板必须展示目标主题自己的颜色，不能随当前主题变） */
 const THEME_PICKS: Array<{ id: ThemeName; name: string; bg: string; line: string; dot: string }> = [
@@ -27,7 +56,11 @@ const THEME_PICKS: Array<{ id: ThemeName; name: string; bg: string; line: string
  * AI 区 = M4a 直连档配置（pm.aiConfig，Key 只在本机）。
  */
 export function SettingsPage({ active }: { active: boolean }) {
-  const { paired, online, syncing, syncPct, lastSync, runSync, pairWith, adoptPaired, unpair, theme, setTheme, toast, aiConfig, setActiveTab, kbSim, toggleKbSim, openSheet } = useApp()
+  const { paired, online, syncing, syncPct, lastSync, runSync, pairWith, adoptPaired, unpair, theme, setTheme, toast, aiConfig, setActiveTab, kbSim, toggleKbSim, openSheet, settingsSec } = useApp()
+  const ff = useFormFactor()
+  /* 平板：分类隔离——侧栏点哪个分类就只渲染那个分类的设置项，后续设置项增多互不干扰；
+   * 手机：单页滚动全展示。分类清单 SETTINGS_SECS 与此处 data-sec 一一对应（加分类两处同步加） */
+  const showSec = (id: SettingsSec) => ff !== 'tablet' || settingsSec === id
   const [pairInput, setPairInput] = useState('')
   const [pairCode, setPairCode] = useState('')
   const [pairing, setPairing] = useState(false)
@@ -86,7 +119,7 @@ export function SettingsPage({ active }: { active: boolean }) {
     setPairing(true)
     setPairMsg('')
     try {
-      const r = await requestPair(pc.baseUrl, 'Phrontis 手机')
+      const r = await requestPair(pc.baseUrl, getDeviceName())
       setPairReq({ baseUrl: pc.baseUrl, pcName: pc.pcName, requestId: r.requestId, code: r.code })
       if (pollRef.current) clearInterval(pollRef.current)
       const startedAt = Date.now()
@@ -134,7 +167,8 @@ export function SettingsPage({ active }: { active: boolean }) {
     <section className={'page' + (active ? ' active' : '')}>
       <PageHead title="设置" />
 
-      <div>
+      {showSec('sync') && (
+      <div data-sec="sync">
         <div className="set-label">同步</div>
         <div className="ph-card">
           {!paired ? (
@@ -244,11 +278,21 @@ export function SettingsPage({ active }: { active: boolean }) {
           )}
         </div>
       </div>
+      )}
 
-      <div>
+      {/* AI 用量：平板独立分类（内嵌 UsagePanel）；手机走工具二级页（UsagePage），不在此渲染 */}
+      {ff === 'tablet' && settingsSec === 'usage' && (
+      <div data-sec="usage">
+        <UsagePanel />
+      </div>
+      )}
+
+      {showSec('tools') && (
+      <div data-sec="tools">
         <div className="set-label">工具</div>
         <div className="ph-card" style={{ padding: '2px 14px' }}>
-          {/* 用量从底栏降级到这里的二级入口（M3 ≤5 规范） */}
+          {/* 用量从底栏降级到这里的二级入口（M3 ≤5 规范）；平板已是独立分类，此行仅手机显示 */}
+          {ff !== 'tablet' && (
           <button className="tool-row" onClick={e => setActiveTab('usage', e.currentTarget)}>
             <span className="tool-ico"><IBars /></span>
             <span className="tool-body">
@@ -257,11 +301,15 @@ export function SettingsPage({ active }: { active: boolean }) {
             </span>
             <IChevR size={14} />
           </button>
+          )}
           <NotifPermRow />
         </div>
       </div>
+      )}
 
-      <div>
+      {showSec('ai') && (
+      <div data-sec="ai">
+
         <div className="set-label">AI 模型（手机直连）</div>
         <div className="ph-card">
           <div className="device-card">
@@ -284,8 +332,10 @@ export function SettingsPage({ active }: { active: boolean }) {
           </div>
         </div>
       </div>
+      )}
 
-      <div>
+      {showSec('appearance') && (
+      <div data-sec="appearance">
         <div className="set-label">外观</div>
         <div className="ph-card">
           {/* 外观：一行式主题入口（2026-11-06 方案 A——七套平铺占两行半高度，收进抽屉；
@@ -321,7 +371,15 @@ export function SettingsPage({ active }: { active: boolean }) {
               ))}
             </div>
           )}
-          {/* 桌面 letterbox 专用（触屏经 CSS 隐藏）：验证键盘弹出时贴底控件上提 */}
+        </div>
+      </div>
+      )}
+
+      {showSec('about') && (
+      <div data-sec="about">
+        <div className="set-label">关于</div>
+        {/* 桌面 letterbox 专用（触屏经 CSS 隐藏，.kb-sim-card 同口径）：验证键盘弹出时贴底控件上提 */}
+        <div className="ph-card kb-sim-card">
           <div className="check-row kb-sim-row">
             <span>模拟输入法 <IKeyboard size={13} style={{ color: 'var(--text-muted)' }} /></span>
             <span className="why">桌面调试</span>
@@ -334,9 +392,9 @@ export function SettingsPage({ active }: { active: boolean }) {
             </Switch>
           </div>
         </div>
+        <div className="ver">Phrontis Mobile {__APP_VERSION__}</div>
       </div>
-
-      <div className="ver">Phrontis Mobile {__APP_VERSION__}</div>
+      )}
     </section>
   )
 }
@@ -428,11 +486,13 @@ export function AiConfigSheet() {
 /** 添加表单。状态全部本地草稿，保存才落 pm.aiConfig；key 换 preset 时由 key={p.id} 整体重挂 */
 function AiPresetForm({ preset, onSaved }: { preset: AiPreset; onSaved: () => void }) {
   const { updateAiConfig, toast } = useApp()
+  const rec = recOf(preset.id)
   const [apiKey, setApiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
   const [model, setModel] = useState(preset.defaultModel)
   const [base, setBase] = useState('')
   const [headText, setHeadText] = useState('')
+  const [roundsText, setRoundsText] = useState('')
   const [adv, setAdv] = useState(false)
   const [fetched, setFetched] = useState<string[] | null>(null)
   const [fetching, setFetching] = useState(false)
@@ -460,7 +520,7 @@ function AiPresetForm({ preset, onSaved }: { preset: AiPreset; onSaved: () => vo
         return { err: '自定义请求头不是合法的 JSON 对象。', field: 'base' }
       }
     }
-    return { cfg: { provider: preset.id, baseUrl: b, apiKey: apiKey.trim(), model: m, headers } }
+    return { cfg: { provider: preset.id, baseUrl: b, apiKey: apiKey.trim(), model: m, headers, maxRounds: parseMaxRounds(roundsText) } }
   }
 
   const flag = (field?: 'key' | 'model' | 'base') => {
@@ -509,26 +569,19 @@ function AiPresetForm({ preset, onSaved }: { preset: AiPreset; onSaved: () => vo
 
   return (
     <>
-      <div className="filled-box">
-        <div className="fb-h">预设替你填好的（可改）</div>
-        <div className="fb-r"><span className="k">接口地址</span><span className="v mono">{preset.base || '（自定义，在高级里填）'}</span></div>
-        <div className="fb-r"><span className="k">协议</span><span className="v">{preset.local ? 'Ollama · OpenAI 兼容层' : 'OpenAI 兼容'}</span></div>
-        {preset.header && (
-          <div className="fb-r"><span className="k">会话头</span><span className="v mono">{Object.keys(preset.header)[0]}: 按对话自动带上</span></div>
-        )}
-        {preset.srcConfig && <div className="fb-r"><span className="k" /><span><span className="badge-doc">按官方文档</span></span></div>}
-        {preset.unverified && <div className="fb-r"><span className="k" /><span><span className="badge-unv">地址未经在线核实</span> 测试连接后再用</span></div>}
-      </div>
-
       <div className="field">
         <label>{preset.local ? 'API Key（本地可留空）' : 'API Key'}</label>
         <div className="key-wrap">
           <input
-            type={showKey ? 'text' : 'password'}
+            /* 见 MASK_OK 注释：text + 视觉打码代替 password，避免安全键盘禁粘贴 */
+            type={showKey || MASK_OK ? 'text' : 'password'}
             value={apiKey} disabled={preset.local}
             onChange={e => { setApiKey(e.target.value); setKeyErr(false) }}
-            className={keyErr ? 'err' : ''}
+            className={(keyErr ? 'err ' : '') + (!showKey && MASK_OK ? 'mask' : '')}
             placeholder={preset.local ? '本地模型无需 API Key' : 'sk-…（只存手机本地）'} />
+          {!preset.local && (
+            <button className="key-paste" title="粘贴 Key" onClick={() => void pasteKeyInto(setApiKey, toast)}><IClip size={16} /></button>
+          )}
           {!preset.local && (
             <button className="key-eye" onClick={() => setShowKey(s => !s)}><IEye size={16} /></button>
           )}
@@ -542,6 +595,7 @@ function AiPresetForm({ preset, onSaved }: { preset: AiPreset; onSaved: () => vo
             <input className={'mono' + (modelErr ? ' err' : '')} value={model} spellCheck={false}
               onChange={e => { setModel(e.target.value); setModelErr(false) }} placeholder="ep-2026…" />
             <div className="model-cnt">{preset.modelHint}</div>
+            {rec?.hint && <div className="model-cnt">{rec.hint}</div>}
           </>
         ) : (
           <>
@@ -561,6 +615,7 @@ function AiPresetForm({ preset, onSaved }: { preset: AiPreset; onSaved: () => vo
               </button>
             </div>
             <div className="model-cnt">{fetchMsg || (fetched ? `共 ${fetched.length} 个` : '也可拉取端点的模型清单来选')}</div>
+            {rec?.hint && <div className="model-cnt">{rec.hint}</div>}
           </>
         )}
       </div>
@@ -579,6 +634,12 @@ function AiPresetForm({ preset, onSaved }: { preset: AiPreset; onSaved: () => vo
             <label>自定义请求头（JSON）</label>
             <input className="mono" value={headText} spellCheck={false} onChange={e => setHeadText(e.target.value)}
               placeholder='{"头名":"值"}' />
+          </div>
+          <div className="field">
+            <label>工具轮数上限（1–24）</label>
+            <input className="mono" type="number" inputMode="numeric" min={1} max={24} value={roundsText}
+              onChange={e => setRoundsText(e.target.value)} placeholder={String(AI_MAX_ROUNDS)} />
+            <div className="model-cnt">单次回复最多连续执行几轮工具——越大越能跑长任务，也越费 token 与时间；留空用默认（{AI_MAX_ROUNDS}）。</div>
           </div>
         </div>
       )}
@@ -610,6 +671,7 @@ function AiEditForm({ onSaved }: { onSaved: () => void }) {
   const { aiConfig, updateAiConfig, toast } = useApp()
   const [providerId, setProviderId] = useState<AiProvider>(aiConfig.provider)
   const preset = presetOf(providerId)
+  const rec = recOf(providerId)
   const changed = providerId !== aiConfig.provider
   const [provOpen, setProvOpen] = useState(false)
   const [apiKey, setApiKey] = useState('')
@@ -619,6 +681,8 @@ function AiEditForm({ onSaved }: { onSaved: () => void }) {
   const [headText, setHeadText] = useState(
     aiConfig.headers && Object.keys(aiConfig.headers).length ? JSON.stringify(aiConfig.headers) : '',
   )
+  /* 轮数上限是全局项（不随供应商走），换供应商时保留 */
+  const [roundsText, setRoundsText] = useState(aiConfig.maxRounds ? String(aiConfig.maxRounds) : '')
   const [adv, setAdv] = useState(false)
   const [keyErr, setKeyErr] = useState(false)
   const [modelErr, setModelErr] = useState(false)
@@ -650,7 +714,7 @@ function AiEditForm({ onSaved }: { onSaved: () => void }) {
         return { err: '自定义请求头不是合法的 JSON 对象。', field: 'base' }
       }
     }
-    return { cfg: { provider: providerId, baseUrl: b, apiKey: key, model: m, headers } }
+    return { cfg: { provider: providerId, baseUrl: b, apiKey: key, model: m, headers, maxRounds: parseMaxRounds(roundsText) } }
   }
 
   const flag = (field?: 'key' | 'model' | 'base') => {
@@ -732,11 +796,15 @@ function AiEditForm({ onSaved }: { onSaved: () => void }) {
         <label>{preset.local ? 'API Key（本地可留空）' : 'API Key'}</label>
         <div className="key-wrap">
           <input
-            type={showKey ? 'text' : 'password'}
+            /* 见 MASK_OK 注释：text + 视觉打码代替 password，避免安全键盘禁粘贴 */
+            type={showKey || MASK_OK ? 'text' : 'password'}
             value={apiKey} disabled={preset.local}
             onChange={e => { setApiKey(e.target.value); setKeyErr(false) }}
-            className={keyErr ? 'err' : ''}
+            className={(keyErr ? 'err ' : '') + (!showKey && MASK_OK ? 'mask' : '')}
             placeholder={keyPlaceholder} />
+          {!preset.local && (
+            <button className="key-paste" title="粘贴 Key" onClick={() => void pasteKeyInto(setApiKey, toast)}><IClip size={16} /></button>
+          )}
           {!preset.local && (
             <button className="key-eye" onClick={() => setShowKey(s => !s)}><IEye size={16} /></button>
           )}
@@ -753,6 +821,7 @@ function AiEditForm({ onSaved }: { onSaved: () => void }) {
             <input className={'mono' + (modelErr ? ' err' : '')} value={model} spellCheck={false}
               onChange={e => { setModel(e.target.value); setModelErr(false) }} placeholder="ep-2026…" />
             <div className="model-cnt">{preset.modelHint}</div>
+            {rec?.hint && <div className="model-cnt">{rec.hint}</div>}
           </>
         ) : (
           <>
@@ -764,25 +833,16 @@ function AiEditForm({ onSaved }: { onSaved: () => void }) {
               </span>
               <IChevR size={14} />
             </button>
+            {rec?.hint && <div className="model-cnt">{rec.hint}</div>}
           </>
         )}
       </div>
 
       <button className={'adv-toggle' + (adv ? ' open' : '')} onClick={() => setAdv(v => !v)}>
-        <IChevR size={12} />高级（预设详情 / 地址覆盖 / 自定义请求头）
+        <IChevR size={12} />高级（地址覆盖 / 自定义请求头）
       </button>
       {adv && (
         <div className="adv-body">
-          <div className="filled-box">
-            <div className="fb-h">预设替你填好的（可改）</div>
-            <div className="fb-r"><span className="k">接口地址</span><span className="v mono">{preset.base || '（自定义，在下方填）'}</span></div>
-            <div className="fb-r"><span className="k">协议</span><span className="v">{preset.local ? 'Ollama · OpenAI 兼容层' : 'OpenAI 兼容'}</span></div>
-            {preset.header && (
-              <div className="fb-r"><span className="k">会话头</span><span className="v mono">{Object.keys(preset.header)[0]}: 按对话自动带上</span></div>
-            )}
-            {preset.srcConfig && <div className="fb-r"><span className="k" /><span><span className="badge-doc">按官方文档</span></span></div>}
-            {preset.unverified && <div className="fb-r"><span className="k" /><span><span className="badge-unv">地址未经在线核实</span> 测试连接后再用</span></div>}
-          </div>
           <div className="field" style={{ marginTop: 10 }}>
             <label>接口地址覆盖（可选）</label>
             <input className="mono" value={base} spellCheck={false} onChange={e => setBase(e.target.value)}
@@ -792,6 +852,12 @@ function AiEditForm({ onSaved }: { onSaved: () => void }) {
             <label>自定义请求头（JSON）</label>
             <input className="mono" value={headText} spellCheck={false} onChange={e => setHeadText(e.target.value)}
               placeholder='{"头名":"值"}' />
+          </div>
+          <div className="field">
+            <label>工具轮数上限（1–24）</label>
+            <input className="mono" type="number" inputMode="numeric" min={1} max={24} value={roundsText}
+              onChange={e => setRoundsText(e.target.value)} placeholder={String(aiConfig.maxRounds ?? AI_MAX_ROUNDS)} />
+            <div className="model-cnt">单次回复最多连续执行几轮工具——越大越能跑长任务，也越费 token 与时间；留空用默认（{AI_MAX_ROUNDS}）。</div>
           </div>
         </div>
       )}

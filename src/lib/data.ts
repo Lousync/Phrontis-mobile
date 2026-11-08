@@ -35,14 +35,43 @@ export function weekOf(offset = 0): Array<{ iso: string; wd: string; n: number }
 /** 本周条（weekOf(0) 的别名，旧引用兼容） */
 export const WEEK = weekOf(0)
 
-export const CAT_COLORS: Record<string, string> = {
-  餐饮: '#e2a336', 交通: '#3794ff', 购物: '#b180d7', 娱乐: '#f14c4c',
-  学习: '#007acc', 日用: '#89d185', 医疗: '#4ec9b0', 其他: '#969696',
-  工资: '#89d185', 稿费: '#e2a336', 理财: '#b180d7', 红包: '#f14c4c',
+/* 分类色与桌面同源（2026-11-08 记账对齐拍板）：内置分类 = 桌面 accountingVaultRepo DEFAULT_CATEGORIES
+ * 的 seed 色；手机独有分类（上行时桌面会自动建）取桌面 colorForName 同算法同色板的 hash 色——
+ * 同一条流水两端渲染同色，不再各画各的。 */
+export const CAT_PALETTE = ['#e8842c', '#4f6ef2', '#c94f9a', '#3f8ad6', '#8a7f5c', '#9157d6', '#d0552f', '#c9922e', '#35975c', '#2b9e8f', '#c5a332', '#7a7a7a']
+
+/** 与桌面 colorForName 同款（phrontis-core kbStore/accountingVaultRepo）：未知分类名 hash 兜底，两端一致 */
+export function colorForName(name: string): string {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return CAT_PALETTE[h % CAT_PALETTE.length]
 }
+
+export const CAT_COLORS: Record<string, string> = {
+  餐饮: '#e8842c', 交通: '#4f6ef2', 购物: '#c94f9a', 学习: '#3f8ad6', 居住: '#8a7f5c',
+  娱乐: '#9157d6', 医疗: '#d0552f', 人情: '#c9922e', 其他: '#7a7a7a',
+  生活费: '#35975c', 工资: '#2b9e8f', 奖金: '#c5a332',
+  /* 手机独有分类：桌面自动建时走 colorForName hash，这里提前内置同值 */
+  日用: '#c9922e', 稿费: '#c94f9a', 理财: '#e8842c', 红包: '#c9922e',
+}
+
+/** 分类取色：内置表优先 → hash 兜底（桌面动态新建的分类在手机上不再一律灰） */
+export function catColorOf(name: string): string {
+  return CAT_COLORS[name] || colorForName(name)
+}
+
 export const CATS_EXPENSE = ['餐饮', '交通', '购物', '娱乐', '学习', '日用', '医疗', '其他']
 export const CATS_INCOME = ['工资', '稿费', '理财', '红包', '其他']
 export const ACCOUNTS = ['微信', '支付宝', '现金', '银行卡']
+
+/** chip 清单（2026-11-08 记账对齐拍板）：电脑拉回的条目可能带手机清单里没有的分类/账户——
+ * 把当前值原样插进清单（排最前），编辑保存时原样带回；此前保存会静默改写成清单首项，是数据破坏。
+ * current 为空或已在清单里时原样返回。 */
+export function chipListWith(base: readonly string[], current: string | undefined): string[] {
+  const cur = (current || '').trim()
+  if (!cur || base.includes(cur)) return [...base]
+  return [cur, ...base]
+}
 
 /** 新会话欢迎语：按时段问候（原先是写死的「晚上好」） */
 export function welcomeText(): string {

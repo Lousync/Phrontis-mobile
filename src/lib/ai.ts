@@ -9,15 +9,19 @@
  */
 import type { AiChatMsg, AiConfig, AiProvider, AiToolCall, AiToolDef } from './types'
 import { AiStopped, loadJson, saveJson } from './sync'
+import { recordUsage } from './usage'
 
-export const AI_MAX_ROUNDS = 5
+/* 2026-11-08 用户拍板抬能力：5 → 12。每轮 = 一次非流式请求（60s 超时/轮，停止按钮随时可中断）；
+ * 上限只约束读链路编排——写工具出确认卡即停轮，不受此数影响。 */
+export const AI_MAX_ROUNDS = 12
 
 const K_AI_CONFIG = 'pm.aiConfig'
 
 /**
  * 供应商预设（对齐桌面 src/lib/llmPresets.ts，2026-11-01）。
- * 预设不只是省打字——地址 / 协议 / 必需请求头 / 模型录入指路都是「用户不可能知道的东西」，
- * 表单里要**明着列出**（SettingsPage 的「预设替你填好的」区）。
+ * 预设不只是省打字——地址 / 必需请求头 / 模型录入指路都是「用户不可能知道的东西」。
+ * （预设详情展示卡已于 2026-11-08 按用户拍板删除——「没必要」；地址仍可在「高级」的
+ *   接口地址输入框 placeholder 里看到，录入指路保留在模型栏的 modelHint。）
  * 与桌面的差异：手机端只讲 OpenAI 兼容一种协议（Ollama 走其 /v1 兼容层），不做多协议与语义检索模型。
  */
 export interface AiPreset {
@@ -34,10 +38,6 @@ export interface AiPreset {
   modelInput?: 'endpoint'
   /** 预设替你带上的请求头；opencode 的会话 ID 由 chatOnce 按当前会话覆盖 */
   header?: Record<string, string>
-  /** 地址未能在线核实 —— 界面上要显式写出来（老实标注，不假装核过） */
-  unverified?: boolean
-  /** 说明取自官方文档，值得展示出处 */
-  srcConfig?: boolean
   /** 模型那一栏怎么填的指路（modelInput==='endpoint' 时必填） */
   modelHint?: string
   /** 兜底默认模型（拉取清单失败时的手填框预填值） */
@@ -49,7 +49,7 @@ export const AI_PRESETS: AiPreset[] = [
   { id: 'qwen', name: '通义千问', sub: '阿里云 DashScope', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', color: '#615ced', defaultModel: 'qwen-plus' },
   {
     id: 'doubao', name: '豆包 · 火山方舟', sub: '字节跳动', base: 'https://ark.cn-beijing.volces.com/api/v3',
-    color: '#1664ff', modelInput: 'endpoint', unverified: true,
+    color: '#1664ff', modelInput: 'endpoint',
     modelHint: '该平台没有可下拉的模型清单，「模型」一栏需填写接入点 ID（以 ep- 开头）：请在火山方舟控制台 →「在线推理」中复制接入点 ID。较新的接入点也接受模型名。',
     defaultModel: '',
   },
@@ -60,7 +60,6 @@ export const AI_PRESETS: AiPreset[] = [
     // 官方要求「每个对话一个稳定的会话 ID，用于优化路由与 prompt 缓存」。
     // 这里只是**声明**这个头存在；真实值由 chatOnce 按当前会话 ID 覆盖，无会话上下文时兜底。
     header: { 'x-opencode-session': 'phrontis-mobile' },
-    srcConfig: true,
     modelHint: '该端点同时提供三种协议（chat / messages / responses），协议属于模型自身的属性；手机端按当前所选模型自动匹配。',
     defaultModel: 'qwen3-coder',
   },
@@ -73,8 +72,82 @@ export function presetOf(id: AiProvider): AiPreset {
   return AI_PRESETS.find(p => p.id === id) ?? AI_PRESETS[AI_PRESETS.length - 1]
 }
 
-/** 地址核实状态徽章用：桌面口径「按官方文档取自端点表」 */
-export const PRESET_SRC_BADGE = '按官方文档'
+/**
+ * 模型推荐（2026-11-08 用户拍板）：告诉用户「哪些免费 / 简单任务选谁性价比高」。
+ * 免费口径**保守**：只标官方长期免费档（GLM flash 系、Ollama 本地）；
+ * 新用户限时赠送额度一律不标「免费」，只说「有额度、以官网为准」——推荐文本过期比没推荐更糟。
+ * 桌面端 AI（教学等复杂任务）不在本表管辖内，这里只服务手机轻量事务（日程/记账/闪念/错题）。
+ */
+export interface ModelRec {
+  /** 表单模型栏下方的指路文案（一两句，提及官网/控制台口径） */
+  hint: string
+  /** 免费档模型（前缀边界匹配；'*' = 该端全部免费） */
+  free?: string[]
+  /** 简单任务性价比档 */
+  budget?: string[]
+  /** 质量/旗舰档 */
+  flagship?: string[]
+}
+
+export const MODEL_RECS: Partial<Record<AiProvider, ModelRec>> = {
+  deepseek: {
+    hint: '轻量事务选 deepseek-chat（官方性价比档，价格以官网为准）；deepseek-reasoner 推理更强但更贵更慢。',
+    budget: ['deepseek-chat'], flagship: ['deepseek-reasoner'],
+  },
+  qwen: {
+    hint: '轻量事务选 qwen-turbo / qwen-plus（快且便宜）；新用户有免费试用额度，期限与用量以 DashScope 控制台为准。',
+    budget: ['qwen-turbo', 'qwen-plus'], flagship: ['qwen-max'],
+  },
+  doubao: {
+    hint: '方舟新用户每个接入点有免费额度（以控制台为准），跑通验证够用；模型栏填接入点 ID（ep-…）。',
+  },
+  kimi: {
+    hint: 'kimi 系长文本见长；新注册有赠送额度（以官网为准），用完按量计费。',
+    budget: ['kimi-k2'],
+  },
+  glm: {
+    hint: 'glm-4.5-flash / glm-4-flash 是官方长期免费档，轻量事务零成本；glm-4.6 是旗舰（付费）。',
+    free: ['glm-4.5-flash', 'glm-4-flash'], flagship: ['glm-4.6'],
+  },
+  opencode: {
+    hint: '按所选模型计费（免费档以网关价目为准）；qwen3-coder 之类轻档跑手机事务性价比高。',
+    budget: ['qwen3-coder'],
+  },
+  ollama: {
+    hint: '本地运行全部免费：不吃额度、数据不出机；轻量事务选小参数档（如 qwen3:8b）响应更快。',
+    free: ['*'],
+  },
+  custom: {
+    hint: '按你接入的端点计费，免费与否取决于服务方。',
+  },
+}
+
+export function recOf(id: AiProvider): ModelRec | undefined {
+  return MODEL_RECS[id]
+}
+
+/** 表单输入 → 轮数上限：空/非法 = undefined（沿用默认），越界静默夹取 1–24（表单有提示，不报错打断） */
+export function parseMaxRounds(text: string): number | undefined {
+  const t = text.trim()
+  if (!t) return undefined
+  const n = Number(t)
+  if (!Number.isFinite(n)) return undefined
+  return Math.min(24, Math.max(1, Math.round(n)))
+}
+
+/** 模型选择器卡片上的推荐标签：免费 > 性价比 > 旗舰。前缀带边界匹配（glm-4-flash 不误伤 glm-4-flashx） */
+export function recTagsOf(id: AiProvider, model: string): Array<['free' | 'eco' | 'flag', string]> {
+  const rec = MODEL_RECS[id]
+  if (!rec) return []
+  const m = model.toLowerCase()
+  const hit = (list: string[] | undefined) =>
+    !!list && list.some(f => f === '*' || m === f || m.startsWith(f + '-') || m.startsWith(f + ':'))
+  const tags: Array<['free' | 'eco' | 'flag', string]> = []
+  if (hit(rec.free)) tags.push(['free', '免费'])
+  if (hit(rec.budget)) tags.push(['eco', '性价比'])
+  if (hit(rec.flagship)) tags.push(['flag', '旗舰'])
+  return tags
+}
 
 export const DEFAULT_AI_CONFIG: AiConfig = { provider: 'deepseek', baseUrl: '', apiKey: '', model: 'deepseek-chat' }
 
@@ -94,12 +167,15 @@ function sanitizeHeaders(raw: unknown): Record<string, string> {
 export function loadAiConfig(): AiConfig {
   const raw = loadJson<Partial<AiConfig>>(K_AI_CONFIG, {})
   const provider: AiProvider = raw.provider && AI_PRESETS.some(p => p.id === raw.provider) ? raw.provider : 'deepseek'
+  const maxRounds = typeof raw.maxRounds === 'number' && Number.isFinite(raw.maxRounds)
+    ? Math.min(24, Math.max(1, Math.round(raw.maxRounds))) : undefined
   return {
     provider,
     baseUrl: typeof raw.baseUrl === 'string' ? raw.baseUrl : '',
     apiKey: typeof raw.apiKey === 'string' ? raw.apiKey : '',
     model: typeof raw.model === 'string' ? raw.model : presetOf(provider).defaultModel,
     headers: sanitizeHeaders(raw.headers),
+    maxRounds,
   }
 }
 
@@ -180,6 +256,7 @@ export async function chatOnce(
     })
     const json = await res.json().catch(() => ({})) as {
       choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown; reasoning_content?: unknown; reasoning?: unknown } }>
+      usage?: { prompt_tokens?: number; completion_tokens?: number }
       error?: { message?: string }
     }
     if (!res.ok) {
@@ -191,6 +268,9 @@ export async function chatOnce(
        OpenRouter 系 = reasoning）。两者都取不到就是普通模型，不显示折叠区。 */
     const rawReason = typeof msg.reasoning_content === 'string' ? msg.reasoning_content
       : typeof msg.reasoning === 'string' ? msg.reasoning : ''
+    /* 用量埋点：OpenAI 兼容端点成功响应都带 usage；缺字段按 0 记（不影响回复） */
+    const u = json?.usage
+    if (u) recordUsage(cfg.model, u.prompt_tokens ?? 0, u.completion_tokens ?? 0)
     return {
       content: typeof msg.content === 'string' ? msg.content : '',
       reasoning: rawReason.trim() ? rawReason.trim() : undefined,

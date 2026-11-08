@@ -3,7 +3,7 @@ import { useFormFactor } from './lib/useFormFactor'
 import { ShellChrome, Toasts } from './components/chrome'
 import { TabletChrome } from './components/TabletChrome'
 import { AiPage, SessionSheet } from './components/pages/AiPage'
-import { SchedulePage, TodoSheet } from './components/pages/SchedulePage'
+import { SchedulePage, TodoSheet, HabitForm } from './components/pages/SchedulePage'
 import { LedgerPage, TxSheet } from './components/pages/LedgerPage'
 import { NotesPage } from './components/pages/NotesPage'
 import { QuizPage } from './components/pages/QuizPage'
@@ -32,6 +32,7 @@ function Shell() {
         {ff === 'tablet' ? null : <ShellChrome />}
         {(sheet === 'tx' || sheet === 'tx-edit') && <TxSheet />}
         {sheet === 'todo' && <TodoSheet selDate={selDate} />}
+        {sheet === 'habit' && <HabitForm />}
         {sheet === 'sessions' && <SessionSheet />}
         {sheet === 'ai-config' && <AiConfigSheet />}
         {sheet === 'scan' && <ScanOverlay />}
