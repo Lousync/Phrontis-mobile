@@ -127,7 +127,7 @@ public class PhrontisDiscover extends Plugin {
             String fallback = null;
             while (nis != null && nis.hasMoreElements()) {
                 NetworkInterface ni = nis.nextElement();
-                if (!ni.isUp() || ni.isLoopback() || !ni.isRunning()) continue;
+                if (!ni.isUp() || ni.isLoopback()) continue;
                 for (InterfaceAddress ia : ni.getInterfaceAddresses()) {
                     InetAddress a = ia.getAddress();
                     if (a.isLoopbackAddress() || !(a instanceof java.net.Inet4Address)) continue;
