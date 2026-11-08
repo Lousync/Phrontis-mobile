@@ -63,17 +63,25 @@ public class PhrontisDiscover extends Plugin {
 
     private void runDiscover(PluginCall call, int timeoutMs) {
         Map<String, JSObject> found = new LinkedHashMap<>();
+        /* 自知 IP 先算、独立于组播成败：蜂窝网下组播 send 会抛异常（实测手机开流量时组播不可用），
+         * 若和组播混在一个 try 里，selfIp 就跟着丢了——而「本机段」恰恰是那种场景下最值钱的诊断信息 */
+        String selfIp = selfIpv4();
         try (DatagramSocket sock = new DatagramSocket()) {
             sock.setBroadcast(true);
             byte[] ping = PING.getBytes("UTF-8");
             byte[] buf = new byte[2048];
             long deadline = System.currentTimeMillis() + timeoutMs;
-            /* 组间交错发送：第 n 声轮到 GROUPS[n % GROUPS.length]，每组足额 PING_COUNT 声 */
+            /* 组间交错发送：第 n 声轮到 GROUPS[n % GROUPS.length]，每组足额 PING_COUNT 声。
+             * send 抛异常（蜂窝网接口不支持组播）逐次吞掉、sent 照推进——不让组播失败拖死自知 IP 回传 */
             int sent = 0;
             while (System.currentTimeMillis() < deadline) {
                 if (sent < PING_COUNT * GROUPS.length) {
-                    InetAddress group = InetAddress.getByName(GROUPS[sent % GROUPS.length]);
-                    sock.send(new DatagramPacket(ping, ping.length, group, PORT));
+                    try {
+                        InetAddress group = InetAddress.getByName(GROUPS[sent % GROUPS.length]);
+                        sock.send(new DatagramPacket(ping, ping.length, group, PORT));
+                    } catch (java.io.IOException e) {
+                        /* 本接口发不了组播：继续等应答（万一其他路径可达），别整体放弃 */
+                    }
                     sent++;
                 }
                 int remain = (int) Math.max(1, deadline - System.currentTimeMillis());
@@ -97,7 +105,6 @@ public class PhrontisDiscover extends Plugin {
             res.put("found", arr);
             /* 自知 IP（不随发现成败）：UDP connect 公网地址不发包即得出口 IP → 本机 /24 前缀；
              * JS 扫段回退拿它优先扫自己网段，App 重装/换网络都不怕 */
-            String selfIp = selfIpv4();
             res.put("selfIp", selfIp);
             String selfPrefix = "";
             if (selfIp != null) {
