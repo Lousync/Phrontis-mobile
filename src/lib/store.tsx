@@ -12,22 +12,39 @@ import {
 import { AI_MAX_ROUNDS, aiConfigReady, chatOnce, loadAiConfig, parseToolArgs, saveAiConfig } from './ai'
 import { AI_TOOLS, buildSystemPrompt, quizQueryForModel, quizStatsForModel, validateLedgerAdd, validateNoteCreate, validateQuizAdd, validateQuizDel, validateQuizNote, validateTodoAdd, type ToolResult } from './aiTools'
 import { fetchNoteContent, fetchNoteTree, loadNoteCache, loadNoteTree, saveNoteCache, saveNoteTree } from './sync'
-import { initNotifPermission, rescheduleTodoReminders, requestNotifPermission, type NotifPerm } from './notify'
+import { initNotifPermission, rescheduleReminders, requestNotifPermission, type NotifPerm } from './notify'
 
 export interface ToastItem { id: number; msg: string; type: 'ok' | 'warn' | 'info' }
 
-/** 仓库阅读选区（侧栏树点开的笔记） */
-export type VaultReader = { title: string; path: string; kind: 'vault' | 'phone' }
+/** 设置页分区（平板侧栏分类导航用；手机单页滚动全展示——usage 分区仅平板渲染，手机走工具二级页） */
+export type SettingsSec = 'sync' | 'tools' | 'ai' | 'usage' | 'appearance' | 'about'
+/** 分类清单单一真相源：TabletChrome 侧栏与 SettingsPage 的 data-sec 都从这里对齐（加分类两处同步加） */
+export const SETTINGS_SECS: Array<{ id: SettingsSec; label: string }> = [
+  { id: 'sync', label: '同步' },
+  { id: 'ai', label: 'AI 模型' },
+  { id: 'usage', label: 'AI 用量' },
+  { id: 'tools', label: '工具' },
+  { id: 'appearance', label: '外观' },
+  { id: 'about', label: '关于' },
+]
+
+/** 仓库阅读选区（侧栏树点开的笔记）；kind='phone' 时带 phoneId——阅读器右上角的笔据此切「编辑当前」 */
+export type VaultReader = { title: string; path: string; kind: 'vault' | 'phone'; phoneId?: string }
 /** 选择同步范围：文件夹路径 + 单篇 id（localStorage 持久化） */
 export type SyncSel = { dirs: string[]; ids: string[] }
 
 let seq = 100
 const nextId = (p: string) => p + (++seq)
 
+/** 打卡习惯卡片色板：按创建序轮转，新习惯不重色 */
+const HABIT_COLORS = ['#4d6bfe', '#178343', '#c0392b', '#7c5cd6', '#b07a18', '#0f766e']
+
 /** 本地持久化键（pm. 前缀，SQLite 评估时整体搬运） */
 const K_TODOS = 'pm.todos'
 /** v0.3 起账本存同步形态（pm.txs 是旧版展示形态键，弃用不迁移——当时只有演示数据） */
 const K_LEDGER = 'pm.ledger'
+/** 打卡习惯（本地数据，暂不参与同步） */
+const K_HABITS = 'pm.habits'
 const K_NOTES = 'pm.notes'
 const K_QUIZ = 'pm.quiz'
 const K_SYNC_SEL = 'pm.noteSyncSel'
@@ -105,6 +122,12 @@ interface Store {
   /** 「改一笔」抽屉的目标条目 */
   editTxId: string | null
   openTxEdit: (id: string, from?: HTMLElement | null) => void
+  /** 打卡习惯：增改删（本地数据不入同步）；openHabitForm 无 id = 新增，带 id = 编辑 */
+  addHabit: (input: { name: string; target: number; remind?: number }) => void
+  updateHabit: (id: string, patch: { name?: string; target?: number; remind?: number | null }) => void
+  deleteHabit: (id: string) => void
+  editHabitId: string | null
+  openHabitForm: (id?: string, from?: HTMLElement | null) => void
 
   /* 笔记 */
   folders: Folder[]
@@ -132,6 +155,7 @@ interface Store {
   vaultReader: VaultReader | null
   setVaultReader: (r: VaultReader | null) => void
   vaultBody: string
+  setVaultBody: (body: string) => void
   /** cached=与目录一致；stale=离线回落旧版缓存（联网对账后自动刷新）；loading/error 同名 */
   vaultState: 'cached' | 'loading' | 'error' | 'stale'
   syncSel: SyncSel
@@ -179,6 +203,10 @@ interface Store {
   /* 本地通知（日程提醒；浏览器 dev 恒为 unsupported） */
   notifPerm: NotifPerm
   requestNotifPerm: () => Promise<NotifPerm>
+
+  /* 平板设置域：settingsSec=当前分类（分类隔离渲染，见 SettingsPage.showSec） */
+  settingsSec: SettingsSec
+  setSettingsSec: (s: SettingsSec) => void
 }
 
 const Ctx = createContext<Store | null>(null)
@@ -213,7 +241,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [selDate, setSelDate] = useState(TODAY)
   /* 日程/待办落本地存储（M2a）：重启不丢；干净启动，数据由用户与同步产生 */
   const [todos, setTodos] = useState<Todo[]>(() => loadJson<Todo[]>(K_TODOS, []))
-  const [habits, setHabits] = useState<Habit[]>([])
+  const [habits, setHabits] = useState<Habit[]>(() => loadJson<Habit[]>(K_HABITS, []))
 
   /* 账本本地真相 = 同步形态（M2b）；展示形态派生 */
   const [entries, setEntries] = useState<LedgerEntry[]>(() => loadJson<LedgerEntry[]>(K_LEDGER, []))
@@ -229,6 +257,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => { saveJson(K_TODOS, todos) }, [todos])
+  useEffect(() => { saveJson(K_HABITS, habits) }, [habits])
   useEffect(() => { saveJson(K_LEDGER, entries) }, [entries])
 
   const [folders, setFolders] = useState<Folder[]>([])
@@ -337,6 +366,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setEditTxId(id)
     setSheetOrigin(from ?? null)
     setSheet('tx-edit')
+  }, [])
+
+  /* 「习惯」子页：无 id = 新增，带 id = 编辑（HabitForm 挂载时读 editHabitId），从触发点圆形展开 */
+  const [editHabitId, setEditHabitId] = useState<string | null>(null)
+  const openHabitForm = useCallback((id?: string, from?: HTMLElement | null) => {
+    setEditHabitId(id ?? null)
+    setSheetOrigin(from ?? null)
+    setSheet('habit')
   }, [])
 
   /* ---- 系统键盘适配（2026-11-06 重做，修「输入框被键盘遮住」）----
@@ -627,11 +664,44 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const wasDone = !!h.hist[todayIdx]
     const hist = [...h.hist]; hist[todayIdx] = wasDone ? 0 : 1
     const weekDone = hist.slice(0, todayIdx + 1).reduce((s, v) => s + v, 0)
+    /* 连续天数含今天：今天已打则从今天起算，取消今天则从昨天起算（首次打卡 = 连续 1 天） */
     let streak = 0
-    for (let i = wasDone ? todayIdx : todayIdx - 1; i >= 0 && hist[i]; i--) streak++
+    for (let i = hist[todayIdx] ? todayIdx : todayIdx - 1; i >= 0 && hist[i]; i--) streak++
     setHabits(list => list.map(x => x.id === id ? { ...x, hist, weekDone, streak } : x))
     if (!wasDone) toast('打卡成功', 'ok')
   }, [habits, toast])
+
+  /* 习惯增改删（2026-11-08 打卡提醒落地）：本地数据不入同步队列（与 toggleHabit 同规）。
+     char（首字）与 color（色板轮转）自动派生，表单只问名称 / 周目标 / 提醒时间。 */
+  const addHabit = useCallback((input: { name: string; target: number; remind?: number }) => {
+    const name = input.name.trim()
+    if (!name) return
+    const char = [...name][0] ?? '习'
+    setHabits(list => [...list, {
+      id: nextId('h'), name, char, color: HABIT_COLORS[list.length % HABIT_COLORS.length],
+      weekDone: 0, target: Math.min(7, Math.max(1, Math.round(input.target) || 7)), streak: 0,
+      hist: [0, 0, 0, 0, 0, 0, 0], ...(input.remind != null ? { remind: input.remind } : {}),
+    }])
+    toast(input.remind != null ? '已添加习惯 · 到点提醒打卡' : '已添加习惯', 'ok')
+  }, [toast])
+
+  const updateHabit = useCallback((id: string, patch: { name?: string; target?: number; remind?: number | null }) => {
+    setHabits(list => list.map(x => {
+      if (x.id !== id) return x
+      const next = { ...x }
+      if (patch.name != null && patch.name.trim()) { next.name = patch.name.trim(); next.char = [...patch.name.trim()][0] ?? x.char }
+      if (patch.target != null) next.target = Math.min(7, Math.max(1, Math.round(patch.target)))
+      if (patch.remind === null) delete next.remind
+      else if (patch.remind != null) next.remind = patch.remind
+      return next
+    }))
+    toast('已保存', 'ok')
+  }, [toast])
+
+  const deleteHabit = useCallback((id: string) => {
+    setHabits(list => list.filter(x => x.id !== id))
+    toast('已删除习惯', 'ok')
+  }, [toast])
 
   /* ---------- 记账（M2b：本地真相 = 同步形态，增改删都走同一条上行路径） ---------- */
 
@@ -791,7 +861,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const openPhoneNote = useCallback((id: string) => {
     const hit = phoneNotesRef.current.find(x => x.id === id)
     if (!hit) return
-    setVaultReader({ title: hit.title, path: '手机笔记 / ' + hit.title, kind: 'phone' })
+    setVaultReader({ title: hit.title, path: '手机笔记 / ' + hit.title, kind: 'phone', phoneId: hit.id })
     setVaultBody('# ' + hit.title + '\n\n' + hit.body)
     setVaultState('cached')
   }, [])
@@ -1121,10 +1191,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         let card: Card | undefined
         let rounds = 0
         let finalText = ''
+        /* 轮数上限可由用户在 AI 配置的高级里设置（2026-11-08 拍板）；未设置 = AI_MAX_ROUNDS 默认 */
+        const maxRounds = Math.min(24, Math.max(1, Math.round(cfg.maxRounds ?? AI_MAX_ROUNDS)))
         /* 思考痕迹：多轮工具循环里每轮 reasoning 各存一段，落库时拼成一条折叠区（与桌面按轮分段的观感一致） */
         const reasons: string[] = []
-        while (rounds < AI_MAX_ROUNDS) {
+        while (rounds < maxRounds) {
           rounds++
+          /* 多轮工具链把进度透出在占位文案里——长任务全程一条静态「正在思考」会让用户以为卡死 */
+          setStreamText(rounds === 1 ? '正在思考' : '正在思考 · 工具第 ' + rounds + '/' + maxRounds + ' 轮')
           const reply = await chatOnce(cfg, history, AI_TOOLS, 60_000, ctrl.signal, sid)
           if (reply.reasoning) reasons.push(reply.reasoning)
           if (!reply.toolCalls.length) { finalText = reply.content; break }
@@ -1144,7 +1218,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             break
           }
         }
-        if (!finalText) finalText = rounds >= AI_MAX_ROUNDS ? '工具轮次用尽了，先到这里——换个问法再试试。' : '（模型没有返回内容）'
+        if (!finalText) finalText = rounds >= maxRounds ? '工具轮次用尽了（本次上限 ' + maxRounds + ' 轮）——大任务拆成几步说，或到「设置 → AI 模型 → 高级」调高轮数。' : '（模型没有返回内容）'
         const reason = reasons.length ? reasons.join('\n\n') : undefined
         startReveal(finalText, f => { pushAiMsg({ role: 'ai', text: f, card, reason }) })
         abortRef.current = null
@@ -1261,33 +1335,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   /* ---- 本地通知（日程提醒）：启动申请一次权限；待办随动重排（浏览器 dev 全 no-op） ---- */
   const [notifPerm, setNotifPerm] = useState<NotifPerm>('unsupported')
+  /* 设置分区导航（平板侧栏分类直达） */
+  const [settingsSec, setSettingsSec] = useState<SettingsSec>('sync')
   useEffect(() => {
     void (async () => {
       const perm = await initNotifPermission()
       setNotifPerm(perm)
-      if (perm === 'granted') await rescheduleTodoReminders(todos)
+      if (perm === 'granted') await rescheduleReminders(todos, habits)
     })()
     // 只在启动跑一次：todos 后续变更由下方随动 effect 接管
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  useEffect(() => { void rescheduleTodoReminders(todos) }, [todos])
+  useEffect(() => { void rescheduleReminders(todos, habits) }, [todos, habits])
   const requestNotifPerm = useCallback(async () => {
     const perm = await requestNotifPermission()
     setNotifPerm(perm)
-    if (perm === 'granted') await rescheduleTodoReminders(todos)
+    if (perm === 'granted') await rescheduleReminders(todos, habits)
     return perm
-  }, [todos])
+  }, [todos, habits])
 
   const value: Store = {
     theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, sheetOrigin, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
     sideCollapsed, toggleSide,
     online, syncing, syncPct, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, adoptPaired, unpair,
-    schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, deleteTodo, habits, toggleHabit,
+    schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, deleteTodo, habits, toggleHabit, addHabit, updateHabit, deleteHabit, editHabitId, openHabitForm,
     entries, txs, saveTx, updateTx, deleteTx, editTxId, openTxEdit,
     folders, toggleFolder, markCached, phoneNotes, addPhoneNote,
     createPhoneNote, updatePhoneNote, discardPhoneNote, syncPhoneNote,
     vaultKw, setVaultKw, vaultTree, vaultLoading, vaultExpanded, toggleVaultExpand, vaultCache,
-    vaultReader, setVaultReader, vaultBody, vaultState, syncSel, toggleSyncDir, toggleSyncNote,
+    vaultReader, setVaultReader, vaultBody, setVaultBody, vaultState, syncSel, toggleSyncDir, toggleSyncNote,
     noteInSync, fetchVaultTree, openVaultNote, openPhoneNote,
     quizRecords, answerQuiz, upsertQuizAnswer,
     addQuizRecord, setQuizNote, deleteQuizRecord,
@@ -1295,6 +1371,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     streaming, streamText, sendChat, stopStream, confirmCard, dismissCard,
     voicePhase, voiceElapsed, toggleVoice,
     notifPerm, requestNotifPerm,
+    settingsSec, setSettingsSec,
   }
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

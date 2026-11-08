@@ -1,0 +1,1690 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI 教学原型 v2 · 课程树 / 段 / 预检 / 章末复习(平板壳层)</title>
+<style>
+  /* ============ 基座取自 sidebar-v3(已拍板的平板壳层) ============ */
+  :root {
+    --bg-app: #161616;
+    --bg-panel: rgba(37, 37, 38, .86);
+    --bg-page: #1e1e1e;
+    --bg-3: #2d2d2d;
+    --border: rgba(255, 255, 255, .08);
+    --tx-1: #ececec;
+    --tx-2: #b8b8b8;
+    --tx-3: #8a8a8a;
+    --accent: #0a84ff;
+    --accent-soft: rgba(10, 132, 255, .16);
+    --green: #30d158;
+    --red: #ff453a;
+    --amber: #ffd60a;
+    --radius: 16px;
+    font-size: 15px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: #0d0d0d;
+    display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: var(--tx-1); overflow: hidden;
+  }
+  #device {
+    width: 820px; height: min(1120px, 94vh);
+    background: var(--bg-app);
+    border-radius: 24px; overflow: hidden;
+    display: flex;
+    box-shadow: 0 24px 80px rgba(0,0,0,.6);
+    position: relative;
+  }
+  @media (max-width: 860px) { #device { width: 100vw; height: 100vh; border-radius: 0; } }
+
+  /* ============ 浮层玻璃侧栏 ============ */
+  .side {
+    width: 264px; flex: none;
+    margin: 12px 6px 12px 12px;
+    display: flex; flex-direction: column;
+    background: var(--bg-panel);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 32px rgba(0,0,0,.35);
+    transition: width .28s cubic-bezier(.23,1,.32,1);
+    overflow: hidden;
+  }
+  .side.min { width: 68px; }
+  .side.min .lb, .side.min .domain, .side.min .search, .side.min .vault-st { display: none; }
+  .side.min .settings-row { justify-content: center; padding: 0; }
+
+  .side-top { display: flex; align-items: center; gap: 6px; padding: 10px 10px 6px; }
+  .fold {
+    flex: none; width: 34px; height: 34px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none; color: var(--tx-3); cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .fold:hover { background: var(--bg-3); color: var(--tx-1); }
+  .seg {
+    flex: 1; display: flex; gap: 3px;
+    background: rgba(255,255,255,.055);
+    border: 1px solid var(--border);
+    border-radius: 11px; padding: 3px;
+  }
+  .seg button {
+    flex: 1; height: 32px; border-radius: 8px; border: none;
+    background: none; color: var(--tx-3); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s, color .15s;
+  }
+  .seg button:hover { color: var(--tx-1); }
+  .seg button.on { background: var(--accent-soft); color: var(--accent); }
+  .side.min .seg { display: none; }
+
+  .domain { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 4px 10px 4px; position: relative; }
+  .domain.hidden { display: none; }
+  .dom-title { font-size: 11px; font-weight: 700; color: var(--tx-3); padding: 4px 8px 8px; letter-spacing: .5px; display: flex; align-items: baseline; gap: 6px; }
+  .dom-title .more { font-weight: 400; font-size: 10px; flex: 1; }
+  .dom-title .mini-b {
+    flex: none; width: 22px; height: 22px; border-radius: 7px; border: 1px solid var(--border);
+    background: rgba(255,255,255,.05); color: var(--tx-2); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; align-self: center;
+  }
+  .dom-title .mini-b:hover { color: var(--accent); border-color: rgba(10,132,255,.4); }
+
+  /* AI 域顶部小切换:课程 | 会话 */
+  .ai-tabs { display: flex; gap: 3px; background: rgba(255,255,255,.055); border: 1px solid var(--border); border-radius: 10px; padding: 3px; margin: 2px 2px 8px; flex: none; }
+  .ai-tabs button { flex: 1; height: 26px; border: none; border-radius: 7px; background: none; color: var(--tx-3); font-size: 11.5px; font-weight: 600; cursor: pointer; }
+  .ai-tabs button.on { background: var(--accent-soft); color: var(--accent); }
+
+  .search {
+    display: flex; align-items: center; gap: 7px; flex: none;
+    height: 34px; padding: 0 10px; margin: 0 0 8px;
+    background: rgba(255,255,255,.06);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .search svg { flex: none; color: var(--tx-3); }
+  .search input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--tx-1); font-size: 13px; }
+  .search input::placeholder { color: var(--tx-3); }
+
+  .vault-st { font-size: 10.5px; color: var(--tx-3); padding: 0 6px 8px; flex: none; display: flex; align-items: center; gap: 6px; line-height: 1.5; }
+  .vault-st .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
+
+  .tree { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; padding-right: 2px; }
+  .tree::-webkit-scrollbar, .c-scroll::-webkit-scrollbar, .mid-scroll::-webkit-scrollbar { width: 3px; }
+  .tree::-webkit-scrollbar-thumb, .c-scroll::-webkit-scrollbar-thumb, .mid-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 2px; }
+  .t-row {
+    display: flex; align-items: center; gap: 7px;
+    height: 32px; border-radius: 8px; padding: 0 6px;
+    cursor: pointer; user-select: none;
+    color: var(--tx-2); font-size: 13px; flex-wrap: nowrap;
+  }
+  .t-row:hover { background: rgba(255,255,255,.05); }
+  .t-row.sel { background: var(--accent-soft); color: var(--accent); }
+  .t-row .chev { flex: none; display: flex; color: var(--tx-3); transition: transform .15s; }
+  .t-row .chev.on { transform: rotate(90deg); }
+  .t-row .chev.hide { visibility: hidden; }
+  .t-row .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .t-row.dir { font-weight: 600; color: var(--tx-1); }
+  .t-row .ct { flex: none; font-size: 10px; color: var(--tx-3); }
+  .t-row .fresh { flex: none; width: 6px; height: 6px; border-radius: 50%; }
+  .t-row .fresh.cached { background: var(--green); }
+  .t-row .fresh.uncached { background: transparent; border: 1.5px solid var(--tx-3); }
+
+  /* ============ 课程树(桌面 3.14 口径) ============ */
+  .asst-row {
+    display: flex; align-items: center; gap: 8px;
+    height: 38px; border-radius: 9px; padding: 0 10px; margin-bottom: 4px;
+    cursor: pointer; color: var(--tx-2); font-size: 13px; flex: none;
+    border: 1px solid var(--border); background: rgba(255,255,255,.04);
+  }
+  .asst-row:hover { background: rgba(255,255,255,.07); }
+  .asst-row .ic { color: var(--accent); display: flex; }
+  .asst-row .sub { margin-left: auto; font-size: 10px; color: var(--tx-3); }
+
+  .ch { margin-bottom: 2px; }
+  .ch-head {
+    display: flex; align-items: center; gap: 7px;
+    height: 34px; border-radius: 8px; padding: 0 6px;
+    cursor: pointer; user-select: none; font-size: 13px; font-weight: 600; color: var(--tx-1);
+  }
+  .ch-head:hover { background: rgba(255,255,255,.05); }
+  .ch-head .chev { color: var(--tx-3); display: flex; transition: transform .15s; }
+  .ch.open .ch-head .chev { transform: rotate(90deg); }
+  .ch-head .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ch-head .xy { flex: none; font-size: 10px; font-weight: 400; color: var(--tx-3); }
+  .ch-head .cur-seg { flex: none; font-size: 9px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 5px; padding: 1.5px 5px; }
+  .ch-body { display: none; flex-direction: column; gap: 1px; padding-left: 10px; }
+  .ch.open .ch-body { display: flex; }
+
+  .u-row {
+    display: flex; align-items: center; gap: 8px;
+    height: 32px; border-radius: 8px; padding: 0 8px;
+    cursor: pointer; color: var(--tx-2); font-size: 12.5px;
+  }
+  .u-row:hover { background: rgba(255,255,255,.05); }
+  .u-row.focus { background: var(--accent-soft); color: var(--accent); }
+  .u-row .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .u-row .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
+  .u-row .dot.done { background: var(--green); }
+  .u-row .dot.learning { background: var(--accent); animation: pulse 1.6s ease infinite; }
+  .u-row .dot.todo { background: transparent; border: 1.5px solid var(--tx-3); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .u-row .badge-this {
+    flex: none; font-size: 9px; font-weight: 700; color: var(--accent);
+    background: var(--accent-soft); border-radius: 5px; padding: 1.5px 5px; letter-spacing: .5px;
+  }
+  .rev-row {
+    display: flex; align-items: center; gap: 8px;
+    height: 32px; border-radius: 8px; padding: 0 8px;
+    cursor: pointer; color: var(--tx-3); font-size: 12.5px;
+  }
+  .rev-row:hover { background: rgba(255,255,255,.05); }
+  .rev-row.unlocked { color: var(--amber); }
+  .rev-row .ic { flex: none; display: flex; }
+  .rev-row .nm { flex: 1; }
+  .rev-row .st { flex: none; font-size: 10px; }
+
+  /* 会话列表(会话页签) */
+  .sess-row {
+    display: flex; align-items: center; gap: 8px;
+    height: 40px; border-radius: 9px; padding: 0 10px;
+    cursor: pointer; color: var(--tx-2); font-size: 13px;
+  }
+  .sess-row:hover { background: rgba(255,255,255,.05); }
+  .sess-row.on { background: var(--accent-soft); color: var(--accent); }
+  .sess-row .st { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sess-row .tm { flex: none; font-size: 10px; color: var(--tx-3); }
+  .sess-row .pin { flex: none; font-size: 11px; }
+  .sess-row .tag { flex: none; font-size: 9px; font-weight: 700; letter-spacing: 1px; color: var(--accent); background: var(--accent-soft); border-radius: 5px; padding: 1.5px 5px; }
+
+  .menu-pop {
+    position: absolute; z-index: 12; min-width: 200px;
+    background: var(--bg-panel); backdrop-filter: blur(20px);
+    border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.45);
+    padding: 6px; display: none; animation: pop .14s ease;
+  }
+  .menu-pop.open { display: block; }
+  .menu-pop .mp-t { font-size: 10.5px; color: var(--tx-3); padding: 4px 8px 6px; }
+  .menu-pop button {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    background: none; border: none; color: var(--tx-2); font-size: 12.5px;
+    padding: 8px 10px; border-radius: 8px; cursor: pointer;
+  }
+  .menu-pop button:hover { background: rgba(255,255,255,.06); color: var(--tx-1); }
+  .menu-pop button .sub { margin-left: auto; font-size: 10px; color: var(--tx-3); }
+
+  .sum-row { display: flex; align-items: center; gap: 9px; height: 44px; border-radius: 10px; padding: 0 10px; color: var(--tx-2); font-size: 12.5px; cursor: pointer; }
+  .sum-row:hover { background: rgba(255,255,255,.04); }
+  .sum-row .k { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sum-row .v { flex: none; font-size: 11px; color: var(--tx-3); }
+  .sum-row .tag { flex: none; font-size: 10px; border-radius: 6px; padding: 2px 7px; background: rgba(255,255,255,.07); color: var(--tx-3); }
+  .sum-row .tag.warn { color: var(--amber); background: rgba(255,214,10,.1); }
+  .sum-row .tag.ok { color: var(--green); background: rgba(48,209,88,.1); }
+  .sum-row.flash { animation: flashRow 1.1s ease; }
+  @keyframes flashRow { 0% { background: rgba(48,209,88,.22); } 100% { background: transparent; } }
+
+  .foot { flex: none; padding: 6px 10px 10px; }
+  .settings-row {
+    display: flex; align-items: center; gap: 10px;
+    height: 38px; padding: 0 12px; border-radius: 10px;
+    background: none; border: none; cursor: pointer;
+    color: var(--tx-3); font-size: 13px; width: 100%; text-align: left;
+  }
+  .settings-row:hover { background: rgba(255,255,255,.05); color: var(--tx-1); }
+
+  /* ============ 内容区 ============ */
+  .main {
+    flex: 1; min-width: 0; margin: 12px 12px 12px 6px;
+    background: var(--bg-page);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .pg-head { display: flex; align-items: center; gap: 12px; padding: 18px 24px 6px; flex: none; }
+  .pg-head h1 { font-size: 24px; font-weight: 800; letter-spacing: .2px; }
+  .pg-head .tools { margin-left: auto; display: flex; gap: 6px; }
+  .tool-b {
+    width: 34px; height: 34px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none; color: var(--tx-2); cursor: pointer;
+  }
+  .tool-b:hover { background: var(--bg-3); color: var(--tx-1); }
+  .tool-b.txt { font-size: 12px; font-weight: 700; }
+
+  /* 笔记域阅读器(保持现状) */
+  .reader { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .r-top { display: flex; align-items: center; gap: 8px; padding: 12px 18px 8px; }
+  .r-path { font-size: 12px; color: var(--tx-3); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { font-size: 10.5px; color: var(--green); background: rgba(48,209,88,.12); border-radius: 999px; padding: 3px 9px; flex: none; }
+  .r-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 0 30px; }
+  .r-inner { max-width: 640px; margin: 0 auto; padding: 0 28px; line-height: 1.85; color: var(--tx-2); }
+  .r-inner h1 { font-size: 1.5em; color: var(--tx-1); margin: .8em 0 .5em; }
+  .r-inner h2 { font-size: 1.2em; color: var(--tx-1); margin: 1em 0 .4em; }
+  .r-inner p { margin: .5em 0; }
+  .r-inner code { background: var(--bg-3); border-radius: 5px; padding: 1px 6px; font-size: .88em; color: #d8dee9; }
+  .r-inner blockquote { border-left: 3px solid var(--accent); padding: 2px 0 2px 14px; color: var(--tx-3); margin: .7em 0; }
+
+  /* ============ 段视图(桌面 3.14 §2.2) ============ */
+  .ai-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .sg-head { flex: none; padding: 2px 24px 10px; border-bottom: 1px solid var(--border); }
+  .sg-crumb { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--tx-3); flex-wrap: nowrap; }
+  .sg-crumb .path { color: var(--tx-2); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sg-crumb .range { flex: none; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 2.5px 9px; font-size: 10.5px; }
+  .sg-crumb .ro { flex: none; font-size: 10px; color: var(--amber); border: 1px solid rgba(255,214,10,.3); border-radius: 999px; padding: 2.5px 9px; }
+  .sg-crumb .endb {
+    flex: none; margin-left: auto; font-size: 11px; font-weight: 700; cursor: pointer;
+    color: var(--accent); background: none; border: 1px solid rgba(10,132,255,.4);
+    border-radius: 8px; padding: 4px 10px;
+  }
+  .sg-crumb .endb:hover { background: var(--accent-soft); }
+  .sg-crumb .endb.ghost { color: var(--tx-2); border-color: var(--border); }
+
+  .sg-prog { display: flex; align-items: center; gap: 8px; margin-top: 9px; font-size: 10.5px; color: var(--tx-3); }
+  .sg-prog .bar { flex: 1; height: 3px; border-radius: 2px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .sg-prog .bar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width .4s ease; }
+
+  .sg-caps { display: flex; gap: 6px; margin-top: 9px; flex-wrap: wrap; }
+  .cap {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11.5px; padding: 4.5px 11px; border-radius: 999px; cursor: pointer;
+    background: rgba(255,255,255,.05); border: 1px solid var(--border); color: var(--tx-2);
+  }
+  .cap:hover { border-color: rgba(255,255,255,.22); }
+  .cap.on { background: var(--accent-soft); border-color: rgba(10,132,255,.4); color: var(--accent); font-weight: 600; }
+  .cap .cdot { width: 6px; height: 6px; border-radius: 50%; }
+  .cap.done .cdot { background: var(--green); }
+  .cap.learning .cdot { background: var(--accent); }
+  .cap.todo .cdot { background: transparent; border: 1.5px solid var(--tx-3); width: 5px; height: 5px; }
+
+  .sg-hand {
+    margin-top: 9px; border: 1px dashed var(--border); border-radius: 10px;
+    font-size: 11.5px; color: var(--tx-3); overflow: hidden;
+  }
+  .sg-hand .hd {
+    display: flex; align-items: center; gap: 6px; width: 100%;
+    background: none; border: none; color: var(--tx-3); font-size: 11px;
+    padding: 7px 10px; cursor: pointer; text-align: left;
+  }
+  .sg-hand .hd:hover { color: var(--tx-2); }
+  .sg-hand .bd { display: none; padding: 0 10px 9px; line-height: 1.7; }
+  .sg-hand.open .bd { display: block; }
+  .sg-src { display: flex; align-items: center; gap: 7px; margin-top: 8px; font-size: 11px; color: var(--tx-3); flex-wrap: wrap; }
+  .sg-src .lab { flex: none; }
+  .sg-src .src-chip { flex: none; display: inline-flex; align-items: center; gap: 5px; background: rgba(255,255,255,.05); border: 1px solid var(--border); border-radius: 7px; padding: 3px 8px; }
+  .mode-badge { flex: none; font-size: 9px; font-weight: 700; border-radius: 4px; padding: 1px 5px; letter-spacing: .5px; }
+  .mode-badge.exact { color: var(--green); background: rgba(48,209,88,.12); }
+  .mode-badge.narrow { color: var(--accent); background: var(--accent-soft); }
+  .mode-badge.fallback { color: var(--amber); background: rgba(255,214,10,.1); }
+
+  /* ============ 开段预检(中栏整页,非弹窗) ============ */
+  .pf { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 28px 20px; }
+  .pf-inner { max-width: 640px; margin: 0 auto; }
+  .pf-title { font-size: 17px; font-weight: 800; padding: 8px 0 2px; }
+  .pf-sub { font-size: 11.5px; color: var(--tx-3); padding-bottom: 12px; }
+  .pf-sec { font-size: 11px; font-weight: 700; color: var(--tx-3); letter-spacing: .5px; margin: 14px 0 8px; }
+  .pf-unit {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 10px;
+    padding: 11px 13px; margin: 5px 0; cursor: pointer; color: var(--tx-2); font-size: 13px;
+  }
+  .pf-unit:hover { border-color: rgba(255,255,255,.2); }
+  .pf-unit.picked { border-color: rgba(10,132,255,.5); background: var(--accent-soft); color: var(--tx-1); }
+  .pf-unit.dim { opacity: .45; cursor: not-allowed; }
+  .pf-unit .box { flex: none; width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--tx-3); display: flex; align-items: center; justify-content: center; color: transparent; }
+  .pf-unit.picked .box { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .pf-unit .goal { margin-left: auto; flex: none; font-size: 10.5px; color: var(--tx-3); max-width: 45%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pf-src {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 13px; margin: 5px 0; font-size: 12.5px; color: var(--tx-2);
+  }
+  .pf-src .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pf-src .rg { flex: none; font-size: 10.5px; color: var(--tx-3); }
+  .pf-warn { font-size: 11.5px; color: var(--amber); padding: 6px 2px; }
+  .pf-hand { border: 1px dashed var(--border); border-radius: 10px; margin-top: 6px; overflow: hidden; }
+  .pf-btns { display: flex; gap: 10px; margin-top: 20px; }
+  .pf-btns button { flex: 1; height: 42px; border-radius: 12px; font-size: 13.5px; font-weight: 700; cursor: pointer; border: 1px solid var(--border); background: rgba(255,255,255,.06); color: var(--tx-2); }
+  .pf-btns button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .pf-btns button.primary:disabled { opacity: .4; cursor: default; }
+
+  /* ============ 聊天(复用 v1 已验证部分) ============ */
+  .chat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .c-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 0 16px; }
+  .c-inner { max-width: 700px; margin: 0 auto; padding: 0 26px; display: flex; flex-direction: column; gap: 16px; }
+  .msg-u {
+    align-self: flex-end; max-width: 78%;
+    background: var(--accent-soft); color: var(--tx-1);
+    border: 1px solid rgba(10,132,255,.28);
+    border-radius: 16px 16px 4px 16px;
+    padding: 10px 14px; font-size: 13.5px; line-height: 1.7;
+    animation: fadeUp .22s ease;
+  }
+  .msg-a { align-self: stretch; display: flex; flex-direction: column; gap: 8px; animation: fadeUp .22s ease; min-width: 0; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(4px); } }
+  .a-think { border-left: 2px solid rgba(255,255,255,.14); padding-left: 10px; }
+  .a-think .tk-head {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: none; border: none; cursor: pointer;
+    color: var(--tx-3); font-size: 11px; padding: 0;
+  }
+  .a-think .tk-head:hover { color: var(--tx-2); }
+  .a-think .tk-chev { display: inline-flex; transition: transform .15s; }
+  .a-think.open .tk-chev { transform: rotate(90deg); }
+  .a-think .tk-body { display: none; margin-top: 6px; font-size: 11.5px; color: var(--tx-3); line-height: 1.7; }
+  .a-think.open .tk-body { display: block; }
+  .a-blocks { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .a-h { font-size: 14.5px; font-weight: 700; color: var(--tx-1); }
+  .a-p { font-size: 13.5px; line-height: 1.8; color: var(--tx-2); }
+  .a-li { font-size: 13.5px; line-height: 1.75; color: var(--tx-2); padding-left: 16px; position: relative; }
+  .a-li::before { content: ""; position: absolute; left: 4px; top: .72em; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); opacity: .8; }
+  .a-code { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; color: #d8dee9; background: var(--bg-3); border-radius: 8px; padding: 6px 10px; display: inline-block; align-self: flex-start; }
+  .a-bq { border-left: 3px solid var(--accent); padding: 2px 0 2px 12px; color: var(--tx-3); font-size: 12.5px; line-height: 1.7; }
+  .fence { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 11px; color: var(--tx-3); background: rgba(255,255,255,.04); border-radius: 6px; padding: 3px 8px; align-self: flex-start; }
+
+  .qc {
+    max-width: 640px; margin: 4px 0; padding: 16px 18px;
+    background: rgba(255,255,255,.045);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    animation: pop .18s ease;
+  }
+  .c-inner .qc { max-width: 100%; }
+  @keyframes pop { from { transform: scale(.97); opacity: 0; } }
+  .qc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .qc-tag { font-size: 10px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 2px 8px; letter-spacing: 1px; }
+  .qc-state { font-size: 10.5px; color: var(--tx-3); margin-left: auto; }
+  .qc-state.ok { color: var(--green); }
+  .qc-state.bad { color: var(--red); }
+  .qc-q { font-size: 14px; color: var(--tx-1); line-height: 1.7; margin-bottom: 12px; }
+  .qc-opt {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    border: 1px solid var(--border); border-radius: 10px;
+    background: none; padding: 10px 14px; margin: 6px 0;
+    color: var(--tx-2); font-size: 13px; cursor: pointer; text-align: left;
+    transition: border-color .15s, background .15s;
+  }
+  .qc-opt:hover { border-color: rgba(255,255,255,.2); }
+  .qc-opt .k { flex: none; width: 22px; height: 22px; border-radius: 7px; display: flex; align-items: center; justify-content: center; background: var(--bg-3); font-size: 11px; font-weight: 700; }
+  .qc-opt.right { border-color: var(--green); color: var(--green); background: rgba(48,209,88,.08); }
+  .qc-opt.wrong { border-color: var(--red); color: var(--red); background: rgba(255,69,58,.08); }
+  .qc-exp { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); font-size: 12.5px; color: var(--tx-3); line-height: 1.7; }
+  .qc-exp b { color: var(--tx-2); }
+  .qc-judge { display: flex; gap: 8px; margin-top: 10px; }
+  .qc-judge button {
+    flex: 1; height: 34px; border-radius: 9px; border: 1px solid var(--border);
+    background: rgba(255,255,255,.05); color: var(--tx-2); font-size: 12.5px; cursor: pointer;
+  }
+  .qc-judge button:hover { color: var(--tx-1); border-color: rgba(255,255,255,.2); }
+
+  .composer { flex: none; padding: 8px 0 14px; }
+  .chips { max-width: 700px; margin: 0 auto 8px; padding: 0 26px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip {
+    font-size: 12px; padding: 6px 13px; border-radius: 999px;
+    background: rgba(255,255,255,.05); border: 1px solid var(--border);
+    color: var(--tx-2); cursor: pointer; transition: all .15s;
+  }
+  .chip:hover { color: var(--tx-1); border-color: rgba(255,255,255,.22); background: rgba(255,255,255,.08); }
+  .c-bar { max-width: 700px; margin: 0 auto; padding: 0 26px; display: flex; align-items: center; gap: 8px; }
+  .mode-pill {
+    flex: none; font-size: 10.5px; font-weight: 700; letter-spacing: 1px;
+    color: var(--accent); background: var(--accent-soft);
+    border-radius: 8px; padding: 7px 9px;
+  }
+  .input-bar {
+    flex: 1; display: flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,.06); border: 1px solid var(--border);
+    border-radius: 14px; padding: 6px 8px 6px 12px; min-width: 0;
+  }
+  .input-bar input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--tx-1); font-size: 13.5px; }
+  .input-bar input::placeholder { color: var(--tx-3); }
+  .icon-btn {
+    flex: none; width: 32px; height: 32px; border-radius: 9px; border: none;
+    background: none; color: var(--tx-3); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .icon-btn:hover { color: var(--tx-1); background: rgba(255,255,255,.06); }
+  .send-btn {
+    flex: none; width: 34px; height: 34px; border-radius: 10px; border: none;
+    background: var(--accent); color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .send-btn:disabled { opacity: .35; cursor: default; }
+  .send-btn.stop { background: rgba(255,69,58,.16); color: var(--red); }
+
+  .skeleton { padding: 8px 24px; display: flex; flex-direction: column; gap: 12px; }
+  .sk { background: rgba(255,255,255,.045); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; font-size: 13px; color: var(--tx-3); }
+
+  .hint {
+    position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+    background: rgba(0,0,0,.55); backdrop-filter: blur(8px);
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 7px 16px; font-size: 11.5px; color: var(--tx-3);
+    pointer-events: none; white-space: nowrap; z-index: 9;
+  }
+  .toasts { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+  .toast {
+    background: rgba(0,0,0,.72); backdrop-filter: blur(10px);
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 8px 18px; font-size: 12px; color: var(--tx-1);
+    animation: toastIn .2s ease; white-space: nowrap;
+  }
+  .toast.ok { border-color: rgba(48,209,88,.4); }
+  .toast.warn { border-color: rgba(255,214,10,.4); }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(-6px); } }
+</style>
+</head>
+<body>
+<div id="device">
+  <aside class="side" id="side">
+    <div class="side-top">
+      <button class="fold" id="fold" title="收起 / 展开侧栏">
+        <svg id="foldIc" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <div class="seg" id="seg"></div>
+    </div>
+
+    <div class="domain" id="dom-notes">
+      <div class="search">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="kw" placeholder="搜索笔记标题" />
+      </div>
+      <div class="vault-st"><span class="dot"></span><span id="vaultTxt">已连接 H3M · 全仓 12 篇 · 已选 3 篇</span></div>
+      <div class="tree" id="tree"></div>
+    </div>
+
+    <!-- AI 域:课程 | 会话 双页签;课程树 = 桌面 3.14 口径 -->
+    <div class="domain hidden" id="dom-ai">
+      <div class="ai-tabs">
+        <button id="tabCourse">课程</button>
+        <button id="tabSess">会话</button>
+      </div>
+      <div id="aiCourse" style="flex:1;min-height:0;display:flex;flex-direction:column;">
+        <div class="asst-row" id="asstRow">
+          <span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg></span>
+          课程助手 <span class="sub">建课 · 素材 · 大纲</span>
+        </div>
+        <div class="search">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input id="crsKw" placeholder="搜索章 / 知识点" />
+        </div>
+        <div class="tree" id="courseTree"></div>
+      </div>
+      <div id="aiSess" style="flex:1;min-height:0;display:none;flex-direction:column;">
+        <div class="dom-title">会话 <span class="more" id="sessCount"></span>
+          <button class="mini-b" id="btnNew" title="新建会话">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </div>
+        <div id="sessList" style="flex:1;min-height:0;overflow-y:auto;"></div>
+        <div class="menu-pop" id="popNew" style="bottom:44px; right:6px;">
+          <div class="mp-t">新建会话</div>
+          <button id="nbChat">普通对话</button>
+          <button id="nbTeach">教学对话 <span class="sub">不进课程,锚定文档</span></button>
+        </div>
+        <div class="menu-pop" id="popDoc" style="bottom:44px; right:6px; min-width:230px;">
+          <div class="mp-t">锚定到哪篇文档?</div>
+          <button class="back" id="docBack">‹ 返回</button>
+          <div id="docList"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="domain hidden" id="dom-quiz">
+      <div class="dom-title">错题书架 <span class="more" id="quizCount"></span></div>
+      <div id="quizList" style="flex:1;min-height:0;overflow-y:auto;"></div>
+    </div>
+
+    <div class="domain hidden" id="dom-schedule">
+      <div class="dom-title">今天 · 11月8日 周六</div>
+      <div id="schedList"></div>
+    </div>
+
+    <div class="domain hidden" id="dom-ledger">
+      <div class="dom-title">本月支出 <span class="more">11月</span></div>
+      <div id="ledgerList"></div>
+    </div>
+
+    <div class="foot">
+      <button class="settings-row" id="btn-settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h0a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55h0a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v0a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>
+        <span class="lb">设置</span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <!-- 笔记域:阅读器(保持现状) -->
+    <div class="reader" id="pg-notes" style="display:none;">
+      <div class="r-top">
+        <span class="r-path">刷题示范 / 操作系统 · 题目示范.md</span>
+        <button class="tool-b txt" title="缩小字号">A-</button>
+        <button class="tool-b txt" title="放大字号">A+</button>
+        <span class="badge">已缓存</span>
+      </div>
+      <div class="r-body"><div class="r-inner">
+        <h1>操作系统 · 题目示范</h1>
+        <p>每个 <code>quiz</code> 围栏会被渲染成可交互的题卡——读文档即刷题,作答自动回流错题本。教学会话出的题走同一条链路。</p>
+        <h2>进程与线程</h2>
+        <p>进程是资源分配的基本单位,线程是 CPU 调度的基本单位。引入线程的目的是减少程序并发执行时所付出的时空开销。</p>
+        <div class="qc">
+          <div class="qc-head"><span class="qc-tag">选择题</span><span class="qc-state">错 1 次</span></div>
+          <div class="qc-q">1. 以下关于进程状态转换的说法,正确的是?</div>
+          <button class="qc-opt" data-k="A"><span class="k">A</span>运行态 → 就绪态:时间片用完</button>
+          <button class="qc-opt" data-k="B"><span class="k">B</span>就绪态 → 等待态:申请 I/O</button>
+          <button class="qc-opt" data-k="C"><span class="k">C</span>等待态 → 运行态:I/O 完成</button>
+          <div class="qc-exp" style="display:none"><b>解析:</b>就绪态只能被调度进入运行态,不能直接转等待态;等待态 I/O 完成后先回到就绪态排队,而非直接运行。正确答案 C。</div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- AI 域:段视图 / 预检 / 复习 / 普通会话 -->
+    <div class="ai-view" id="pg-ai" style="display:flex;">
+      <div class="pg-head" style="padding-bottom:0;">
+        <h1>AI 教学</h1>
+        <div class="tools">
+          <button class="tool-b" id="btnHist" title="会话历史(侧栏会话页签)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="aiHost" style="flex:1;min-height:0;display:flex;flex-direction:column;"></div>
+    </div>
+
+    <div id="pg-other" style="display:none; flex:1; min-height:0; flex-direction:column;">
+      <div class="pg-head"><h1 id="oTitle">日程</h1></div>
+      <div class="skeleton" id="oBody"><div class="sk">占位示意 —— 本次原型只做 AI 教学地基,该页保持现有布局。</div></div>
+    </div>
+  </main>
+
+  <div class="hint">AI 教学原型 v2 · 课程树 → 点未学知识点 → 预检开段 → 学 + 出题 → 收尾 → 章末复习 · 全部可点</div>
+  <div class="toasts" id="toasts"></div>
+</div>
+
+<script>
+"use strict";
+/* ==================================================================
+ * AI 教学原型 v2 —— 骨架对齐桌面 3.14(docs/ai-teaching-simplify-plan.md):
+ *   左栏 = 课程树(章 → 知识点 → 章末复习行);段 = 一条对话覆盖同章 1..N 个知识点;
+ *   开段预检 = 中栏整页;收尾 → 交接 → 知识点「学完」;本章全学完解锁章末复习。
+ *   教学对话循环(讲解/围栏题卡/错题回流)嵌在段视图内。
+ * ================================================================== */
+const DOMAINS = [
+  { id: "notes", title: "笔记 · 阅读", ic: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>' },
+  { id: "ai", title: "AI 教学", ic: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>' },
+  { id: "quiz", title: "错题本", ic: '<circle cx="12" cy="12" r="9"/><path d="M9 12h6M12 9v6"/>' },
+  { id: "schedule", title: "日程", ic: '<rect x="3" y="4" width="18" height="17" rx="2.5"/><path d="M16 2v4M8 2v4M3 10h18"/>' },
+  { id: "ledger", title: "记账", ic: '<path d="M20 12V8a2 2 0 0 0-2-2H5a2 2 0 0 1 0-4h13a2 2 0 0 1 2 2v0"/><path d="M4 6v14a2 2 0 0 0 2 2h14v-3"/><path d="M20 6h-9a2 2 0 0 0 0 4h9a2 2 0 0 1 0 4h-4"/>' },
+]
+
+/* ---------------- 课程数据(课程.md + progress.json 的原型投影) ---------------- */
+const COURSE = {
+  title: "408 操作系统",
+  chapters: [
+    { id: "c1", name: "第1章 计算机概述", units: [
+      { id: "u1", name: "总线与接口", goal: "理解三类总线" },
+      { id: "u2", name: "I/O 编址方式", goal: "区分独立/统一编址" },
+      { id: "u3", name: "中断与异常", goal: "掌握中断流程" },
+    ]},
+    { id: "c2", name: "第2章 进程", units: [
+      { id: "u4", name: "进程与线程", goal: "状态转换" },
+      { id: "u5", name: "进程状态转换", goal: "五状态模型" },
+      { id: "u6", name: "调度算法", goal: "FCFS/SJF/HRRN" },
+      { id: "u7", name: "死锁与避免", goal: "四个必要条件" },
+    ]},
+    { id: "c3", name: "第3章 内存管理", units: [
+      { id: "u8", name: "虚拟内存", goal: "局部性原理" },
+      { id: "u9", name: "页面置换", goal: "LRU/Clock" },
+    ]},
+  ],
+}
+/* 段(lessons):一条对话覆盖同章 1..N 个知识点;demo 预置 c1 两个已收尾段 + c2 一个 open 段 */
+const SEGMENTS = [
+  { id: "seg1", chapterId: "c1", unitIds: ["u1"], status: "ended", order: 1,
+    sources: [{ label: "教材 §1.1", mode: "exact" }],
+    handoff: "总线三类型(数据/地址/控制)与性能公式已过,用户能独立推导带宽;下段注意衔接 I/O 编址里的端口概念。" },
+  { id: "seg2", chapterId: "c1", unitIds: ["u2"], status: "ended", order: 2,
+    sources: [{ label: "教材 §1.2", mode: "exact" }],
+    handoff: "独立/统一编址已分清并做完 2 题;DMA 传输只过了一遍,建议章末复习再验证一遍计数起点。" },
+  { id: "seg3", chapterId: "c2", unitIds: ["u4", "u5"], status: "open", order: 1, activeUnitId: "u4",
+    sources: [{ label: "教材 §2.1–2.2", mode: "narrow" }], msgs: [], chips: [], running: false },
+]
+/* 素材(章级分配 → 预检匹配演示) */
+const SOURCES = {
+  c1: [{ title: "操作系统概念(第10版)", range: "第 1 章 概述", mode: "exact" }],
+  c2: [
+    { title: "操作系统概念(第10版)", range: "第 2 章 进程", mode: "narrow" },
+    { title: "王道考研讲义", range: "进程与线程.pdf", mode: "fallback" },
+  ],
+  c3: [],
+}
+const reviews = {}   // chapterId -> true(已生成讲义)
+
+/* 题卡(与桌面 quiz 协议同构;book = 回流错题本的书名) */
+const CARD1 = {
+  type: "choice", no: 1, book: "进程与线程",
+  q: "下面关于进程与线程的说法,正确的是?",
+  opts: [
+    { k: "A", t: "进程是 CPU 调度的基本单位" },
+    { k: "B", t: "线程是资源分配的基本单位" },
+    { k: "C", t: "线程间切换的开销通常小于进程间切换" },
+    { k: "D", t: "一个进程只能包含一个线程" },
+  ],
+  answer: "C",
+  exp: "资源分配看进程,CPU 调度看线程——这组对偶概念是本章的锚。线程共享进程的地址空间,切换只需保存/恢复少量寄存器与栈指针,所以开销远小于进程切换。",
+}
+const CARD2 = {
+  type: "short", no: 2, book: "进程与线程",
+  q: "线程之间共享进程的哪些资源?哪些又是线程私有的?",
+  exp: "共享:地址空间、全局变量、堆、打开的文件;私有:栈、寄存器上下文(含程序计数器)、线程 ID。最容易漏的是「寄存器上下文」——切换线程必须换它,这正是切换开销的来源。",
+}
+const CARD3 = {
+  type: "choice", no: 3, book: "进程与线程",
+  q: "关于用户级线程与内核级线程,下列说法正确的是?",
+  opts: [
+    { k: "A", t: "用户级线程的切换需要陷入内核" },
+    { k: "B", t: "内核级线程阻塞会导致整个进程阻塞" },
+    { k: "C", t: "仅靠用户级线程无法在多核上真正并行" },
+    { k: "D", t: "用户级线程可以自由利用多核" },
+  ],
+  answer: "C",
+  exp: "用户级线程由线程库在用户态管理,内核看不见它们:切换无需陷入内核(快),但内核一次只调度进程,一个进程内的多个用户级线程分不到多个核——这是「快」换来的代价。",
+}
+const CARD4 = {
+  type: "choice", no: 1, book: "调度算法",
+  q: "下列调度算法中,平均等待时间最优、但可能饿死长作业的是?",
+  opts: [
+    { k: "A", t: "先来先服务(FCFS)" },
+    { k: "B", t: "短作业优先(SJF)" },
+    { k: "C", t: "高响应比优先(HRRN)" },
+    { k: "D", t: "时间片轮转(RR)" },
+  ],
+  answer: "B",
+  exp: "SJF 按服务时间排序,短作业插队,平均等待时间理论最优;但它完全不看等待时间,长作业可能无限推迟——HRRN 用响应比(等待+服务)/服务修正这一点,RR 则用时间片保证公平。",
+}
+
+/* 普通会话(会话页签) */
+const SESSIONS = [
+  { id: "s2", title: "操作系统错题分析", tm: "14:32", pin: true,
+    msgs: [
+      { kind: "u", text: "进程状态转换那道题我总错,帮我捋一下" },
+      { kind: "a", think: "用户在「就绪态 → 等待态」这个非法转换上反复出错,先给出完整的合法转换表,再单独点破这个误区。",
+        blocks: [
+          { p: "合法转换其实只有四条,先记全表:" },
+          { li: ["就绪 → 运行:被调度", "运行 → 就绪:时间片用完", "运行 → 等待:申请 I/O(主动)", "等待 → 就绪:I/O 完成(只能回就绪,不能直接运行)"] },
+          { bq: "你错的那个方向「就绪 → 等待」不存在:就绪态的进程根本没在运行,没有 I/O 可申请。" },
+        ] },
+      { kind: "card", spec: CARD1, bookTitle: "进程与线程", st: { answered: true, ok: false, revealed: true } },
+    ], chips: [], running: false },
+  { id: "s3", title: "帮我出 5 道 TCP 题", tm: "昨天", msgs: [
+    { kind: "u", text: "帮我出 5 道 TCP 三次握手的题" },
+    { kind: "a", blocks: [{ p: "这是普通会话的占位消息——原型聚焦课程内的教学段,这条没接脚本。" }] },
+  ], chips: [], running: false },
+]
+
+/* ---------------- 全局状态 ---------------- */
+const st = {
+  tab: "ai", min: false, kw: "",
+  aiTab: "course",                       // course | sessions
+  view: { t: "segment", seg: "seg3" },   // segment | preflight | review | plain
+  pf: null,                              // { chapterId, picked:Set, fromId }
+  expand: { c1: false, c2: true, c3: false },
+  crsKw: "",
+  sessId: "s2",
+  menu: null,
+  nextId: 10, nextSeg: 10,
+}
+const $ = id => document.getElementById(id)
+const icons = {
+  chev: '<svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>',
+  folder: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0a84ff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
+  check: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
+  send: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>',
+  stop: '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+  mic: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4"/></svg>',
+  doc: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+  chevR: '<svg class="tk-chev" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>',
+  lock: '<svg class="ic" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+  unlock: '<svg class="ic" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.9-.9"/></svg>',
+}
+const sleep = ms => new Promise(r => setTimeout(r, window.__TYPE_FAST ? 0 : ms))
+let runToken = 0
+
+const chapterOf = id => COURSE.chapters.find(c => c.id === id)
+const unitOf = id => { for (const c of COURSE.chapters) { const u = c.units.find(x => x.id === id); if (u) return u } return null }
+const chapterOfUnit = id => COURSE.chapters.find(c => c.units.some(x => x.id === id))
+const segOf = id => SEGMENTS.find(s => s.id === id)
+const openSegOf = chId => SEGMENTS.find(s => s.chapterId === chId && s.status === "open")
+/* 桌面口径:知识点「学完」= 所在段已收尾(finished=true)——从段数据派生,不手工标 */
+SEGMENTS.filter(s => s.status === "ended" && !s.reviewOf).forEach(s =>
+  s.unitIds.forEach(id => { const u = unitOf(id); if (u) u.status = "done" }))
+const segChXy = ch => { const done = ch.units.filter(u => u.status === "done").length; return done + "/" + ch.units.length }
+const reviewInfo = ch => {
+  const remain = ch.units.filter(u => u.status !== "done").length
+  if (reviews[ch.id]) return { cls: "unlocked", st: "已生成讲义" }
+  if (remain === 0) return { cls: "unlocked", st: "已解锁" }
+  return { cls: "", st: "锁定 · 还差 " + remain + " 个" }
+}
+/* 当前聊天载体:段视图 → 段对象;会话视图 → 会话对象 */
+function chatCtx() {
+  if (st.view.t === "segment" || st.view.t === "review") return segOf(st.view.seg)
+  if (st.view.t === "plain") return SESSIONS.find(s => s.id === st.sessId)
+  return null
+}
+
+function toast(text, cls) {
+  const t = document.createElement("div")
+  t.className = "toast " + (cls || "")
+  t.textContent = text
+  $("toasts").appendChild(t)
+  setTimeout(() => t.remove(), 2600)
+}
+function scrollChat() { const c = $("cScroll"); if (c) c.scrollTop = c.scrollHeight }
+
+/* ================= 侧栏 ================= */
+function renderSegBar() {
+  const el = $("seg"); el.innerHTML = ""
+  DOMAINS.forEach(d => {
+    const b = document.createElement("button")
+    b.className = st.tab === d.id ? "on" : ""
+    b.title = d.title
+    b.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + d.ic + '</svg>'
+    b.onclick = () => { st.tab = d.id; renderAll() }
+    el.appendChild(b)
+  })
+}
+function renderTree() {
+  const box = $("tree"); box.innerHTML = ""
+  const TREE = [
+    { type: "dir", name: "操作系统", path: "操作系统", children: [
+      { type: "leaf", name: "进程与线程.md", cached: true, cur: true, prefix: "操作系统 / 第2章 / " },
+    ]},
+    { type: "dir", name: "刷题示范", path: "刷题示范", children: [
+      { type: "leaf", name: "操作系统 · 题目示范.md", cached: true, prefix: "刷题示范 / " },
+    ]},
+  ]
+  const walk = (nodes, depth) => {
+    nodes.forEach(n => {
+      const row = document.createElement("div")
+      row.className = "t-row" + (n.type === "dir" ? " dir" : "") + (n.cur ? " sel" : "")
+      row.style.paddingLeft = 6 + depth * 15 + "px"
+      if (n.type === "dir") {
+        const open = !!st.expand["__" + n.path] || depth === 0
+        row.innerHTML = '<span class="chev ' + (open ? "on" : "") + '">' + icons.chev + '</span>' + icons.folder + '<span class="nm">' + n.name + '</span><span class="ct">' + n.children.length + '</span>'
+        row.addEventListener("click", () => { st.expand["__" + n.path] = !st.expand["__" + n.path]; renderTree() })
+        box.appendChild(row)
+        if (open) walk(n.children, depth + 1)
+      } else {
+        row.innerHTML = '<span class="chev hide">' + icons.chev + '</span><span class="fresh ' + (n.cached ? "cached" : "uncached") + '"></span><span class="nm">' + n.name + '</span>'
+        box.appendChild(row)
+      }
+    })
+  }
+  walk(TREE, 0)
+}
+
+/* ---- AI 域:课程树 ---- */
+function renderCourseTree() {
+  const box = $("courseTree"); box.innerHTML = ""
+  COURSE.chapters.forEach(ch => {
+    const open = !!st.expand[ch.id] || !!st.crsKw
+    const hasCur = !!openSegOf(ch.id)
+    const chEl = document.createElement("div")
+    chEl.className = "ch" + (open ? " open" : "")
+    const head = document.createElement("div")
+    head.className = "ch-head"
+    head.innerHTML = '<span class="chev">' + icons.chev + '</span><span class="nm">' + ch.name + '</span>' +
+      (hasCur ? '<span class="cur-seg">本段</span>' : '') +
+      '<span class="xy">已学 ' + segChXy(ch) + '</span>'
+    head.addEventListener("click", () => { st.expand[ch.id] = !st.expand[ch.id]; renderCourseTree() })
+    chEl.appendChild(head)
+    const body = document.createElement("div")
+    body.className = "ch-body"
+    const openSeg = openSegOf(ch.id)
+    ch.units.forEach(u => {
+      const row = document.createElement("div")
+      const inSeg = openSeg && openSeg.unitIds.includes(u.id)
+      const dotCls = u.status === "done" ? "done" : (inSeg ? "learning" : "todo")
+      row.className = "u-row" + (st.view.t === "segment" && openSeg && openSeg.activeUnitId === u.id ? " focus" : "")
+      row.innerHTML = '<span class="dot ' + dotCls + '"></span><span class="nm">' + u.name + '</span>' +
+        (inSeg ? '<span class="badge-this">本段</span>' : '')
+      row.addEventListener("click", () => clickUnit(u, ch))
+      body.appendChild(row)
+    })
+    /* 章末复习行:排在最后,不参与 x/y 计数 */
+    const ri = reviewInfo(ch)
+    const rev = document.createElement("div")
+    rev.className = "rev-row " + ri.cls
+    rev.innerHTML = '<span class="ic">' + (ri.cls ? icons.unlock : icons.lock) + '</span><span class="nm">章末复习</span><span class="st">' + ri.st + '</span>'
+    rev.addEventListener("click", () => clickReview(ch, ri))
+    body.appendChild(rev)
+    chEl.appendChild(body)
+    box.appendChild(chEl)
+  })
+}
+function renderSessList() {
+  const sl = $("sessList"); sl.innerHTML = ""
+  $("sessCount").textContent = SESSIONS.length + " 条"
+  const sorted = [...SESSIONS].sort((a, b) => (b.pin ? 1 : 0) - (a.pin ? 1 : 0))
+  sorted.forEach(s => {
+    const r = document.createElement("div")
+    r.className = "sess-row" + (st.view.t === "plain" && s.id === st.sessId ? " on" : "")
+    r.innerHTML = '<span class="pin">' + (s.pin ? "📌" : "") + '</span>' +
+      (s.tag ? '<span class="tag">' + s.tag + '</span>' : '') +
+      '<span class="st">' + s.title + '</span><span class="tm">' + s.tm + '</span>'
+    r.onclick = () => { st.view = { t: "plain" }; st.sessId = s.id; renderAll() }
+    sl.appendChild(r)
+  })
+}
+function renderDomains() {
+  $("dom-notes").classList.toggle("hidden", st.tab !== "notes")
+  $("dom-ai").classList.toggle("hidden", st.tab !== "ai")
+  $("dom-quiz").classList.toggle("hidden", st.tab !== "quiz")
+  $("dom-schedule").classList.toggle("hidden", st.tab !== "schedule")
+  $("dom-ledger").classList.toggle("hidden", st.tab !== "ledger")
+  $("tabCourse").classList.toggle("on", st.aiTab === "course")
+  $("tabSess").classList.toggle("on", st.aiTab === "sessions")
+  $("aiCourse").style.display = st.aiTab === "course" ? "flex" : "none"
+  $("aiSess").style.display = st.aiTab === "sessions" ? "flex" : "none"
+  renderCourseTree()
+  renderSessList()
+
+  const qb = $("quizList"); qb.innerHTML = ""
+  $("quizCount").textContent = SHELF.length + " 本"
+  SHELF.forEach(b => {
+    const tr = tierOf(b)
+    const r = document.createElement("div")
+    r.className = "sum-row"; r.dataset.book = b.t
+    r.innerHTML = '<span class="k">' + b.t + '</span><span class="tag ' + tr.cls + '">' + tr.tier + '</span><span class="v">' + b.um + '/' + b.n + ' 未掌握</span>'
+    qb.appendChild(r)
+  })
+  const sd = $("schedList"); sd.innerHTML = ""
+  TODOS.forEach(t => {
+    const r = document.createElement("div")
+    r.className = "sum-row"
+    r.innerHTML = '<span class="tag ' + (t.done ? "ok" : "") + '">' + (t.done ? "完成" : t.tm) + '</span><span class="k">' + t.t + '</span>'
+    sd.appendChild(r)
+  })
+  const lg = $("ledgerList"); lg.innerHTML = ""
+  LEDGER.forEach(x => {
+    const r = document.createElement("div")
+    r.className = "sum-row"
+    r.innerHTML = '<span class="k">' + x.t + '</span><span class="v">' + x.v + '</span>'
+    lg.appendChild(r)
+  })
+}
+
+/* ================= 课程交互(桌面 §2.1 点知识点三分支) ================= */
+function clickUnit(u, ch) {
+  const openSeg = openSegOf(ch.id)
+  if (openSeg && openSeg.unitIds.includes(u.id)) {
+    /* 分支1:在当前 open 段 → 聚焦该知识点 */
+    openSeg.activeUnitId = u.id
+    st.view = { t: "segment", seg: openSeg.id }
+    st.tab = "ai"
+    renderAll()
+    return
+  }
+  if (u.status === "done") {
+    /* 分支2:已学 → 打开所属已结束段(只读续看) */
+    const seg = SEGMENTS.find(s => s.status === "ended" && s.unitIds.includes(u.id))
+    if (seg) {
+      st.view = { t: "segment", seg: seg.id }
+      st.tab = "ai"
+      toast("已打开已收尾的段 · 只读续看")
+      renderAll()
+    }
+    return
+  }
+  /* 分支3:未学 → 本章已有 open 段则提示先收尾,否则进预检 */
+  if (openSeg) { toast("本章还有一段没收尾,先收尾再开新段", "warn"); return }
+  startPreflight(ch, u)
+}
+function clickReview(ch, ri) {
+  if (!ri.cls) { toast("还差 " + ch.units.filter(u => u.status !== "done").length + " 个知识点没学完,先学完本章", "warn"); return }
+  st.view = { t: "review", seg: ensureReviewSeg(ch) }
+  st.tab = "ai"
+  renderAll()
+}
+function ensureReviewSeg(ch) {
+  let seg = SEGMENTS.find(s => s.reviewOf === ch.id)
+  if (!seg) {
+    seg = { id: "rev_" + ch.id, chapterId: ch.id, reviewOf: ch.id, unitIds: [], status: "open", order: 0,
+      sources: (SOURCES[ch.id] || []).map(s => ({ label: s.title + " · " + s.range, mode: s.mode })), msgs: [], chips: [], running: false }
+    SEGMENTS.push(seg)
+    const tok = ++runToken
+    seg.running = true
+    typeAi(seg, [
+      { p: "进入《" + ch.name + "》章末复习。这一章你已学完 " + ch.units.length + " 个知识点,我会围绕各段交接里记录的薄弱点出题检验——通过后生成《复习讲义》。" },
+    ], null, tok).then(() => { seg.running = false; if (st.view.seg === seg.id) { renderComposer(); renderChips() } })
+    seg.chips = ["生成复习讲义", "把交接里的薄弱点再讲一遍"]
+  }
+  return seg.id
+}
+
+/* ---------------- 开段预检(中栏整页) ---------------- */
+function startPreflight(ch, fromUnit) {
+  const todos = ch.units.filter(u => u.status !== "done")
+  const startIdx = todos.indexOf(fromUnit)
+  const picked = new Set(todos.slice(startIdx, startIdx + 3).map(u => u.id))
+  if (!picked.size && todos.length) picked.add(todos[0].id)
+  st.pf = { chapterId: ch.id, picked, fromId: fromUnit ? fromUnit.id : null }
+  st.view = { t: "preflight" }
+  st.tab = "ai"
+  renderAll()
+}
+function togglePfUnit(u) {
+  if (!st.pf) return
+  const ch = chapterOf(st.pf.chapterId)
+  if (u.status === "done") { toast("已学知识点不能重选(回炉走已收尾段)", "warn"); return }
+  if (st.pf.picked.has(u.id)) st.pf.picked.delete(u.id)
+  else {
+    if (st.pf.picked.size >= 3) { toast("一段最多覆盖 3 个知识点", "warn"); return }
+    st.pf.picked.add(u.id)
+  }
+  renderAiView()
+}
+function beginSegment() {
+  if (!st.pf || !st.pf.picked.size) return
+  const ch = chapterOf(st.pf.chapterId)
+  const unitIds = ch.units.filter(u => st.pf.picked.has(u.id)).map(u => u.id)
+  const seg = {
+    id: "seg" + (st.nextSeg++), chapterId: ch.id, unitIds, status: "open", order: SEGMENTS.filter(s => s.chapterId === ch.id && !s.reviewOf).length + 1,
+    activeUnitId: unitIds[0],
+    /* 段快照:预检确认后锁定;SOURCES 行(章级分配)映射成段内 label */
+    sources: (SOURCES[ch.id] || []).map(s => ({ label: s.title + " · " + s.range, mode: s.mode })),
+    msgs: [], chips: [], running: false,
+  }
+  unitIds.forEach(id => { unitOf(id).status = "learning" })
+  SEGMENTS.push(seg)
+  st.pf = null
+  st.expand[ch.id] = true
+  st.view = { t: "segment", seg: seg.id }
+  /* AI 开场(按首知识点动态生成;演示主题脚本见 SCRIPTS) */
+  const first = unitOf(unitIds[0])
+  seg.chips = SCRIPTS_OPEN[unitIds[0]] ? SCRIPTS_OPEN[unitIds[0]].chips : ["讲讲" + first.name, "先出 2 道摸底题"]
+  const tok = ++runToken
+  seg.running = true
+  renderAll()
+  typeAi(seg, [
+    { p: "第 " + seg.order + " 段开始,本段覆盖:" + unitIds.map(id => unitOf(id).name).join("、") + "。" + (seg.sources.length ? "素材已按预检快照锁定(" + seg.sources.map(s => s.label + " · " + modeName(s.mode)).join("、") + ")。" : "本章还没有分配素材,本段按大纲讲。") },
+    { p: "上一段交接我已读过。从哪开始?点下方推荐问题,或直接输入。" },
+  ], null, tok).then(() => { seg.running = false; if (st.view.seg === seg.id) { renderComposer(); renderChips() } })
+}
+function modeName(m) { return m === "exact" ? "精确" : m === "narrow" ? "缩窄" : m === "fallback" ? "整章" : "未分配" }
+
+/* ---------------- 段动作:切换聚焦 / 收尾 / 下一段 ---------------- */
+function focusUnit(uId) {
+  const seg = segOf(st.view.seg)
+  if (seg && seg.status === "open" && seg.unitIds.includes(uId)) { seg.activeUnitId = uId; renderAiView() }
+}
+function endSegment() {
+  const seg = segOf(st.view.seg)
+  if (!seg || seg.status !== "open" || seg.reviewOf) return
+  seg.status = "ended"
+  seg.unitIds.forEach(id => { unitOf(id).status = "done" })
+  seg.handoff = HANDOFFS[seg.unitIds[0]] || ("本段覆盖 " + seg.unitIds.map(id => unitOf(id).name).join("、") + ",要点已清,习题正确率达标;细节薄弱点以本段错题为准。")
+  toast("本段已收尾 · 《交接.md》已生成,知识点标记为已学", "ok")
+  renderAll()
+}
+function afterSegment() {
+  const seg = segOf(st.view.seg)
+  const ch = chapterOf(seg.chapterId)
+  const todos = ch.units.filter(u => u.status !== "done")
+  if (!todos.length) { clickReview(ch, reviewInfo(ch)); return }
+  startPreflight(ch, todos[0])
+}
+
+/* ================= 内容区渲染 ================= */
+function renderMain() {
+  $("pg-notes").style.display = st.tab === "notes" ? "flex" : "none"
+  $("pg-ai").style.display = st.tab === "ai" ? "flex" : "none"
+  const other = st.tab !== "notes" && st.tab !== "ai"
+  $("pg-other").style.display = other ? "flex" : "none"
+  if (other) {
+    const d = DOMAINS.find(x => x.id === st.tab)
+    if (d) { $("oTitle").textContent = d.title; $("oBody").innerHTML = '<div class="sk">占位示意 —— 本次原型只做 AI 教学,该页保持现有布局。</div>' }
+  }
+}
+
+function renderAiView() {
+  const host = $("aiHost"); host.innerHTML = ""
+  if (st.view.t === "preflight") { host.appendChild(pfEl()); return }
+  const seg = segOf(st.view.seg)
+  if (!seg) { st.view = { t: "segment", seg: "seg3" }; return renderAiView() }
+  if (seg.reviewOf) host.appendChild(reviewHeadEl(seg))
+  else host.appendChild(segHeadEl(seg))
+  host.appendChild(chatEl(seg))
+  host.appendChild(composerEl(seg))
+}
+
+function segHeadEl(seg) {
+  const ch = chapterOf(seg.chapterId)
+  const wrap = document.createElement("div")
+  wrap.className = "sg-head"
+  const units = seg.unitIds.map(unitOf)
+  const first = units[0], last = units[units.length - 1]
+  /* 面包屑 + 收尾/下一段 */
+  const crumb = document.createElement("div")
+  crumb.className = "sg-crumb"
+  crumb.innerHTML = '<span class="path">' + COURSE.title + ' / ' + ch.name + '</span><span class="range">本段 ' + first.name + (units.length > 1 ? "–" + last.name : "") + '</span>' +
+    (seg.status === "ended" ? '<span class="ro">已收尾 · 只读续看</span>' : '')
+  const btn = document.createElement("button")
+  if (seg.status === "open") {
+    btn.className = "endb"; btn.textContent = "收尾本段"; btn.onclick = endSegment
+  } else {
+    const chTodos = ch.units.filter(u => u.status !== "done")
+    btn.className = "endb ghost"
+    btn.textContent = chTodos.length ? "下一段 →" : "去章末复习 →"
+    btn.onclick = afterSegment
+  }
+  crumb.appendChild(btn)
+  wrap.appendChild(crumb)
+  /* 细进度条:本章 x/y + 段内第 k/m */
+  const prog = document.createElement("div")
+  prog.className = "sg-prog"
+  const done = ch.units.filter(u => u.status === "done").length
+  prog.innerHTML = '<span>本章 ' + done + '/' + ch.units.length + '</span><span class="bar"><i style="width:' + (done / ch.units.length * 100) + '%"></i></span>'
+  if (seg.status === "open") {
+    const k = seg.unitIds.indexOf(seg.activeUnitId) + 1
+    const span = document.createElement("span")
+    span.textContent = "段内 " + k + "/" + seg.unitIds.length
+    prog.appendChild(span)
+  }
+  wrap.appendChild(prog)
+  /* 知识点胶囊条 */
+  const caps = document.createElement("div")
+  caps.className = "sg-caps"
+  seg.unitIds.forEach(id => {
+    const u = unitOf(id)
+    const c = document.createElement("span")
+    c.className = "cap " + u.status + (seg.activeUnitId === id ? " on" : "")
+    c.innerHTML = '<span class="cdot"></span>' + u.name
+    if (seg.status === "open") c.onclick = () => focusUnit(id)
+    caps.appendChild(c)
+  })
+  wrap.appendChild(caps)
+  /* 上一段交接条(同章 order 更小的最近一段) */
+  const prev = SEGMENTS.filter(s => s.chapterId === seg.chapterId && s.status === "ended" && s.order < seg.order && !s.reviewOf).sort((a, b) => b.order - a.order)[0]
+  if (prev && prev.handoff) {
+    const hd = document.createElement("div")
+    hd.className = "sg-hand"
+    hd.innerHTML = '<button class="hd">' + icons.chevR + ' 上一段交接 · ' + prev.unitIds.map(id => unitOf(id).name).join("、") + '</button><div class="bd">' + prev.handoff + '</div>'
+    hd.querySelector(".hd").addEventListener("click", () => hd.classList.toggle("open"))
+    wrap.appendChild(hd)
+  }
+  /* 本段素材条(段快照) */
+  const src = document.createElement("div")
+  src.className = "sg-src"
+  src.innerHTML = '<span class="lab">本段素材</span>'
+  ;(seg.sources || []).forEach(s => {
+    const chip = document.createElement("span")
+    chip.className = "src-chip"
+    chip.innerHTML = s.label + '<span class="mode-badge ' + s.mode + '">' + modeName(s.mode) + '</span>'
+    src.appendChild(chip)
+  })
+  if (!(seg.sources || []).length) src.innerHTML += '<span>未分配 · 按大纲讲</span>'
+  wrap.appendChild(src)
+  return wrap
+}
+
+function reviewHeadEl(seg) {
+  const ch = chapterOf(seg.chapterId)
+  const wrap = document.createElement("div")
+  wrap.className = "sg-head"
+  const crumb = document.createElement("div")
+  crumb.className = "sg-crumb"
+  crumb.innerHTML = '<span class="path">' + COURSE.title + ' / ' + ch.name + ' / 章末复习</span>'
+  const btn = document.createElement("button")
+  btn.className = "endb"
+  btn.textContent = reviews[ch.id] ? "查看讲义" : "生成复习讲义"
+  btn.onclick = () => {
+    if (reviews[ch.id]) { toast("《复习讲义》在工件栏打开(原型省略)"); return }
+    reviews[ch.id] = true
+    toast("《复习讲义》已生成,落 章末复习/", "ok")
+    renderAll()
+  }
+  crumb.appendChild(btn)
+  wrap.appendChild(crumb)
+  /* 本章知识点清单(只读,含状态) */
+  const caps = document.createElement("div")
+  caps.className = "sg-caps"
+  ch.units.forEach(u => {
+    const c = document.createElement("span")
+    c.className = "cap " + u.status
+    c.innerHTML = '<span class="cdot"></span>' + u.name
+    caps.appendChild(c)
+  })
+  wrap.appendChild(caps)
+  return wrap
+}
+
+/* ---------------- 预检页 ---------------- */
+function pfEl() {
+  const ch = chapterOf(st.pf.chapterId)
+  const wrap = document.createElement("div")
+  wrap.className = "pf"
+  const inner = document.createElement("div")
+  inner.className = "pf-inner"
+  wrap.appendChild(inner)
+  inner.innerHTML = '<div class="pf-title">开段预检 · ' + ch.name + '</div><div class="pf-sub">确认本段覆盖的知识点与素材——确认后素材按快照锁定,本章分配后续调整不影响本段。</div>'
+
+  const s1 = document.createElement("div"); s1.className = "pf-sec"; s1.textContent = "本段知识点(默认连续选,最多 3 个)"; inner.appendChild(s1)
+  ch.units.forEach(u => {
+    const picked = st.pf.picked.has(u.id)
+    const done = u.status === "done"
+    const b = document.createElement("button")
+    b.className = "pf-unit" + (picked ? " picked" : "") + (done ? " dim" : "")
+    b.innerHTML = '<span class="box">' + icons.check + '</span><span>' + u.name + '</span><span class="goal">' + (done ? "已学(回炉走已收尾段)" : u.goal) + '</span>'
+    if (!done) b.onclick = () => togglePfUnit(u)
+    inner.appendChild(b)
+  })
+
+  const s2 = document.createElement("div"); s2.className = "pf-sec"; s2.textContent = "本段素材(按章分配自动匹配)"; inner.appendChild(s2)
+  const srcs = SOURCES[ch.id] || []
+  if (!srcs.length) {
+    const w = document.createElement("div"); w.className = "pf-warn"; w.textContent = "本章还没有分配素材,本段只能按大纲讲。"; inner.appendChild(w)
+  }
+  srcs.forEach(s => {
+    const r = document.createElement("div")
+    r.className = "pf-src"
+    r.innerHTML = '<span class="t">' + s.title + '</span><span class="rg">' + s.range + '</span><span class="mode-badge ' + s.mode + '">' + modeName(s.mode) + '</span>'
+    inner.appendChild(r)
+  })
+  if (st.pf.picked.size && modeName((SOURCES[ch.id] || [])[0] && (SOURCES[ch.id] || [])[0].mode) === "缩窄") {
+    const w = document.createElement("div"); w.className = "pf-warn"; w.textContent = "匹配方式:按章分配区间缩窄到本段知识点;未逐点精确匹配,讲解时以大纲为准。"; inner.appendChild(w)
+  }
+
+  const s3 = document.createElement("div"); s3.className = "pf-sec"; s3.textContent = "上一段交接"; inner.appendChild(s3)
+  const prev = SEGMENTS.filter(s => s.chapterId === ch.id && s.status === "ended" && s.order && !s.reviewOf).sort((a, b) => b.order - a.order)[0]
+  const hd = document.createElement("div")
+  hd.className = "pf-hand sg-hand"
+  hd.innerHTML = '<button class="hd">' + icons.chevR + (prev ? ' 第 ' + prev.order + ' 段 · ' + prev.unitIds.map(id => unitOf(id).name).join("、") : ' 暂无(本章第一段)') + '</button><div class="bd">' + (prev && prev.handoff ? prev.handoff : "这是本章第一段,没有交接要读。") + '</div>'
+  hd.querySelector(".hd").addEventListener("click", () => hd.classList.toggle("open"))
+  inner.appendChild(hd)
+
+  const btns = document.createElement("div")
+  btns.className = "pf-btns"
+  const go = document.createElement("button")
+  go.className = "primary"; go.textContent = "开始本段" + (st.pf.picked.size ? "(" + st.pf.picked.size + " 个知识点)" : "")
+  go.disabled = !st.pf.picked.size
+  go.onclick = beginSegment
+  const cancel = document.createElement("button")
+  cancel.textContent = "取消"; cancel.onclick = () => { st.pf = null; st.view = { t: "segment", seg: lastSegmentId() }; renderAll() }
+  btns.appendChild(cancel); btns.appendChild(go)
+  inner.appendChild(btns)
+  return wrap
+}
+function lastSegmentId() {
+  const open = SEGMENTS.find(s => s.status === "open" && !s.reviewOf)
+  return (open || SEGMENTS[SEGMENTS.length - 1]).id
+}
+
+/* ---------------- 聊天(v1 已验证引擎,载体改为段/会话通用) ---------------- */
+function chatEl(ctx) {
+  const wrap = document.createElement("div")
+  wrap.className = "chat"
+  const scroll = document.createElement("div")
+  scroll.className = "c-scroll"; scroll.id = "cScroll"
+  const inner = document.createElement("div")
+  inner.className = "c-inner"; inner.id = "cInner"
+  if (!ctx.msgs.length) {
+    const e = document.createElement("div")
+    e.style.cssText = "text-align:center;color:var(--tx-3);font-size:12.5px;padding:48px 0 12px;line-height:2"
+    e.innerHTML = ctx.reviewOf ? "章末复习会话 · 围绕交接薄弱点检验" : "教学对话 · 点下方推荐问题开始,或直接输入"
+    inner.appendChild(e)
+  }
+  for (const it of ctx.msgs) {
+    if (it.kind === "u") {
+      const el = document.createElement("div")
+      el.className = "msg-u"; el.textContent = it.text
+      inner.appendChild(el)
+    } else if (it.kind === "a") {
+      const el = document.createElement("div")
+      el.className = "msg-a"
+      if (it.think) el.appendChild(thinkEl(it.think))
+      const bs = document.createElement("div")
+      bs.className = "a-blocks"
+      blockEls(it.blocks).forEach(x => bs.appendChild(x))
+      el.appendChild(bs)
+      inner.appendChild(el)
+    } else if (it.kind === "fence") {
+      const f = document.createElement("div")
+      f.className = "fence"
+      f.textContent = "```quiz " + it.spec.q.slice(0, 18) + "…```"
+      inner.appendChild(f)
+    } else if (it.kind === "card") {
+      inner.appendChild(qcEl(it))
+    }
+  }
+  scroll.appendChild(inner)
+  wrap.appendChild(scroll)
+  return wrap
+}
+function thinkEl(text) {
+  const w = document.createElement("div")
+  w.className = "a-think"
+  w.innerHTML = '<button class="tk-head">' + icons.chevR + '思考过程<span class="tk-meta"> ' + text.length + ' 字</span></button><div class="tk-body"></div>'
+  w.querySelector(".tk-body").textContent = text
+  w.querySelector(".tk-head").onclick = () => w.classList.toggle("open")
+  return w
+}
+function blockEls(blocks) {
+  const frag = []
+  for (const b of blocks) {
+    if (b.h !== undefined) { const el = document.createElement("div"); el.className = "a-h"; el.textContent = b.h; frag.push(el) }
+    else if (b.p !== undefined) { const el = document.createElement("p"); el.className = "a-p"; el.textContent = b.p; frag.push(el) }
+    else if (b.code !== undefined) { const el = document.createElement("div"); el.className = "a-code"; el.textContent = b.code; frag.push(el) }
+    else if (b.bq !== undefined) { const el = document.createElement("blockquote"); el.className = "a-bq"; el.textContent = b.bq; frag.push(el) }
+    else if (b.li !== undefined) { for (const x of b.li) { const el = document.createElement("div"); el.className = "a-li"; el.textContent = x; frag.push(el) } }
+  }
+  return frag
+}
+function qcEl(it) {
+  const spec = it.spec
+  const box = document.createElement("div")
+  box.className = "qc"
+  const state = it.st.answered ? (it.st.ok ? '<span class="qc-state ok">答对</span>' : '<span class="qc-state bad">错 1 次 · 已回流</span>') : '<span class="qc-state">未作答</span>'
+  box.innerHTML = '<div class="qc-head"><span class="qc-tag">' + (spec.type === "choice" ? "选择题" : "简答题") + '</span>' + state + '</div><div class="qc-q">' + spec.no + '. ' + spec.q + '</div>'
+  if (spec.type === "choice") {
+    spec.opts.forEach(o => {
+      const b = document.createElement("button")
+      b.className = "qc-opt"
+      b.innerHTML = '<span class="k">' + o.k + '</span>' + o.t
+      if (it.st.answered) {
+        if (o.k === spec.answer) b.classList.add("right")
+        else if (o.k === it.st.picked) b.classList.add("wrong")
+      } else {
+        b.onclick = () => answer(it, o.k === spec.answer, o.k)
+      }
+      box.appendChild(b)
+    })
+  } else if (!it.st.answered) {
+    const reveal = document.createElement("button")
+    reveal.className = "qc-opt"
+    reveal.textContent = it.st.revealed ? "已看参考答案" : "先自己作答,再看参考答案 →"
+    if (!it.st.revealed) reveal.onclick = () => { it.st.revealed = true; renderAiView() }
+    box.appendChild(reveal)
+  }
+  if ((spec.type === "choice" && it.st.answered) || (spec.type === "short" && it.st.revealed)) {
+    const exp = document.createElement("div")
+    exp.className = "qc-exp"
+    exp.innerHTML = "<b>" + (spec.type === "short" ? "参考答案:" : "解析:") + "</b>" + spec.exp
+    box.appendChild(exp)
+    if (spec.type === "short" && !it.st.answered) {
+      const j = document.createElement("div")
+      j.className = "qc-judge"
+      const ok = document.createElement("button"); ok.textContent = "答对了"
+      const no = document.createElement("button"); no.textContent = "没答对"
+      ok.onclick = () => answer(it, true, null)
+      no.onclick = () => answer(it, false, null)
+      j.appendChild(ok); j.appendChild(no)
+      box.appendChild(j)
+    }
+  }
+  return box
+}
+function composerEl(ctx) {
+  const wrap = document.createElement("div")
+  wrap.className = "composer"
+  if (ctx.chips && ctx.chips.length) {
+    const w = document.createElement("div")
+    w.className = "chips"
+    ctx.chips.forEach(t => {
+      const b = document.createElement("button")
+      b.className = "chip"; b.textContent = t
+      b.onclick = () => userSend(t)
+      w.appendChild(b)
+    })
+    wrap.appendChild(w)
+  }
+  const bar = document.createElement("div")
+  bar.className = "c-bar"
+  if (!ctx.reviewOf) {
+    const mp = document.createElement("span")
+    mp.className = "mode-pill"; mp.textContent = "教学"
+    bar.appendChild(mp)
+  }
+  const ib = document.createElement("div")
+  ib.className = "input-bar"
+  const mic = document.createElement("button")
+  mic.className = "icon-btn"; mic.innerHTML = icons.mic; mic.title = "语音输入(M5,原型不演示)"
+  mic.onclick = () => toast("语音输入属 M5,原型不演示")
+  const input = document.createElement("input")
+  input.placeholder = ctx.reviewOf ? "向复习会话提问…" : "向教学助手提问…"
+  input.onkeydown = e => { if (e.key === "Enter") { userSend(input.value); input.value = "" } }
+  ib.appendChild(mic); ib.appendChild(input)
+  const send = document.createElement("button")
+  send.className = "send-btn" + (ctx.running ? " stop" : "")
+  send.innerHTML = ctx.running ? icons.stop : icons.send
+  send.title = ctx.running ? "停止生成" : "发送"
+  if (ctx.running) send.onclick = stopRun
+  else send.onclick = () => { userSend(input.value); input.value = "" }
+  ib.appendChild(send)
+  bar.appendChild(ib)
+  wrap.appendChild(bar)
+  return wrap
+}
+function renderComposer() { const c = chatCtx(); if (c) { const host = $("aiHost"); if (host.lastElementChild) host.lastElementChild.replaceWith(composerEl(c)) } }
+function renderChips() { renderComposer() }
+
+/* ---------------- 发送 / 脚本引擎(v1 已验证,略加重构) ---------------- */
+function userSend(text) {
+  const t = (text || "").trim()
+  if (!t) return
+  const ctx = chatCtx()
+  if (!ctx) return
+  if (ctx.running) { toast("AI 正在回复,可点停止后继续"); return }
+  ctx.msgs.push({ kind: "u", text: t })
+  renderAiView()
+  const tok = ++runToken
+  let script = null
+  if (ctx.reviewOf) {
+    if (t === "生成复习讲义") script = () => [{ say: [{ p: "好,我把各段交接的薄弱点汇成卷子,先来三道:" }], }, { cards: [{ spec: CARD1 }, { spec: CARD4 }, { spec: CARD3 }], dyn: items => [{ say: [{ p: "三题对 " + items.filter(i => i.st.ok).length + " 题。" + (items.every(i => i.st.ok) ? "这一章可以收口了——点右上「生成复习讲义」落一份《复习讲义》到章末复习。" : "错的题已回流错题本,讲义里我会把这几个点单独列一节。") }] }] }]
+    else if (t === "把交接里的薄弱点再讲一遍") script = () => [{ say: [{ p: "按交接记录,本章各段遗留的薄弱点:" }, { li: ["总线带宽计算的计数起点", "DMA 传输的验证", "进程状态转换的非法方向"] }, { p: "一个一个来,先说哪个?" }] }]
+  } else if (ctx.unitIds) {
+    script = SCRIPTS[t] || null
+  }
+  if (script) { runScript(ctx, script(), tok); return }
+  ctx.running = true
+  renderComposer()
+  typeAi(ctx, [{ p: "好问题——原型阶段我只带了固定脚本,这条还没排练。点下方的推荐问题继续体验教学循环。" }], null, tok)
+    .then(() => { ctx.running = false; renderComposer(); renderChips() })
+}
+function stopRun() {
+  runToken++
+  const ctx = chatCtx()
+  if (ctx) ctx.running = false
+  renderComposer()
+  toast("已停止生成")
+}
+
+async function typeAi(ctx, blocks, think, tok) {
+  const it = { kind: "a", blocks: [], think: think || null }
+  ctx.msgs.push(it)
+  renderAiView()
+  const host = $("cInner").querySelector(".msg-a:last-child .a-blocks")
+  const units = []
+  for (const b of blocks) {
+    if (b.h !== undefined) { const el = document.createElement("div"); el.className = "a-h"; host.appendChild(el); units.push({ el, t: b.h, kind: "h" }) }
+    else if (b.p !== undefined) { const el = document.createElement("p"); el.className = "a-p"; host.appendChild(el); units.push({ el, t: b.p, kind: "p" }) }
+    else if (b.bq !== undefined) { const el = document.createElement("blockquote"); el.className = "a-bq"; host.appendChild(el); units.push({ el, t: b.bq, kind: "bq" }) }
+    else if (b.code !== undefined) { const el = document.createElement("div"); el.className = "a-code"; host.appendChild(el); units.push({ el, t: b.code, kind: "code" }) }
+    else if (b.li !== undefined) { for (const x of b.li) { const el = document.createElement("div"); el.className = "a-li"; host.appendChild(el); units.push({ el, t: x, kind: "li" }) } }
+  }
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i]
+    for (let j = 0; j <= u.t.length; j += (Math.random() < .25 ? 3 : 2)) {
+      if (tok !== runToken) { u.el.textContent = u.t.slice(0, j); return }
+      u.el.textContent = u.t.slice(0, j)
+      scrollChat()
+      await sleep(14)
+    }
+    u.el.textContent = u.t
+    await sleep(60)
+  }
+  it.blocks = blocks.slice()   /* 完整收档,重渲染可重放 */
+}
+
+async function runScript(ctx, actions, tok) {
+  ctx.running = true
+  renderComposer()
+  for (const a of actions) {
+    if (tok !== runToken) { ctx.running = false; renderComposer(); return }
+    if (a.say) await typeAi(ctx, a.say, a.think, tok)
+    if (tok !== runToken) { ctx.running = false; renderComposer(); return }
+    if (a.card) {
+      const cit = { kind: a.card.fence ? "fence" : "card", spec: a.card.spec, bookTitle: a.card.book || unitOf(ctx.unitIds[0]).name, st: { answered: false, revealed: false } }
+      ctx.msgs.push(cit)
+      renderAiView()
+      if (a.card.fence) { await sleep(420); cit.kind = "card"; renderAiView() }
+      if (tok !== runToken) { ctx.running = false; renderComposer(); return }
+      await new Promise(res => { cit.gate = res })
+      if (tok !== runToken) { ctx.running = false; renderComposer(); return }
+    }
+    if (a.cards) {
+      const items = a.cards.map(c => {
+        const cit = { kind: c.fence ? "fence" : "card", spec: c.spec, bookTitle: c.book || unitOf(ctx.unitIds[0]).name, st: { answered: false, revealed: false } }
+        ctx.msgs.push(cit)
+        return cit
+      })
+      renderAiView()
+      const fenced = items.filter(it => it.kind === "fence")
+      if (fenced.length) { await sleep(420); fenced.forEach(it => { it.kind = "card" }); renderAiView() }
+      if (tok !== runToken) { ctx.running = false; renderComposer(); return }
+      await Promise.all(items.map(cit => new Promise(res => { cit.gate = res })))
+      if (tok !== runToken) { ctx.running = false; renderComposer(); return }
+      if (a.dyn) {
+        const next = a.dyn(items)
+        for (const b of next) {
+          if (tok !== runToken) { ctx.running = false; renderComposer(); return }
+          if (b.say) await typeAi(ctx, b.say, b.think, tok)
+        }
+      }
+    }
+    if (a.setChips) { ctx.chips = a.setChips; renderChips() }
+  }
+  ctx.running = false
+  renderComposer()
+  renderChips()
+}
+
+/* 作答 → 判分 → 错题回流 */
+function answer(it, ok, picked) {
+  it.st.answered = true
+  it.st.ok = ok
+  it.st.picked = picked
+  if (!ok) {
+    const title = it.bookTitle || "未命名"
+    let book = SHELF.find(b => b.t === title)
+    if (!book) { book = { t: title, n: 0, um: 0, worst: 0 }; SHELF.push(book) }
+    book.n++
+    book.um++
+    book.worst = Math.max(book.worst, 1)
+    renderDomains()
+    toast("错题已回流错题本 · " + title + " · 第 " + it.spec.no + " 题", "ok")
+    const row = $("quizList").querySelector('[data-book="' + title + '"]')
+    if (row) { row.classList.remove("flash"); void row.offsetWidth; row.classList.add("flash") }
+  }
+  if (it.gate) { const g = it.gate; it.gate = null; g() }
+  renderAiView()
+}
+
+/* ---------------- 教学脚本(主题内嵌,非主题走兜底) ---------------- */
+const CHIPS_MAIN = ["PCB 里到底存什么?", "出 3 道更难的题", "讲讲上下文切换"]
+const SCRIPTS_OPEN = {
+  u4: { chips: ["给我讲讲进程和线程的区别", "先出 2 道摸底题"] },
+  u6: { chips: ["讲讲调度算法", "先出 2 道摸底题"] },
+}
+const SCRIPTS = {
+  "给我讲讲进程和线程的区别": () => [
+    {
+      say: [
+        { p: "好——本段锚定《进程与线程》,我不从头念书,直接从最容易混的地方切入。" },
+        { h: "一句话分清" },
+        { p: "进程是资源分配的基本单位,线程是 CPU 调度的基本单位。进程像一间厨房,线程是厨房里同时干活的多双手。" },
+        { h: "为什么要有线程" },
+        { li: ["进程创建、切换、通信的开销都大:每次切换要换页表、换地址空间", "线程共享同一地址空间:切换只换寄存器和栈,通信直接读共享变量", "所以引入线程 = 用「共享」换「轻量」"] },
+        { bq: "记对偶口诀:资源分配看进程,CPU 调度看线程。后面调度章节会反复用到。" },
+      ],
+      think: "用户已读过锚定文档,不必复述定义;从「一对偶 + 一个类比」切入,讲完立刻出 2 题检验,按结果决定是否回炉。",
+    },
+    { cards: [{ spec: CARD1, fence: true }, { spec: CARD2 }], dyn: items => [{ say: buildReview(items) }] },
+    { setChips: CHIPS_MAIN },
+  ],
+  "先出 2 道摸底题": () => [
+    { say: [{ p: "行,先摸底再决定讲多深。两道题:一道选择、一道简答,答完我按结果走。" }] },
+    { cards: [CARD1, CARD2].map(spec => ({ spec })), dyn: items => [{ say: buildReview(items) }] },
+    { setChips: CHIPS_MAIN },
+  ],
+  "讲讲调度算法": () => [
+    {
+      say: [
+        { p: "调度算法一句话:在「公平」和「效率」之间找平衡点。" },
+        { li: ["FCFS:最公平也最懒,平均等待差", "SJF:平均等待最优,但饿死长作业", "HRRN:响应比 = (等待 + 服务)/服务,兼顾两者", "RR:时间片轮转,交互友好,吞吐换公平"] },
+        { bq: "考研爱考「哪个平均等待最优」「哪个会饿死」——都是 SJF。" },
+      ],
+    },
+    { cards: [{ spec: CARD4, fence: true }], dyn: items => [{ say: [{ p: items[0].st.ok ? "稳。记住「SJF 双料冠军(最优 + 饿死)」,题就抓住了。" : "错题已回流——口诀:最短作业优先,又快又狠又饿人。" }] }] },
+    { setChips: ["出 2 道更难的调度题", "讲讲死锁"] },
+  ],
+  "PCB 里到底存什么?": () => [
+    {
+      say: [
+        { p: "PCB(进程控制块)就是进程的「档案袋」,操作系统管理进程全靠它。" },
+        { li: ["标识信息:PID、父进程", "状态与调度信息:状态字、优先级、队列指针", "现场保存:寄存器上下文——切走时存这里", "资源清单:打开的文件、地址空间映射"] },
+        { bq: "面试高频坑:PCB 是「进程私有」的,但里面登记的资源(如地址空间)是线程共享的。" },
+      ],
+    },
+  ],
+  "出 3 道更难的题": () => [
+    { say: [{ p: "上强度。这道考的是用户级 / 内核级线程的取舍——上一轮的对偶口诀在这里会派上用场:" }] },
+    { cards: [{ spec: CARD3 }], dyn: items => [{
+      say: [
+        ...(items[0].st.ok
+          ? [{ p: "稳。「快而无法并行」就是用户级线程的核心矛盾——线程库再快,内核看不见就白搭。" }]
+          : [{ p: "这题错得不冤:用户级线程「切换快」和「无法并行」是同一枚硬币的两面,内核看不见它们,自然也谈不上多核分配。(已回流,明天再刷)" }]),
+        { p: "想继续的话,可以往下问上下文切换,或者收尾本段去下一个知识点。" },
+      ],
+    }] },
+  ],
+  "讲讲上下文切换": () => [
+    {
+      say: [
+        { p: "上下文切换 = 把 CPU 从一个任务换到另一个任务,代价由三部分组成:" },
+        { li: ["直接开销:保存/恢复寄存器、更新内核数据结构", "间接开销(大头):CPU 缓存、TLB 失效——新任务的局部性要重新热身", "调度决策本身:挑下一个谁也有成本"] },
+        { bq: "线程切换比进程切换便宜,便宜在「间接开销」:同进程内地址空间不变,TLB 大部分不用刷。" },
+      ],
+    },
+  ],
+}
+function buildReview(items) {
+  const r1 = items[0].st.ok, r2 = items[1].st.ok
+  const out = []
+  if (r1 && r2) {
+    out.push({ p: "两题全对,基础立住了——直接给你上一档难度?" })
+    return out
+  }
+  if (!r1) {
+    out.push({ p: "第 1 题踩了这章最经典的坑。回看口诀:" })
+    out.push({ bq: "资源分配看进程,CPU 调度看线程。A、B 把两个角色说反了;D 错在「只能」——一个进程当然可以有多个线程。" })
+    out.push({ p: "(已回流错题本,明天同一时间我会提醒你再刷一次)" })
+  } else {
+    out.push({ p: "第 1 题对得很稳。" })
+  }
+  if (r2 === false) {
+    out.push({ p: "第 2 题多数人能答出共享部分,漏的是私有的「寄存器上下文」——注意:切换线程必须换它,这正是切换开销的物理来源,也是上一题 C 选项成立的原因。" })
+  }
+  out.push({ p: r1 && !r2 ? "接下来可以把线程的共享/私有这张表带进上下文切换的话题里,继续吗?" : "继续的话,可以问 PCB、上下文切换,或者直接上更难的题。" })
+  return out
+}
+/* 收尾交接文案(桌面 = AI 生成《交接.md》,原型按首知识点给预置文案) */
+const HANDOFFS = {
+  u4: "进程/线程对偶口诀已立住(资源分配看进程,CPU 调度看线程);线程私有资源里的「寄存器上下文」仍易漏,交接下一段从五状态模型切入,并带回这个点。",
+  u1: "总线三类型(数据/地址/控制)与性能公式已过,用户能独立推导带宽;下段注意衔接 I/O 编址里的端口概念。",
+  u2: "独立/统一编址已分清并做完 2 题;DMA 传输只过了一遍,建议章末复习再验证一遍计数起点。",
+}
+
+/* ---------------- 新建会话(会话页签,内联弹层) ---------------- */
+const DOCS = ["操作系统 / 进程与线程.md", "操作系统 / 调度算法.md", "收件箱 / 咖啡馆随想.md"]
+function closePops() { st.menu = null; $("popNew").classList.remove("open"); $("popDoc").classList.remove("open") }
+function makeSession(teach, doc) {
+  const s = {
+    id: "s" + (st.nextId++),
+    title: teach ? "教学 · " + docShort(doc) : "新对话 " + st.nextId,
+    tm: "现在", teach: !!teach, doc: doc || null,
+    msgs: [], chips: teach ? ["先出 2 道摸底题", "给我讲讲这一篇的重点"] : [], running: false,
+  }
+  SESSIONS.unshift(s)
+  st.sessId = s.id
+  st.view = { t: "plain" }
+  st.aiTab = "sessions"
+  closePops()
+  renderAll()
+  if (teach) {
+    const tok = ++runToken
+    s.running = true
+    typeAi(s, [
+      { p: "教学模式已开启,锚定《" + docShort(doc) + "》。我会分步讲、常确认,讲到节点出题检验——答错的题会自动进错题本。" },
+    ], null, tok).then(() => { s.running = false; if (st.view.t === "plain" && st.sessId === s.id) { renderComposer(); renderChips() } })
+  }
+}
+function docShort(d) { return d.split("/").pop().replace(/\.md$/, "").trim() }
+
+/* ================= 接线 ================= */
+$("fold").addEventListener("click", () => {
+  st.min = !st.min
+  $("side").classList.toggle("min", st.min)
+  $("foldIc").innerHTML = st.min ? '<path d="M9 18l6-6-6-6"/>' : '<path d="M15 18l-6-6 6-6"/>'
+})
+$("kw").addEventListener("input", e => { st.kw = e.target.value.trim().toLowerCase(); renderTree() })
+$("crsKw").addEventListener("input", e => { st.crsKw = e.target.value.trim().toLowerCase(); renderCourseTree() })
+$("tabCourse").addEventListener("click", () => { st.aiTab = "course"; renderDomains() })
+$("tabSess").addEventListener("click", () => { st.aiTab = "sessions"; renderDomains() })
+$("asstRow").addEventListener("click", () => toast("课程助手:建课 / 登记素材 / 改大纲(原型占位)"))
+$("btnNew").addEventListener("click", e => {
+  e.stopPropagation()
+  if (st.menu) closePops()
+  else { st.menu = "new"; $("popDoc").classList.remove("open"); $("popNew").classList.add("open") }
+})
+$("nbChat").addEventListener("click", () => makeSession(false))
+$("nbTeach").addEventListener("click", () => {
+  st.menu = "doc"
+  $("popNew").classList.remove("open")
+  const dl = $("docList"); dl.innerHTML = ""
+  DOCS.forEach(d => {
+    const b = document.createElement("button")
+    b.innerHTML = icons.doc + "<span>" + d + "</span>"
+    b.onclick = () => makeSession(true, d)
+    dl.appendChild(b)
+  })
+  $("popDoc").classList.add("open")
+})
+$("docBack").addEventListener("click", () => { st.menu = "new"; $("popDoc").classList.remove("open"); $("popNew").classList.add("open") })
+document.addEventListener("click", e => {
+  if (st.menu && !$("popNew").contains(e.target) && !$("popDoc").contains(e.target) && !$("btnNew").contains(e.target)) closePops()
+})
+$("btn-settings").addEventListener("click", () => {
+  st.tab = "__settings"; renderMain()
+  $("oTitle").textContent = "设置"
+  $("oBody").innerHTML = '<div class="sk">设置页占位(配对 · 主题 · AI Key)。</div>'
+})
+$("btnHist").addEventListener("click", () => { st.aiTab = "sessions"; renderDomains(); toast("会话历史在侧栏 · 会话页签") })
+
+/* 阅读器题卡(静态示意) */
+document.querySelectorAll("#pg-notes .qc-opt").forEach(b => b.addEventListener("click", () => {
+  const qc = b.parentElement
+  qc.querySelectorAll(".qc-opt").forEach(x => x.classList.remove("right", "wrong"))
+  b.classList.add(b.dataset.k === "C" ? "right" : "wrong")
+  qc.querySelector(".qc-exp").style.display = "block"
+}))
+
+const SHELF = [
+  { t: "操作系统 · 题目示范", n: 5, um: 3, worst: 2 },
+  { t: "计算机网络 · 题目", n: 4, um: 4, worst: 4 },
+]
+const TODOS = [
+  { t: "复习操作系统第2章", tm: "09:00", done: true },
+  { t: "刷错题 · 顽固档 7 道", tm: "晚上", done: false },
+]
+const LEDGER = [
+  { t: "食堂 · 午餐", v: "-¥18" },
+  { t: "打印店", v: "-¥6.5" },
+]
+function tierOf(b) {
+  if (b.worst >= 4) return { tier: "顽固", cls: "warn" }
+  if (b.worst >= 2) return { tier: "中", cls: "warn" }
+  if (b.worst >= 1) return { tier: "轻", cls: "ok" }
+  return { tier: "未错", cls: "ok" }
+}
+
+function renderAll() { renderSegBar(); renderTree(); renderDomains(); renderMain(); renderAiView() }
+renderAll()
+</script>
+</body>
+</html>

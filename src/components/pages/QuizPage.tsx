@@ -218,7 +218,7 @@ export function QuizPage({ active }: { active: boolean }) {
           </div>
         )
       })}
-      {!quizRecords.length && <div className="empty" style={{ padding: '24px 0' }}>还没有错题记录——读带 quiz 题卡的文档，作答后自动归档到这里</div>}
+      {!quizRecords.length && <div className="empty empty-spring">还没有错题记录——读带 quiz 题卡的文档，作答后自动归档到这里</div>}
     </section>
   )
 }
