@@ -217,31 +217,41 @@ export function NotesPage({ active }: { active: boolean }) {
             : '已连接 ' + paired.pcName + ' · 全仓 ' + vaultTree.pages.length + ' 篇（点击刷新目录）')
           : '未配对电脑 · 配对后可看仓库笔记'}
       </button>
-      {folders.map(f => {
-        const files = f.pages.filter(x => !kwTrim || x.title.includes(kwTrim))
-        if (kwTrim && files.length === 0) return null
-        const open = !!openMap[f.name] || !!kwTrim
+      {/* 电脑仓库文件夹：单卡分组列表（2026-11-08 条目优化——原逐文件夹独立大卡在十余目录时占满整屏，
+          且 count 与 chev 双 margin:auto 平分剩余空间，数字悬在行中央） */}
+      {(() => {
+        const visible = folders.filter(f => !kwTrim || f.pages.some(x => x.title.includes(kwTrim)))
+        if (!visible.length) return null
         return (
-          <div key={f.name} className={'folder' + (open ? ' open' : '')}>
-            <div className="folder-head" onClick={() => setOpenMap(m => ({ ...m, [f.name]: !m[f.name] }))}>
-              <IFolder style={{ color: 'var(--accent-hover)' }} />
-              {f.name}
-              <span className="count">{f.pages.length}</span>
-              <span className="chev"><IChevR /></span>
-            </div>
-            <div className="folder-files">
-              {files.map(x => (
-                <div key={x.id} className="file-row" onClick={() => openVaultNote(x)}>
-                  <span className={'c ' + (vaultCache[x.id] && vaultCache[x.id].mtimeMs === x.mtimeMs ? 'cached' : 'uncached')} />
-                  {x.title}
-                  <span className="arrow"><IChevR /></span>
+          <div className="vfold">
+            {visible.map(f => {
+              const files = f.pages.filter(x => !kwTrim || x.title.includes(kwTrim))
+              const open = !!openMap[f.name] || !!kwTrim
+              return (
+                <div key={f.name} className={'vf-item' + (open ? ' open' : '')}>
+                  <button className="vf-head" onClick={() => setOpenMap(m => ({ ...m, [f.name]: !m[f.name] }))}>
+                    <IFolder style={{ color: 'var(--accent-hover)' }} />
+                    <span className="vf-name">{f.name}</span>
+                    <span className="count">{f.pages.length}</span>
+                    <span className="chev"><IChevR /></span>
+                  </button>
+                  <div className="vf-files">
+                    {files.map(x => (
+                      <div key={x.id} className="file-row" onClick={() => openVaultNote(x)}>
+                        <span className={'c ' + (vaultCache[x.id] && vaultCache[x.id].mtimeMs === x.mtimeMs ? 'cached' : 'uncached')} />
+                        {x.title}
+                        <span className="arrow"><IChevR /></span>
+                      </div>
+                    ))}
+                    {!files.length && <div className="empty" style={{ padding: '14px 0' }}>无匹配笔记</div>}
+                  </div>
                 </div>
-              ))}
-              {!files.length && <div className="empty" style={{ padding: '16px 0' }}>无匹配笔记</div>}
-            </div>
+              )
+            })}
           </div>
         )
-      })}
+      })()}
+      {paired && !vaultLoading && kwTrim && !folders.some(f => f.pages.some(x => x.title.includes(kwTrim))) && <div className="empty" style={{ padding: '16px 0' }}>无匹配笔记</div>}
       {paired && !vaultLoading && !folders.length && <div className="empty" style={{ padding: '20px 0' }}>仓库没有可读的 md 笔记（或目录还没拉到）</div>}
 
       <div className="sec-title" style={{ marginTop: 6 }}>手机笔记 <span className="more">上行同步进电脑收件箱</span></div>

@@ -562,6 +562,20 @@ button.vault-line:disabled { cursor: default; }
 .folder-files { display: none; border-top: 1px solid var(--border-soft); }
 .folder.open .folder-files { display: block; animation: collapse .2s ease; }
 @keyframes collapse { from { opacity: 0; } to { opacity: 1; } }
+
+/* ============ 电脑仓库文件夹（手机笔记页，2026-11-08 条目优化） ============ */
+/* 单卡分组列表替代逐文件夹独立大卡：十余目录不再占满整屏；count 紧贴 chev */
+.vfold { border: 1px solid var(--border-soft); border-radius: 12px; background: var(--bg-primary); overflow: hidden; }
+.vf-item + .vf-item { border-top: 1px solid var(--border-soft); }
+.vf-head { display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px 12px; font-size: 13.5px; font-weight: 600; color: var(--text-primary); background: none; border: none; cursor: pointer; text-align: left; font-family: inherit; }
+.vf-head:active { background: var(--bg-tertiary); }
+.vf-head .vf-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vf-head .count { flex: none; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.vf-head .chev { flex: none; display: flex; color: var(--text-muted); transition: transform .2s; }
+.vf-item.open .vf-head .chev { transform: rotate(90deg); }
+.vf-files { border-top: 1px solid var(--border-soft); }
+.vf-item:not(.open) .vf-files { display: none; }
+.vf-item.open .vf-files { animation: collapse .2s ease; }
 .file-row { display: flex; align-items: center; gap: 9px; padding: 11px 14px 11px 20px; font-size: 13.5px; color: var(--text-secondary); transition: background .12s; border-bottom: 1px solid var(--border-soft); }
 .file-row:last-child { border-bottom: none; }
 .file-row:hover { background: var(--bg-hover); }
