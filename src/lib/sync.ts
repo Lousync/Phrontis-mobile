@@ -149,10 +149,14 @@ function scanPrefixes(): string[] {
   return [last, ...COMMON_PREFIXES.filter(p => p !== last)]
 }
 
-/** 源提示：PWA 页面若直接从电脑的 IP 加载（如局域网 dev / 部署站），主机名就是电脑本身——零配置最先探它 */
+/** 源提示：PWA 页面若直接从电脑的 IP 加载（如局域网 dev / 部署站），主机名就是电脑本身——零配置最先探它。
+ * localhost（127.0.0.1 同理）也保留为提示：桌面浏览器 dev 时电脑伴侣就在本机，
+ * 页面在 localhost:5180 而伴侣在 localhost:8770，不探就永远扫不到（2026-11-08 实测）。
+ * APK 内 location.hostname 同为 localhost，多探一次 600ms 无副作用。 */
 function originHintHost(): string | null {
   const h = window.location.hostname
-  if (!h || h === 'localhost' || h === '127.0.0.1') return null
+  if (!h) return null
+  if (h === '127.0.0.1') return 'localhost'
   return h
 }
 

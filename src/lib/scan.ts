@@ -33,20 +33,25 @@ export async function startQrScanner(
     throw new Error('当前环境拿不到摄像头：浏览器需 https 或 localhost，用 APK 打开即可扫码')
   }
 
-  /* 开相机与拉解码器并行，少等一截 */
+  /* 开相机与拉解码器并行，少等一截。
+   * getUserMedia 不设超时：权限弹窗若一直无人应答（嵌入式 WebView 无弹窗 UI 时会这样），
+   * promise 永远 pending，界面就永远停在「正在启动相机…」——15s 后按超时给出指引（2026-11-08 实测）。 */
   const camPromise = media.getUserMedia({
     video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
     audio: false,
   })
+  const camTimeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new DOMException('相机启动超时', 'TimeoutError')), 15000))
   const modPromise = import('jsqr')
 
   let stream: MediaStream
   try {
-    stream = await camPromise
+    stream = await Promise.race([camPromise, camTimeout])
   } catch (e) {
     const name = e instanceof DOMException ? e.name : ''
     if (name === 'NotAllowedError' || name === 'SecurityError') throw new Error('相机权限被拒绝：到系统设置里允许 Phrontis 使用相机')
     if (name === 'NotFoundError' || name === 'OverconstrainedError') throw new Error('没找到可用的摄像头')
+    if (name === 'TimeoutError') throw new Error('相机启动超时：检查相机权限弹窗，或改用「手动配对」')
     throw new Error('打开相机失败' + (e instanceof Error ? '：' + e.message : ''))
   }
   const { default: jsQR } = await modPromise
