@@ -235,15 +235,20 @@ async function lanFetch(url: string, opts: { method?: 'GET' | 'POST'; body?: Rec
   return { status: r.status, data }
 }
 
-/** 探一台：/api/discover 通且 ok 才算命中；超时/被拒/跨域一律当没有 */
-async function probeHost(host: string, timeoutMs: number): Promise<DiscoveredPc | null> {
+/** 扫段探的端口清单：8770 = 冻结默认；8771 = 桌面端口被占后的第一回退位——实测 dev HMR 重启竞态
+ *  会把伴侣服务顶到 8771 且占用者退出后不回搬，只探 8770 就永远搜不到（2026-11-08 本机复现）。
+ *  组播路径桌面自报端口不受此限；8771 上跑别的服务没关系，应答体按 /api/discover 构型校验过滤。 */
+const SCAN_PORTS = [8770, 8771]
+
+/** 探一个 host:port：/api/discover 通且 ok 才算命中；超时/被拒/跨域一律当没有 */
+async function probePort(host: string, port: number, timeoutMs: number): Promise<DiscoveredPc | null> {
   try {
-    const { status, data } = await lanFetch('http://' + host + ':8770/api/discover', { timeoutMs })
+    const { status, data } = await lanFetch('http://' + host + ':' + port + '/api/discover', { timeoutMs })
     if (status < 200 || status >= 300) return null
     const body = data as { ok?: boolean; protocol?: number; pc?: { name?: string }; pairing?: string[] }
     if (!body.ok) return null
     return {
-      baseUrl: 'http://' + host + ':8770',
+      baseUrl: 'http://' + host + ':' + port,
       pcName: body.pc?.name || '我的电脑',
       protocol: body.protocol || 1,
       canRequest: Array.isArray(body.pairing) && body.pairing.includes('request'),
@@ -253,15 +258,23 @@ async function probeHost(host: string, timeoutMs: number): Promise<DiscoveredPc 
   }
 }
 
+/** 探一台：SCAN_PORTS 并发双探，8770 命中优先（find 保序） */
+async function probeHost(host: string, timeoutMs: number): Promise<DiscoveredPc | null> {
+  const hits = await Promise.all(SCAN_PORTS.map(p => probePort(host, p, timeoutMs)))
+  return hits.find(x => x !== null) ?? null
+}
+
 /**
  * 发现电脑（三层递进，借鉴 LocalSend 的 UDP 组播发现）：
  *   ① 源提示：页面源即电脑 IP 的场景（dev/部署站）零配置秒回；
  *   ② 组播（Android 原生插件 PhrontisDiscover）：往 239.255.42.42:8771 喊一声、桌面单播应答，
  *      不猜网段、App 重装也不怕——桌面应答端规格见 docs/handoff-multicast-discovery-desktop.md；
- *   ③ 扫段回退（iOS/web/组播不可用时）：经验清单 + 记忆网段逐段并发探 /api/discover。
- *      iOS 并发压到 12（URLSession 短请求风暴会 ENOMEM，见 lanFetch 注释），Android 48。
+ *   ③ 扫段回退（iOS/web/组播不可用时）：经验清单 + 记忆网段逐段并发探 /api/discover
+ *      （8770 + 8771 双端口——桌面端口漂移仍可搜到，见 SCAN_PORTS 注释）。
+ *      并发按「每 worker 双探」折半（iOS 6 / Android 24），在途请求数与单端口时代持平：
+ *      iOS URLSession 短请求风暴会 ENOMEM（见 lanFetch 注释），不能因双探翻倍。
  * 返回 diag 供「没搜到」提示展示——报障带数据，不再盲猜。
- * 只探 8770 默认端口（电脑端换端口时退回手动配对；组播路径桌面自报端口）。
+ * 扫段探 8770/8771 两个端口（组播路径桌面自报端口，不受扫段限制）。
  */
 export async function discoverCompanions(opts: { timeoutMs?: number; concurrency?: number } = {}): Promise<{ found: DiscoveredPc[]; diag: string }> {
   const timeoutMs = opts.timeoutMs ?? 350
@@ -285,7 +298,8 @@ export async function discoverCompanions(opts: { timeoutMs?: number; concurrency
       mcastNote = '组播不可用'
     }
   }
-  const concurrency = opts.concurrency ?? (Capacitor.getPlatform() === 'ios' ? 12 : 48)
+  /* 每 worker 双探 SCAN_PORTS：worker 数对半折，在途请求数与单端口时代持平（iOS ENOMEM 红线不动） */
+  const concurrency = opts.concurrency ?? (Capacitor.getPlatform() === 'ios' ? 6 : 24)
   const found: DiscoveredPc[] = []
   const prefixes = scanPrefixes()
   for (const prefix of prefixes) {
