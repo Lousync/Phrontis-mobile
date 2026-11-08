@@ -56,7 +56,7 @@ const THEME_PICKS: Array<{ id: ThemeName; name: string; bg: string; line: string
  * AI 区 = M4a 直连档配置（pm.aiConfig，Key 只在本机）。
  */
 export function SettingsPage({ active }: { active: boolean }) {
-  const { paired, online, syncing, syncPct, lastSync, runSync, pairWith, adoptPaired, unpair, theme, setTheme, toast, aiConfig, setActiveTab, kbSim, toggleKbSim, openSheet, settingsSec } = useApp()
+  const { paired, online, syncing, syncPct, syncMode, lastSync, runSync, pairWith, adoptPaired, unpair, theme, setTheme, toast, aiConfig, setActiveTab, kbSim, toggleKbSim, openSheet, settingsSec } = useApp()
   const ff = useFormFactor()
   /* 平板：分类隔离——侧栏点哪个分类就只渲染那个分类的设置项，后续设置项增多互不干扰；
    * 手机：单页滚动全展示。分类清单 SETTINGS_SECS 与此处 data-sec 一一对应（加分类两处同步加） */
@@ -255,7 +255,11 @@ export function SettingsPage({ active }: { active: boolean }) {
                 <div className="device-ico"><IMonitor /></div>
                 <div className="info">
                   <div className="n">{paired.pcName}</div>
-                  <div className="s"><span className="gdot" /><span>{online ? '已连接' : '离线'} · 上次同步 {lastSync}</span></div>
+                  <div className="s"><span className="gdot" /><span>
+                    {/* v1.7 同步状态三态：实时（挂起中）/ 轮询 30s（旧桌面）/ 离线待同步 */}
+                    {syncMode === 'hang' ? '已连接 · 实时'
+                      : syncMode === 'poll' ? '已连接 · 轮询 30s（电脑版本较旧）'
+                      : online ? '已连接' : '离线待同步'} · 上次同步 {lastSync}</span></div>
                 </div>
               </div>
               <div className={'sync-progress' + (syncing ? ' on' : '')}><span className="fill" style={{ width: syncPct + '%' }} /></div>

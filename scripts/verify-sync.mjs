@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { parsePairInput, uuid, buildScheduleData, buildNoteData, pruneNoteCache, getLastSync, noteLww } from '../src/lib/sync.ts'
+import { parsePairInput, uuid, buildScheduleData, buildNoteData, pruneNoteCache, getLastSync, noteLww, nextBackoffMs, RtDriver, RT_WAIT_MS } from '../src/lib/sync.ts'
 import { txToDisplay, monthOf, monthShift, monthStats, groupEntriesByDay, weekOf, TODAY, chipListWith, catColorOf } from '../src/lib/data.ts'
 import { AI_TOOLS, validateLedgerAdd, validateTodoAdd, validateNoteCreate, buildSystemPrompt } from '../src/lib/aiTools.ts'
 
@@ -125,7 +125,118 @@ console.log('\n§2d 笔记负载与缓存（v1.2 上行 + LRU 缓存；v1.6 U �
   check('缓存逐出后不超限', Object.values(pruned).reduce((s, v) => s + v.title.length + v.body.length, 0) <= 130)
 }
 
-console.log('\n§2e AI 直连档工具集（M4a：读直执行 / 写出确认卡）')
+console.log('\n§2d-2 v1.7 实时同步（挂起循环时机机：退避 / waitSupported 探测 / supersede 判废）')
+{
+  check('退避序列 1/2/5/10/30 封顶', eq([1, 2, 3, 4, 5, 6].map(nextBackoffMs), [1000, 2000, 5000, 10000, 30000, 30000]))
+
+  const tick = () => new Promise(r => setTimeout(r, 0))
+  const empty = { remoteLedger: [], remoteSchedule: [], remoteNotes: [], removedIds: [] }
+  /* 假件 sleep 记毫秒即时返回（测「下一发何时发」不看真实等待）；
+     pullOnce 内部过一次宏任务：循环每一拍可被 tick 逐步推进，断言确定 */
+  const mkDriver = (script, rec) => {
+    const d = new RtDriver({
+      pullOnce: async o => {
+        rec.pulls.push(o.waitMs)
+        await new Promise(r => setTimeout(r, 0))
+        const s = script.shift()
+        if (!s) throw new Error('script exhausted')
+        return { ...empty, ...s }
+      },
+      apply: out => rec.applied.push(out),
+      sleep: async ms => { rec.sleeps.push(ms); await new Promise(r => setTimeout(r, 0)) },
+    })
+    rec.modes = []
+    d.onMode = m => rec.modes.push(m)
+    return d
+  }
+  const fail = { fail: true }
+  const pullOnceScript = script => async o => {
+    const s = script.shift()
+    if (!s || s.fail) throw new Error('scripted failure')
+    return { ...empty, ...s }
+  }
+
+  /* 挂起循环：waitSupported → 应用后立即挂下一发（中间无任何轮询睡眠） */
+  {
+    const rec = { pulls: [], sleeps: [], applied: [], modes: [] }
+    const script = [{ waitSupported: true }, { waitSupported: true }]
+    const d = new RtDriver({
+      pullOnce: async o => { rec.pulls.push(o.waitMs); await tick(); return pullOnceScript(script)(o) },
+      apply: out => rec.applied.push(out),
+      sleep: async ms => { rec.sleeps.push(ms); await tick() },
+    })
+    d.onMode = m => rec.modes.push(m)
+    d.start()
+    await tick(); await tick()
+    d.stop()
+    await tick()
+    check('挂起 pull 携带 wait=' + RT_WAIT_MS, rec.pulls.slice(0, 2).every(w => w === RT_WAIT_MS))
+    check('挂起模式应用后立即挂下一发（无轮询睡眠）', rec.applied.length === 2 && rec.sleeps.length === 0)
+    check('模式进入 hang（实时）', rec.modes[0] === 'hang')
+  }
+
+  /* 旧桌面探测：首个 wait 响应无 waitSupported → 切 30s 轮询，代内不再探测 */
+  {
+    const rec = { pulls: [], sleeps: [], applied: [], modes: [] }
+    const script = [{ waitSupported: false }]
+    const d = new RtDriver({
+      pullOnce: async o => { rec.pulls.push(o.waitMs); await tick(); return pullOnceScript(script)(o) },
+      apply: out => rec.applied.push(out),
+      sleep: async ms => { rec.sleeps.push(ms); await tick() },
+    })
+    d.onMode = m => rec.modes.push(m)
+    d.start()
+    await tick(); await tick(); await tick()
+    d.stop()
+    await tick()
+    check('首个请求仍探测（wait=' + RT_WAIT_MS + '）', rec.pulls[0] === RT_WAIT_MS)
+    check('无 waitSupported → 切 30s 轮询并标旧桌面', rec.sleeps[0] === 30000 && rec.modes.includes('poll'))
+    check('轮询代内不再探测（后续请求 wait=0）', rec.pulls[1] === 0)
+  }
+
+  /* 失败退避 1s/2s/…；重试仍带 wait（探测位），成功后回 hang */
+  {
+    const rec = { pulls: [], sleeps: [], applied: [], modes: [] }
+    const script = [{ fail: true }, { fail: true }, { waitSupported: true }, { waitSupported: true }, { waitSupported: true }]
+    const d = new RtDriver({
+      pullOnce: async o => { rec.pulls.push(o.waitMs); await tick(); return pullOnceScript(script)(o) },
+      apply: out => rec.applied.push(out),
+      sleep: async ms => { rec.sleeps.push(ms); await tick() },
+    })
+    d.onMode = m => rec.modes.push(m)
+    d.start()
+    await tick(); await tick(); await tick(); await tick(); await tick()
+    d.stop()
+    await tick()
+    check('退避序列生效（1s → 2s）', eq(rec.sleeps.slice(0, 2), [1000, 2000]))
+    check('退避重试仍带 wait', rec.pulls.slice(0, 3).every(w => w === RT_WAIT_MS))
+    check('成功后回 hang 且已应用', rec.applied.length === 1 && rec.modes.includes('hang'))
+  }
+
+  /* supersede：stop() 换代顶掉在途——迟到响应判废（不应用）；重建恰发一发、运行中 maybeStart 不重启 */
+  {
+    const rec = { pulls: [], sleeps: [], applied: [] }
+    let resolveLate = () => {}
+    const d = new RtDriver({
+      pullOnce: o => new Promise(r => { rec.pulls.push(o.waitMs); resolveLate = () => r({ ...empty, waitSupported: true }) }),
+      apply: out => rec.applied.push(out),
+      sleep: async ms => { rec.sleeps.push(ms) },
+    })
+    d.start()
+    await tick()
+    d.stop()
+    resolveLate()
+    await tick()
+    check('在途响应迟到判废：不应用、无退避', rec.applied.length === 0 && rec.sleeps.length === 0 && d.mode === 'off')
+    d.maybeStart()
+    await tick()
+    check('stop 后重建恰发新一发（对账与循环不并发重复 pull）', rec.pulls.length === 2)
+    d.maybeStart()
+    check('运行中 maybeStart 不重启（不打断在途挂起）', rec.pulls.length === 2)
+    d.stop()
+    await tick()
+  }
+}
 {
   /* 2026-11-06 平板线补齐学习域 5 工具（quiz_query/stats/add/note/del，专项契约见 scripts/contract-quiz-ai.mjs）：7 → 12 */
   check('工具集 12 个（7 基础 + 5 错题）', AI_TOOLS.length === 12)
@@ -179,6 +290,14 @@ console.log('\n§3 协议文档契约（docs/design.md §2.1 与手机实现一�
   check('§2.1 v1.6 记录 pull 下行 notes 域与墓碑', design.includes("changes.notes") && design.includes("domain: 'notes'"))
   check('§2.1 v1.6 记录在线可见性 + 离线数据保留', design.includes('仅在该设备在线时') && design.includes('磁盘上文件永久保留'))
   check('§2.1 v1.6 记录旧桌面兼容口径', design.includes('旧桌面（v1.5-）不回 notes 域'))
+  // v1.7 契约（2026-11-08 实时同步 · C 长轮询；与主仓方案 §2.4 兼容矩阵逐条对齐）
+  check('§2.1 v1.7 记录协议增量（wait + waitSupported 探测位）', design.includes('`waitSupported?: true`') && design.includes('`wait` = 挂起上限毫秒'))
+  check('§2.1 v1.7 挂起硬契约（信号粗粒度 + 25s 封顶）', design.includes('通知不是数据') && design.includes('`min(wait, 25000)`'))
+  check('§2.1 v1.7 兼容矩阵：新手机 + 旧桌面退回 30s 轮询', design.includes('新手机 + 旧桌面 → 首个 `wait` 请求立即返回且无 `waitSupported` → 手机退回 30s 定时轮询'))
+  check('§2.1 v1.7 兼容矩阵：旧手机 + 新桌面完全同 v1.6', design.includes('旧手机 + 新桌面 → 手机不发 `wait` → 立即返回，完全同 v1.6 行为'))
+  check('§2.1 v1.7 兼容矩阵：双方离线退避重试', design.includes('任意一方离线 → 手机退避重试，不影响本地记录'))
+  check('§2.1 v1.7 前后台硬要求（退后台暂停 / 回前台拉平重建）', design.includes('退后台（`visibilitychange`') && design.includes('立即对账一次（不带 wait）'))
+  check('§2.1 v1.7 状态三态文案', design.includes('「实时」') && design.includes('「轮询 30s（电脑版本较旧）」') && design.includes('「离线待同步」'))
   check('§2.1 记录内容 API 端点', design.includes('/api/notes/tree') && design.includes('/api/notes/content'))
   check('§2.1 记录缓存上限与按 id 解析路径', design.includes('1.5MB') && design.includes('按 id 服务端解析路径'))
   // v1.3 契约（2026-11-06 电脑档整体移除，改为反向断言；决策记录里仍会提到该端点，故只查端点表行）

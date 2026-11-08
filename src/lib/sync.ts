@@ -10,6 +10,9 @@
  * v1.6（2026-11-08）：notes 域升级为双向（U 盘模式）——桌面把设备文件夹里的增删改
  * 经 pull 下行（changes.notes + tombstones domain='notes'），手机 LWW 合并；
  * 旧桌面不回 notes 域 → 空数组、游标不动，向后完全兼容。协议见 docs/design.md §2.1。
+ * v1.7（2026-11-08）：实时同步（C 长轮询）——pull 加可选 wait（挂起到有变更/超时），
+ * 响应 waitSupported 为探测位（旧桌面没有 → 退回 30s 轮询）；RtDriver 前台常挂挂起循环，
+ * 失败退避 1/2/5/10/30s 封顶。协议见 docs/design.md §2.1 v1.7 节。
  *
  * M1 存储用 localStorage（等价 Preferences 形态），M2b 评估 SQLite 迁移；
  * 所有键带 pm. 前缀，迁移时整体搬运。
@@ -488,6 +491,186 @@ export interface SyncOutcome {
   removedIds: string[]
 }
 
+/* ================= v1.7 实时同步：挂起 pull + 循环驱动器（时机逻辑可注入，契约直测） ================= */
+
+/** 挂起 pull 上限（毫秒）。桌面侧同值封顶（主仓方案 §2.3-3），避开中间层空闲超时 */
+export const RT_WAIT_MS = 25000
+/** 旧桌面（响应无 waitSupported）退回的定时轮询间隔 */
+export const RT_POLL_MS = 30000
+
+/** 指数退避（纯函数，契约直测）：第 n 次连续失败的等待毫秒——1s / 2s / 5s / 10s，n ≥ 5 恒 30s 封顶 */
+export function nextBackoffMs(failCount: number): number {
+  const seq = [1000, 2000, 5000, 10000, 30000]
+  const i = Math.min(Math.max(Math.round(failCount), 1), seq.length) - 1
+  return seq[i]
+}
+
+/** pull 下行结果（v1.7 自 syncNow 拆出单点化；游标推进也在这里完成） */
+export interface RtPullOutcome {
+  /** 本请求确实被挂起处理过（桌面 v1.7+ 才有；缺省 = 对端旧桌面，调用方退回轮询） */
+  waitSupported: boolean
+  remoteLedger: RemoteLedgerItem[]
+  remoteSchedule: RemoteScheduleItem[]
+  remoteNotes: RemoteNoteItem[]
+  removedIds: string[]
+}
+
+/**
+ * 单次 pull：since 取本地游标（或调用方覆写——push 冲突后全量重对）。
+ * waitMs > 0 = v1.7 挂起 pull（请求体才带 wait 字段；轮询模式不带，对旧桌面语义与 v1.6 全同）。
+ * 游标只在响应后按响应 cursor 推进（v1.1 规则）。超时：挂起请求 waitMs + 10s 余量，普通 pull 10s。
+ * 外部 signal（RtDriver 换代顶掉）联动内部超时控制器。
+ */
+export async function pullOnce(opts: { waitMs?: number; signal?: AbortSignal; sinceOverride?: { ledger: number; schedule: number; notes: number } } = {}): Promise<RtPullOutcome> {
+  const p = getPaired()
+  if (!p) throw new Error('尚未配对电脑')
+  const waitMs = Math.max(0, Math.min(RT_WAIT_MS, Math.round(opts.waitMs ?? 0)))
+  const timeoutMs = waitMs > 0 ? waitMs + 10_000 : 10_000
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  const onOuter = () => ctrl.abort()
+  opts.signal?.addEventListener('abort', onOuter, { once: true })
+  try {
+    const cur = getLastSync()
+    const since = opts.sinceOverride ?? { ledger: cur.ledger, schedule: cur.schedule, notes: cur.notes }
+    const res = await fetch(p.baseUrl + '/api/sync/pull', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + p.token },
+      body: JSON.stringify(waitMs > 0 ? { since, wait: waitMs } : { since }),
+      signal: ctrl.signal,
+    })
+    const json = await res.json().catch(() => ({})) as {
+      ok?: boolean; error?: string
+      changes?: { ledger?: RemoteLedgerItem[]; schedule?: RemoteScheduleItem[]; notes?: RemoteNoteItem[] }
+      tombstones?: RemoteTombstone[]
+      cursor?: { ledger?: number; schedule?: number; notes?: number }
+      waitSupported?: boolean
+    }
+    if (!res.ok || !json.ok) {
+      const msg = (json.error as string) || '同步被拒绝（' + res.status + '）'
+      if (res.status === 401) throw new Error('电脑不再认识这台设备，请重新配对')
+      throw new Error(msg)
+    }
+    const out: RtPullOutcome = {
+      waitSupported: json.waitSupported === true,
+      remoteLedger: Array.isArray(json.changes?.ledger) ? json.changes!.ledger! : [],
+      remoteSchedule: Array.isArray(json.changes?.schedule) ? json.changes!.schedule! : [],
+      /* v1.6 起桌面可回 notes 域（U 盘模式）；旧桌面（v1.5-）不回 → 空数组、notes 游标不动，完全兼容 */
+      remoteNotes: Array.isArray(json.changes?.notes) ? json.changes!.notes! : [],
+      removedIds: Array.isArray(json.tombstones) ? json.tombstones.map(t => String(t.id)).filter(Boolean) : [],
+    }
+    if (typeof json.cursor?.ledger === 'number') setLastSync('ledger', json.cursor.ledger)
+    if (typeof json.cursor?.schedule === 'number') setLastSync('schedule', json.cursor.schedule)
+    if (typeof json.cursor?.notes === 'number') setLastSync('notes', json.cursor.notes)
+    return out
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') throw new Error('同步超时：电脑响应太慢或网络不稳')
+    throw e instanceof Error ? e : new Error('同步失败')
+  } finally {
+    clearTimeout(timer)
+    opts.signal?.removeEventListener('abort', onOuter)
+  }
+}
+
+export type RtMode = 'off' | 'hang' | 'poll'
+
+export interface RtDeps {
+  /** 发起一次 pull（waitMs 由驱动器按模式给 RT_WAIT_MS 或 0；signal 用于换代顶掉） */
+  pullOnce: (opts: { waitMs: number; signal: AbortSignal }) => Promise<RtPullOutcome>
+  /** 应用下行变更（store 接 applyRemote* + 墓碑；驱动器不碰存储与游标） */
+  apply: (out: RtPullOutcome) => void
+  /** 可注入睡眠（契约脚本记录毫秒并即时返回，测时机不测真实等待） */
+  sleep?: (ms: number) => Promise<void>
+}
+
+/**
+ * 实时同步驱动器（v1.7）：前台 + 配对 + 在线时维持「挂起 pull 循环」。
+ * - hang：响应带 waitSupported → 应用后立即挂下一发（<1s 实时）；
+ * - poll：响应无 waitSupported（旧桌面）→ 30s 定时轮询，代内不再探测；
+ * - off：未运行 / 失败退避中（UI「离线待同步」）。
+ * 并发不变式：任一时刻至多一个 pull 在途——stop()/start() 先换代再 abort，
+ * 迟到的响应按代数判废（不应用；游标未推进，重建方的 pull 会重拉，安全）。
+ */
+export class RtDriver {
+  mode: RtMode = 'off'
+  /** 模式变更回调（store 接 UI 三态文案 + 连接态回写） */
+  onMode?: (m: RtMode) => void
+  private deps: RtDeps
+  private readonly sleepFn: (ms: number) => Promise<void>
+  private gen = 0
+  private stopped = true
+  private inFlight: AbortController | null = null
+
+  constructor(deps: RtDeps) {
+    this.deps = deps
+    this.sleepFn = deps.sleep ?? (ms => new Promise(r => setTimeout(r, ms)))
+  }
+
+  private setMode(m: RtMode): void {
+    if (this.mode !== m) { this.mode = m; this.onMode?.(m) }
+  }
+
+  private alive(gen: number): boolean { return !this.stopped && this.gen === gen }
+
+  /** 启动/重建循环：先顶掉在途（换代），再挂第一发 */
+  start(): void {
+    this.cancelInFlight()
+    this.gen++
+    this.stopped = false
+    void this.loop(this.gen)
+  }
+
+  /** 仅在未运行时启动（不打断在途挂起——runSync 收尾重建走这里，避免无谓顶掉） */
+  maybeStart(): void {
+    if (this.stopped) this.start()
+  }
+
+  /** 停止：换代 + 取消在途（迟到响应判废）。退后台 / 取消配对 / 手动离线 / 对账前调用 */
+  stop(): void {
+    this.stopped = true
+    this.gen++
+    this.cancelInFlight()
+    this.setMode('off')
+  }
+
+  private cancelInFlight(): void {
+    this.inFlight?.abort()
+    this.inFlight = null
+  }
+
+  private async loop(gen: number): Promise<void> {
+    let fails = 0
+    let wait = true // 代内首轮必带 wait（探测位）；退回轮询后不再探测，回前台重建时自然重探
+    while (this.alive(gen)) {
+      let out: RtPullOutcome
+      try {
+        const ctrl = new AbortController()
+        this.inFlight = ctrl
+        out = await this.deps.pullOnce({ waitMs: wait ? RT_WAIT_MS : 0, signal: ctrl.signal })
+        this.inFlight = null
+      } catch {
+        this.inFlight = null
+        if (!this.alive(gen)) return // 被换代顶掉：对账/新循环已接管，静默退出
+        fails++
+        this.setMode('off') // 离线待同步
+        await this.sleepFn(nextBackoffMs(fails))
+        continue
+      }
+      if (!this.alive(gen)) return // 迟到响应：判废丢弃，不应用不推进
+      this.deps.apply(out)
+      if (out.waitSupported) {
+        fails = 0
+        wait = true
+        this.setMode('hang') // 实时：无睡眠，立即挂下一发
+      } else {
+        wait = false
+        this.setMode('poll') // 旧桌面：30s 定时轮询
+        await this.sleepFn(RT_POLL_MS)
+      }
+    }
+  }
+}
+
 /**
  * 对账一轮：push 待同步队列（两域混批，服务端按 change.domain 分派）→ pull 双域增量 + 墓碑。
  * 游标只在 pull 响应后推进（v1.1）；有冲突时该轮游标回 0 全量对一次（收敛优先）；
@@ -546,26 +729,10 @@ export async function syncNow(onPhase?: (pct: number) => void): Promise<SyncOutc
   }
   onPhase?.(60)
 
-  // ---- pull（有冲突 → 全量对一次，保证收敛；游标以 pull 响应 cursor 为准） ----
-  const cursors = getLastSync()
-  const since = {
-    ledger: conflicts > 0 ? 0 : cursors.ledger,
-    schedule: conflicts > 0 ? 0 : cursors.schedule,
-    notes: conflicts > 0 ? 0 : cursors.notes,
-  }
-  const pullRes = await req('/api/sync/pull', { since }) as {
-    changes?: { ledger?: RemoteLedgerItem[]; schedule?: RemoteScheduleItem[]; notes?: RemoteNoteItem[] }
-    tombstones?: RemoteTombstone[]
-    cursor?: { ledger?: number; schedule?: number; notes?: number }
-  }
-  const remoteLedger = Array.isArray(pullRes.changes?.ledger) ? pullRes.changes!.ledger! : []
-  const remoteSchedule = Array.isArray(pullRes.changes?.schedule) ? pullRes.changes!.schedule! : []
-  /* v1.6 起桌面可回 notes 域（U 盘模式）；旧桌面（v1.5-）不回 → 空数组、notes 游标不动，完全兼容 */
-  const remoteNotes = Array.isArray(pullRes.changes?.notes) ? pullRes.changes!.notes! : []
-  const removedIds = Array.isArray(pullRes.tombstones) ? pullRes.tombstones.map(t => String(t.id)).filter(Boolean) : []
-  if (typeof pullRes.cursor?.ledger === 'number') setLastSync('ledger', pullRes.cursor.ledger)
-  if (typeof pullRes.cursor?.schedule === 'number') setLastSync('schedule', pullRes.cursor.schedule)
-  if (typeof pullRes.cursor?.notes === 'number') setLastSync('notes', pullRes.cursor.notes)
+  // ---- pull（v1.7 起走 pullOnce 单点化；有冲突 → 全量对一次，保证收敛） ----
+  const pullOut = await pullOnce({
+    sinceOverride: conflicts > 0 ? { ledger: 0, schedule: 0, notes: 0 } : undefined,
+  })
   onPhase?.(100)
 
   return {
@@ -573,10 +740,7 @@ export async function syncNow(onPhase?: (pct: number) => void): Promise<SyncOutc
     handledIds: doneIds,
     applied,
     conflicts,
-    pulled: remoteLedger.length + remoteSchedule.length + remoteNotes.length,
-    remoteLedger,
-    remoteSchedule,
-    remoteNotes,
-    removedIds,
+    pulled: pullOut.remoteLedger.length + pullOut.remoteSchedule.length + pullOut.remoteNotes.length,
+    ...pullOut,
   }
 }

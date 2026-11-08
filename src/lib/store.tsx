@@ -6,8 +6,8 @@ import { THEME_IDS } from './types'
 import { TODAY, VOICE_PHRASES, welcomeText, dayIso, fmtMoney, monthOf, monthStats, txToDisplay } from './data'
 import {
   AiStopped, buildNoteData, buildScheduleData, enqueueOp, getDeviceName, getPaired, getQueue, loadJson, noteLww, pairWith as pairRequest,
-  probeOnline, removeFromQueue, saveJson, syncNow, unpair as unpairDevice, uuid,
-  type RemoteLedgerItem, type RemoteNoteItem, type RemoteScheduleItem,
+  probeOnline, pullOnce, removeFromQueue, saveJson, syncNow, unpair as unpairDevice, uuid,
+  RtDriver, type RemoteLedgerItem, type RemoteNoteItem, type RemoteScheduleItem, type RtMode,
 } from './sync'
 import { AI_MAX_ROUNDS, aiConfigReady, chatOnce, loadAiConfig, parseToolArgs, saveAiConfig } from './ai'
 import { AI_TOOLS, buildSystemPrompt, quizQueryForModel, quizStatsForModel, validateLedgerAdd, validateNoteCreate, validateQuizAdd, validateQuizDel, validateQuizNote, validateTodoAdd, type ToolResult } from './aiTools'
@@ -89,6 +89,8 @@ interface Store {
   online: boolean
   syncing: boolean
   syncPct: number
+  /** v1.7 实时同步三态：hang=实时（挂起中）/ poll=轮询 30s（旧桌面）/ off=离线待同步 */
+  syncMode: RtMode
   pending: Array<{ label: string; opId?: string }>
   lastSync: string
   paired: PairedDevice | null
@@ -234,6 +236,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [online, setOnline] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [syncPct, setSyncPct] = useState(0)
+  const [syncMode, setSyncMode] = useState<RtMode>('off')
   const [pending, setPending] = useState<Array<{ label: string; opId?: string }>>([])
   const [lastSync, setLastSync] = useState('今天 09:12')
   const [paired, setPaired] = useState<PairedDevice | null>(() => getPaired())
@@ -324,6 +327,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const vaultReaderRef = useRef(vaultReader); vaultReaderRef.current = vaultReader
   const vaultStateRef = useRef(vaultState); vaultStateRef.current = vaultState
   const runSyncRef = useRef<() => void>(() => {})
+  const reconcileQuietRef = useRef<() => void>(() => {})
+  const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { document.documentElement.dataset.theme = theme; saveJson(K_THEME, theme) }, [theme])
 
@@ -458,6 +463,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const markPending = useCallback((label: string, opId?: string) => {
     setPending(p => [...p, opId ? { label, opId } : { label }])
+    /* v1.7：本地写操作 → 防抖立即对账（reconcileQuiet 先顶掉在途挂起，push+pull 后重建循环） */
+    if (getPaired() && onlineRef.current && !document.hidden) {
+      if (reconcileTimerRef.current) clearTimeout(reconcileTimerRef.current)
+      reconcileTimerRef.current = setTimeout(() => {
+        reconcileTimerRef.current = null
+        reconcileQuietRef.current()
+      }, 800)
+    }
   }, [])
 
   /* 电脑下行的记账条目按 id 幂等并入本地账本（自己的上行被原样带回时 = 无操作；
@@ -550,13 +563,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
     removeFromQueue(removedIds)
   }, [])
 
+  /* ---------- v1.7 实时同步：挂起循环驱动器（前台常挂 pull；合并走既有 applyRemote*，零改动） ---------- */
+  const rtRef = useRef<RtDriver | null>(null)
+  if (!rtRef.current) {
+    const d = new RtDriver({
+      pullOnce: o => pullOnce(o),
+      apply: out => {
+        applyRemoteLedger(out.remoteLedger)
+        applyRemoteSchedule(out.remoteSchedule)
+        applyRemoteNotes(out.remoteNotes)
+        applyTombstones(out.removedIds)
+      },
+    })
+    d.onMode = m => {
+      setSyncMode(m)
+      /* 循环判定「通/断」回写连接态：桌面重启退避重连后绿点自动恢复 */
+      setOnline(m !== 'off')
+    }
+    rtRef.current = d
+  }
+
   const runSync = useCallback(() => {
     void (async () => {
       if (syncingRef.current) return
       if (!getPaired()) { toast('先到「设置」配对电脑，才能同步', 'warn'); return }
       if (!onlineRef.current) { toast('电脑不在线，同步搁置', 'warn'); return }
-      /* 真实对账（push 队列 + pull 双域增量 + 墓碑） */
-      if (getQueue().length === 0 && pendingRef.current.length === 0) { toast('没有待同步的变更', 'info'); return }
+      /* v1.7：对账前先停挂起循环（顶掉在途，避免双 pull 并发），收尾重建 */
+      rtRef.current?.stop()
+      /* 真实对账（push 队列 + pull 三域增量 + 墓碑） */
+      if (getQueue().length === 0 && pendingRef.current.length === 0) { rtRef.current?.maybeStart(); toast('没有待同步的变更', 'info'); return }
       setSyncing(true)
       setSyncPct(8)
       try {
@@ -585,9 +620,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setSyncing(false)
         setSyncPct(0)
         toast(e instanceof Error ? e.message : '同步失败', 'warn')
+      } finally {
+        rtRef.current?.maybeStart()
       }
     })()
   }, [toast, applyRemoteLedger, applyRemoteSchedule, applyRemoteNotes, applyTombstones])
+
+  /* v1.7 静默对账：写操作防抖 / 回前台的「立即拉平」——停循环（顶掉在途）→ push+pull → 重建循环。
+     无 toast（区别于手动 runSync）；失败静默，离线由循环退避接手。 */
+  const reconcileQuiet = useCallback(() => {
+    void (async () => {
+      if (syncingRef.current) return
+      if (!getPaired()) return
+      rtRef.current?.stop()
+      try {
+        const out = await syncNow()
+        applyRemoteLedger(out.remoteLedger)
+        applyRemoteSchedule(out.remoteSchedule)
+        applyRemoteNotes(out.remoteNotes)
+        applyTombstones(out.removedIds)
+        const handled = new Set(out.handledIds)
+        setPending(list => list.filter(x => !x.opId || !handled.has(x.opId)))
+        if (out.handledIds.length) {
+          setPhoneNotes(list => list.map(x => handled.has(x.id) ? { ...x, synced: true } : x))
+        }
+      } catch { /* 静默：断网 / 桌面重启由循环退避接手 */ }
+      rtRef.current?.maybeStart()
+    })()
+  }, [applyRemoteLedger, applyRemoteSchedule, applyRemoteNotes, applyTombstones])
 
   const toggleOnline = useCallback(() => {
     void (async () => {
@@ -595,6 +655,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!device) { toast('先到「设置」配对电脑，才能连接', 'warn'); return }
       if (onlineRef.current) {
         setOnline(false)
+        rtRef.current?.stop() // 手动离线 = 停挂起循环（不再吃电，回连时自动重建）
         toast('已切到离线 · 数据照常记在手机', 'warn')
         return
       }
@@ -604,6 +665,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (ok) {
         toast('已连上 ' + device.pcName, 'ok')
         if (getQueue().length) setTimeout(() => void runSyncRef.current(), 400)
+        else rtRef.current?.maybeStart()
       } else {
         toast('连不上电脑：确认同一网络、电脑端服务已开启', 'warn')
       }
@@ -619,7 +681,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toast('已配对 ' + device.pcName + ' · 开始首次对账', 'ok')
       const ok = await probeOnline()
       setOnline(ok)
-      if (ok) setTimeout(() => void runSyncRef.current(), 500)
+      /* v1.7：首次对账走静默对账（push+pull 后自动重建挂起循环），不再依赖有积压 */
+      if (ok) setTimeout(() => reconcileQuietRef.current(), 500)
     } catch (e) {
       toast(e instanceof Error ? e.message : '配对失败', 'warn')
     }
@@ -631,10 +694,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toast('已配对 ' + device.pcName + ' · 开始首次对账', 'ok')
     const ok = await probeOnline()
     setOnline(ok)
-    if (ok) setTimeout(() => void runSyncRef.current(), 500)
+    /* v1.7：首次对账走静默对账（push+pull 后自动重建挂起循环） */
+    if (ok) setTimeout(() => reconcileQuietRef.current(), 500)
   }, [toast])
 
   const unpair = useCallback(() => {
+    rtRef.current?.stop()
     unpairDevice()
     setPaired(null)
     setOnline(true)
@@ -647,15 +712,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
     saveAiConfig(cfg)
   }, [])
 
-  /* 已配对：启动即探测电脑，在线且有积压就自动对账 */
+  /* 已配对：启动即探测电脑——在线则对账（有积压走 runSync）或直接进入挂起循环（v1.7：空队列也拉下行） */
   useEffect(() => {
     if (!getPaired()) return
     void probeOnline().then(ok => {
       setOnline(ok)
-      if (ok && getQueue().length) setTimeout(() => void runSyncRef.current(), 800)
+      if (!ok) return
+      if (getQueue().length) setTimeout(() => void runSyncRef.current(), 800)
+      else rtRef.current?.maybeStart()
     })
   }, [])
   runSyncRef.current = runSync
+  reconcileQuietRef.current = reconcileQuiet
+
+  /* v1.7 前后台（电池硬要求）：退后台暂停挂起循环（取消在途——后台 fetch 被冻结行为不可控）；
+     回前台立即对账一次（不带 wait，拉平积压）→ 重建挂起循环 */
+  useEffect(() => {
+    const onVis = () => {
+      if (document.hidden) {
+        rtRef.current?.stop()
+      } else if (getPaired() && onlineRef.current) {
+        reconcileQuietRef.current()
+      }
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [])
 
   /* ---------- 日程（v1.1：真实条目 + schedule 域上行） ---------- */
 
@@ -1399,7 +1481,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value: Store = {
     theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, sheetOrigin, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
     sideCollapsed, toggleSide,
-    online, syncing, syncPct, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, adoptPaired, unpair,
+    online, syncing, syncPct, syncMode, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, adoptPaired, unpair,
     schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, deleteTodo, habits, toggleHabit, addHabit, updateHabit, deleteHabit, editHabitId, openHabitForm,
     entries, txs, saveTx, updateTx, deleteTx, editTxId, openTxEdit,
     folders, toggleFolder, markCached, phoneNotes, addPhoneNote,
