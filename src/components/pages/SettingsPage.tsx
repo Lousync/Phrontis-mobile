@@ -107,10 +107,10 @@ export function SettingsPage({ active }: { active: boolean }) {
     setPairMsg('')
     setFound([])
     try {
-      const list = await discoverCompanions()
+      const { found: list, diag } = await discoverCompanions()
       setFound(list)
       if (!list.length) {
-        setPairMsg('没搜到电脑。确认手机与电脑在同一 Wi-Fi（或热点）、电脑端「手机伴侣」已开启；也可以手动配对。')
+        setPairMsg(`没搜到电脑。确认手机与电脑在同一 Wi-Fi（或热点）、电脑端「手机伴侣」已开启；也可以手动配对。（${diag}）`)
       }
     } catch (e) {
       setPairMsg(e instanceof Error ? e.message : '搜索失败')

@@ -17,8 +17,16 @@
  * M1 存储用 localStorage（等价 Preferences 形态），M2b 评估 SQLite 迁移；
  * 所有键带 pm. 前缀，迁移时整体搬运。
  */
-import { Capacitor, CapacitorHttp } from '@capacitor/core'
+import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core'
 import type { LedgerSyncData, NoteCache, NoteSyncData, NoteTreePage, PairedDevice, QueueOp, ScheduleSyncData, Todo } from './types'
+
+/* 组播发现插件（仅 Android 注册，见 PhrontisDiscover.java；iOS/web 无实现 → 走扫段回退） */
+interface PhrontisDiscoverPlugin {
+  discover(opts: { timeoutMs?: number }): Promise<{
+    found: Array<{ baseUrl: string; pcName: string; protocol: number; canRequest: boolean }>
+  }>
+}
+const PhrontisDiscover = registerPlugin<PhrontisDiscoverPlugin>('PhrontisDiscover')
 
 const K_DEVICE_ID = 'pm.deviceId'
 const K_PAIRED = 'pm.companion'
@@ -246,23 +254,41 @@ async function probeHost(host: string, timeoutMs: number): Promise<DiscoveredPc 
 }
 
 /**
- * 扫段发现：按网段顺序，每段并发探 .1–.254，命中即记住该段并停止。
- * 单段 254 台 ÷ 48 并发 × 350ms ≈ 2s；最常见的 192.168.1 排第一，通常一两秒出结果。
- * iOS 并发压到 12：URLSession 对「连不上但路由在」的主机要吃满超时，并发太高再叠
- * 上百个短请求容易触发系统网络栈 ENOMEM（见 lanFetch 注释）。
- * 只探 8770 默认端口（电脑端换端口时退回手动配对）。
+ * 发现电脑（三层递进，借鉴 LocalSend 的 UDP 组播发现）：
+ *   ① 源提示：页面源即电脑 IP 的场景（dev/部署站）零配置秒回；
+ *   ② 组播（Android 原生插件 PhrontisDiscover）：往 239.255.42.42:8771 喊一声、桌面单播应答，
+ *      不猜网段、App 重装也不怕——桌面应答端规格见 docs/handoff-multicast-discovery-desktop.md；
+ *   ③ 扫段回退（iOS/web/组播不可用时）：经验清单 + 记忆网段逐段并发探 /api/discover。
+ *      iOS 并发压到 12（URLSession 短请求风暴会 ENOMEM，见 lanFetch 注释），Android 48。
+ * 返回 diag 供「没搜到」提示展示——报障带数据，不再盲猜。
+ * 只探 8770 默认端口（电脑端换端口时退回手动配对；组播路径桌面自报端口）。
  */
-export async function discoverCompanions(opts: { timeoutMs?: number; concurrency?: number } = {}): Promise<DiscoveredPc[]> {
+export async function discoverCompanions(opts: { timeoutMs?: number; concurrency?: number } = {}): Promise<{ found: DiscoveredPc[]; diag: string }> {
   const timeoutMs = opts.timeoutMs ?? 350
-  const concurrency = opts.concurrency ?? (Capacitor.getPlatform() === 'ios' ? 12 : 48)
-  const found: DiscoveredPc[] = []
-  /* 源提示最先探：页面源即电脑 IP 的场景（dev/部署站）零配置秒回，扫不到经验网段外的情况 */
   const hint = originHintHost()
   if (hint) {
     const hit = await probeHost(hint, 600)
-    if (hit) return [hit]
+    if (hit) return { found: [hit], diag: '源提示命中' }
   }
-  for (const prefix of scanPrefixes()) {
+  let mcastNote = ''
+  if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('PhrontisDiscover')) {
+    try {
+      const r = await PhrontisDiscover.discover({ timeoutMs: 900 })
+      const found = (r.found ?? []).map(f => ({ baseUrl: f.baseUrl, pcName: f.pcName, protocol: f.protocol, canRequest: !!f.canRequest }))
+      if (found.length) {
+        const m = /^http:\/\/(\d{1,3}(?:\.\d{1,3}){2}):\d+$/.exec(found[0].baseUrl)
+        if (m) lsSet(K_SCAN_PREFIX, m[1])
+        return { found, diag: `组播命中 ${found.length} 台` }
+      }
+      mcastNote = '组播无应答'
+    } catch {
+      mcastNote = '组播不可用'
+    }
+  }
+  const concurrency = opts.concurrency ?? (Capacitor.getPlatform() === 'ios' ? 12 : 48)
+  const found: DiscoveredPc[] = []
+  const prefixes = scanPrefixes()
+  for (const prefix of prefixes) {
     const hosts = Array.from({ length: 254 }, (_, i) => prefix + '.' + (i + 1))
     let cursor = 0
     const workers = Array.from({ length: concurrency }, async () => {
@@ -275,10 +301,10 @@ export async function discoverCompanions(opts: { timeoutMs?: number; concurrency
     await Promise.all(workers)
     if (found.length) {
       lsSet(K_SCAN_PREFIX, prefix)
-      break
+      return { found, diag: `${mcastNote ? mcastNote + ' · ' : ''}扫段命中（段 ${prefix}）` }
     }
   }
-  return found
+  return { found, diag: `${mcastNote ? mcastNote + ' · ' : ''}已扫 ${prefixes.length} 段共 ${prefixes.length * 254} 个地址` }
 }
 
 /** 发起配对请求：电脑弹确认框，同屏显示 4 位码（手机与电脑一致才允许） */
