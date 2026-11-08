@@ -45,5 +45,18 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<!-- 与 Android usesCleartextTraffic 同口径：电脑伴侣与用户自填的 AI 端点都是局域网
+	     http://（10.x/192.168.x），iOS ATS 默认全拦 —— 不开这里，配对/同步/AI 直连在打包版里全部无法连接 -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<!-- iOS 14+ 局域网隐私权限：访问 10.x/192.168.x 设备前系统要弹「本地网络」授权，缺此键静默失败 -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于在局域网内搜索并连接电脑伴侣（配对与数据同步）</string>
+	<!-- 扫码配对需要相机：WKWebView getUserMedia 的权限弹窗依赖此说明 -->
+	<key>NSCameraUsageDescription</key>
+	<string>用于扫描电脑「手机伴侣」出示的配对二维码</string>
 </dict>
 </plist>
