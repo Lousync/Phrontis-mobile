@@ -9,6 +9,8 @@
   - **例外**：动了原生层（`MainActivity.java` / `AndroidManifest.xml` / `capacitor.config.ts`）就必须重新打包才可能生效，这时要主动说明「这次必须装新包」，但仍不要顺手多打几个。
   - 打包命令统一走 `npm run android:apk`（内部先 `vite build` 再 `scripts/sync-android.mjs`，别用 `cap sync`，见下条）。
 - **改配置后必须走 `scripts/sync-android.mjs`**：`android/app/src/main/assets/capacitor.config.json` 是 git 忽略的生成物，`cap sync` 在本机被 safe-delete 垫片挡住时会漏更新它 —— 曾导致 `CapacitorHttp` 从未启用、真机 AI 直连全部失败（电脑端正常，极具迷惑性）。
+- **版本号语义化更迭（2026-11-08 用户拍板）**：semver（x.y.z）——新功能 y+1、修补丁 z+1、破坏性 x+1；发版时改 `package.json` 的 `version`（`versionCode`/`versionName` 由此自动派生且只能增），iOS 云端构建 tag 跟着版本号走（如 `ios-v0.7.0`）。
+- **打包流水线（Linux 机）**：`npm run android:apk` 里是 Windows 时代的 `gradlew.bat` 写法；本机等价三步 = `npm run build` → `node scripts/sync-android.mjs` → `cd android && JAVA_HOME=/home/lousync/develp/jdk-21.0.13+9 ./gradlew assembleDebug`。
 - 同步协议 v1 冻结在 `docs/design.md` §2.1，改协议先改文档再动代码，两仓契约脚本都要过（`scripts/verify-sync.mjs` + 主仓 `.AGENT/scripts/phone-companion/verify-companion-protocol.mjs`）。
 
 ## UI 规范（2026-11-06 用户拍板，硬规则）
