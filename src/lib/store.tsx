@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { ReactNode } from 'react'
-import type { AiChatMsg, AiConfig, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteCache, NoteProposal, NoteTreePage, PairedDevice, PhoneNote, QuizAddProposal, QuizDelProposal, QuizNoteProposal, QuizRecord, QuizSpec, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
+import type { AppPrefs, AiChatMsg, AiConfig, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteCache, NoteProposal, NoteTreePage, PairedDevice, PhoneNote, QuizAddProposal, QuizDelProposal, QuizNoteProposal, QuizRecord, QuizSpec, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
 import { THEME_IDS } from './types'
 import { TODAY, VOICE_PHRASES, welcomeText, dayIso, fmtMoney, monthOf, monthStats, txToDisplay } from './data'
 import {
@@ -49,6 +49,13 @@ const K_NOTES = 'pm.notes'
 const K_QUIZ = 'pm.quiz'
 const K_SYNC_SEL = 'pm.noteSyncSel'
 const K_THEME = 'pm.theme'
+/** 用户偏好单键（pm.settings）：新增偏好字段只要进 DEFAULT_PREFS，旧数据浅合并自动兜底，免迁移 */
+const K_PREFS = 'pm.settings'
+const DEFAULT_PREFS: AppPrefs = { themeAuto: false, remindLead: 0 }
+
+function loadPrefs(): AppPrefs {
+  return { ...DEFAULT_PREFS, ...loadJson<Partial<AppPrefs>>(K_PREFS, {}) }
+}
 
 /** 全新会话：仅一条欢迎语（时段问候），不注入任何演示历史 */
 const freshSession = (): Session => ({
@@ -65,6 +72,9 @@ interface Store {
   /* 全局 */
   theme: ThemeName
   setTheme: (t: ThemeName) => void
+  /** 用户偏好（pm.settings 单键，见 DEFAULT_PREFS） */
+  prefs: AppPrefs
+  setPref: <K extends keyof AppPrefs>(k: K, v: AppPrefs[K]) => void
   toast: (msg: string, type?: ToastItem['type']) => void
   toasts: ToastItem[]
   sheet: SheetId
@@ -224,10 +234,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const saved = loadJson<ThemeName>(K_THEME, 'dark')
     return THEME_IDS.includes(saved) ? saved : 'dark'
   })
+  const [prefs, setPrefsState] = useState<AppPrefs>(loadPrefs)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [sheet, setSheet] = useState<SheetId>(null)
   const [sheetOrigin, setSheetOrigin] = useState<HTMLElement | null>(null)
-  const [activeTab, setActiveTabState] = useState('ai')
+  /* 启动页：默认笔记区（2026-11-08 拍板：不做设置项，直接定死） */
+  const [activeTab, setActiveTabState] = useState('notes')
   const activeTabRef = useRef(activeTab); activeTabRef.current = activeTab
   const [kbSim, setKbSim] = useState(false)
   const [kbOpen, setKbOpen] = useState(false)
@@ -315,6 +327,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const phoneNotesRef = useRef(phoneNotes); phoneNotesRef.current = phoneNotes
   const aiConfigRef = useRef(aiConfig); aiConfigRef.current = aiConfig
   const pairedRef = useRef(paired); pairedRef.current = paired
+  const prefsRef = useRef(prefs); prefsRef.current = prefs
   const vaultTreeRef = useRef(vaultTree); vaultTreeRef.current = vaultTree
   const syncSelRef = useRef(syncSel); syncSelRef.current = syncSel
   const vaultCacheRef = useRef(vaultCache); vaultCacheRef.current = vaultCache
@@ -322,7 +335,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const vaultStateRef = useRef(vaultState); vaultStateRef.current = vaultState
   const runSyncRef = useRef<() => void>(() => {})
 
-  useEffect(() => { document.documentElement.dataset.theme = theme; saveJson(K_THEME, theme) }, [theme])
+  /* 跟随系统深浅色（pm.settings.themeAuto）：开=按系统深浅映射 dark/light（七主题里只有这两套有系统语义）；
+     关=回落手动主题。effTheme 只驱动 data-theme；手动选择仍存 pm.theme——自动模式不覆盖用户的手动选择 */
+  const [sysDark, setSysDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const fn = (e: MediaQueryListEvent) => setSysDark(e.matches)
+    mq.addEventListener('change', fn)
+    return () => mq.removeEventListener('change', fn)
+  }, [])
+  const effTheme: ThemeName = prefs.themeAuto ? (sysDark ? 'dark' : 'light') : theme
+  useEffect(() => { document.documentElement.dataset.theme = effTheme }, [effTheme])
+
+  const setPref = useCallback(<K extends keyof AppPrefs>(k: K, v: AppPrefs[K]) => {
+    setPrefsState(p => ({ ...p, [k]: v }))
+  }, [])
+  useEffect(() => { saveJson(K_PREFS, prefs) }, [prefs])
 
   const toast = useCallback((msg: string, type: ToastItem['type'] = 'info') => {
     const id = Date.now() + Math.random()
@@ -330,7 +358,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 2400)
   }, [])
 
-  const setTheme = useCallback((t: ThemeName) => setThemeState(t), [])
+  const setTheme = useCallback((t: ThemeName) => { setThemeState(t); saveJson(K_THEME, t) }, [])
   const openSheet = useCallback((id: Exclude<SheetId, null>, from?: HTMLElement | null) => {
     setSheetOrigin(from ?? null)
     setSheet(id)
@@ -1370,21 +1398,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void (async () => {
       const perm = await initNotifPermission()
       setNotifPerm(perm)
-      if (perm === 'granted') await rescheduleReminders(todos, habits)
+      if (perm === 'granted') await rescheduleReminders(todos, habits, prefsRef.current.remindLead)
     })()
     // 只在启动跑一次：todos 后续变更由下方随动 effect 接管
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  useEffect(() => { void rescheduleReminders(todos, habits) }, [todos, habits])
+  useEffect(() => { void rescheduleReminders(todos, habits, prefs.remindLead) }, [todos, habits, prefs.remindLead])
   const requestNotifPerm = useCallback(async () => {
     const perm = await requestNotifPermission()
     setNotifPerm(perm)
-    if (perm === 'granted') await rescheduleReminders(todos, habits)
+    if (perm === 'granted') await rescheduleReminders(todos, habits, prefs.remindLead)
     return perm
-  }, [todos, habits])
+  }, [todos, habits, prefs.remindLead])
 
   const value: Store = {
-    theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, sheetOrigin, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
+    theme, setTheme, prefs, setPref, toast, toasts, sheet, openSheet, closeSheet, sheetOrigin, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
     sideCollapsed, toggleSide,
     online, syncing, syncPct, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, adoptPaired, unpair,
     schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, deleteTodo, habits, toggleHabit, addHabit, updateHabit, deleteHabit, editHabitId, openHabitForm,

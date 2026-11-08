@@ -269,3 +269,12 @@ export interface QuizSpec {
   type?: 'choice' | 'short'
   referenceAnswer?: string
 }
+
+
+/** 用户偏好（pm.settings 单键持久化；store 侧与默认值浅合并，新字段自动兜底免迁移） */
+export interface AppPrefs {
+  /** 跟随系统深浅色：开=按系统深浅映射 dark/light，盖过手动主题（关闭即回落手动选择） */
+  themeAuto: boolean
+  /** 提醒提前量（分钟）：日程待办与打卡到点前提醒；0=准点 */
+  remindLead: number
+}

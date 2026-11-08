@@ -94,7 +94,7 @@ const fmtClock = (min: number) =>
  * 具体排程下，当天打开 app（打卡/改习惯/开 app）都触发重排，当日槽按 doneToday 丢弃；
  * 不打开 app = 没打卡 = 到点该响。
  */
-export async function rescheduleReminders(todos: Todo[], habits: Habit[]): Promise<void> {
+export async function rescheduleReminders(todos: Todo[], habits: Habit[], leadMin = 0): Promise<void> {
   if (!native()) return
   if ((await notifPermission()) !== 'granted') return
   await ensureChannel()
@@ -102,18 +102,22 @@ export async function rescheduleReminders(todos: Todo[], habits: Habit[]): Promi
   if (pending.notifications.length) {
     await LocalNotifications.cancel({ notifications: pending.notifications.map(n => ({ id: n.id })) })
   }
+  /* 提前量（pm.settings.remindLead）：日程与打卡都在「开始时刻」上减 leadMin；
+     负偏移跨零点由 Date 自动回退一天，d=0 的「已过点」判断改用偏移后的时刻自然涵盖 */
+  const lead = Math.max(0, Math.round(leadMin))
   const now = new Date()
   const todoNotes = todos.flatMap(t => {
     if (t.done || t.parentId || !t.sched) return []
     const [y, m, d] = t.date.split('-').map(Number)
     if (!y || !m || !d) return []
     const at = new Date(y, m - 1, d, Math.floor(t.sched.s / 60), t.sched.s % 60)
+    if (lead > 0) at.setMinutes(at.getMinutes() - lead)
     if (isNaN(at.getTime()) || at.getTime() <= now.getTime()) return []
     return [{
       id: reminderId(t.id),
       schedule: { at, allowWhileIdle: true },
       title: t.title,
-      body: `${t.time || fmtClock(t.sched.s)} 开始`,
+      body: lead > 0 ? `${lead} 分钟后开始 · ${t.time || fmtClock(t.sched.s)}` : `${t.time || fmtClock(t.sched.s)} 开始`,
       channelId: REMINDER_CHANNEL,
     }]
   })
@@ -122,9 +126,10 @@ export async function rescheduleReminders(todos: Todo[], habits: Habit[]): Promi
     if (h.remind == null) return []
     const rows = []
     for (let d = 0; d < HABIT_DAYS; d++) {
-      // d=0 是今天：已打卡或已过点则跳过；其余天照排（到点时若已打卡，当天更早打开 app 时重排已丢槽）
-      if (d === 0 && (h.hist[todayIdx] || h.remind <= now.getHours() * 60 + now.getMinutes())) continue
       const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + d, Math.floor(h.remind / 60), h.remind % 60)
+      if (lead > 0) day.setMinutes(day.getMinutes() - lead)
+      // d=0 是今天：已打卡或偏移后时刻已过则跳过；其余天照排（到点时若已打卡，当天更早打开 app 时重排已丢槽）
+      if (d === 0 && (h.hist[todayIdx] || day.getTime() <= now.getTime())) continue
       if (isNaN(day.getTime())) continue
       const key = `${h.id}:${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`
       rows.push({
