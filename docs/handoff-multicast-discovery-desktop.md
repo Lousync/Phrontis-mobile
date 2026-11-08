@@ -11,10 +11,16 @@
 - 组播发现不猜网段：手机往组播组喊一声，加入了组的桌面单播应答，任意子网 <1s 命中。
 - 本网络已实测组播可用（LocalSend 同机制工作正常）。
 
-## 线路协议（冻结）
+## 线路协议（冻结；2026-11-08 双组修订）
 
-- 组播组 `239.255.42.42`，端口 `8771`（UDP，站点本地组播段，与 LocalSend 的 224.0.0.167:53317 无冲突）。
-- 手机发 3 声 ping（间隔 250ms，抗丢包）：UTF-8 文本 `PHRONDIS v1\n`。
+- 组播组 **`224.0.0.167`（主，LocalSend 同款链路本地组）+ `239.255.42.42`（过渡兼容旧手机 APK）**，端口 `8771`（UDP）。
+  - **为什么换主组**：`224.0.0.0/24` 是链路本地控制块，RFC 4541 要求交换机/AP **无条件泛洪**；
+    `239.0.0.0/8` 受 IGMP snooping 管控，常被整组静默丢弃。
+  - **2026-11-08 A/B 实测（本机同网卡双组监听）**：手机 Phrontis ping（239 组）与手机 LocalSend
+    开屏宣告（224 组）**双双零到达**——本网络 AP 对客户端发出的组播是**整类丢弃**，换组地址也救不了。
+    **组播因此只是加速器**；手机侧真正的兜底是原生自知 IP（`PhrontisDiscover.selfIpv4`）→
+    扫自己所在 /24（LocalSend 同款第二条腿，不依赖任何组播/广播）。桌面应答器两组都收（`joinGroup` 逐组逐接口）。
+- 手机发 ping：**每组各 3 声、组间交错**（间隔 250ms，抗丢包）：UTF-8 文本 `PHRONDIS v1\n`。
 - 桌面：加入组 → 收到 ping → **向来源地址单播**回一条 JSON（与 `GET /api/discover` 同构 + `port`）：
 
 ```json
@@ -24,6 +30,8 @@
 - `port` = 伴侣 HTTP 服务实际端口（电脑端改端口时组播自动跟随，扫段路径做不到这点）。
 - 手机只发不收组播（应答走单播），不需要 MulticastLock；桌面必须 `addMembership` 才收得到。
 - 手机侧容错：应答 JSON 解析失败/`ok` 非 true 一律忽略并去重（按 `baseUrl`）。
+- 兼容矩阵：新手机双组发 + 新桌面双组收 → 通；新手机 + 旧桌面（只收 239）→ 239 组通；
+  旧手机（只发 239）+ 新桌面（双组收）→ 通。任何一格组播不通，都落扫段（新手机优先扫自知网段）。
 
 ## 桌面实现（Node，粘进 phoneCompanion 服务启动处）
 
@@ -45,7 +53,11 @@ export function startDiscoverResponder(httpPort: number, pcName: string): void {
     socket.send(reply, rinfo.port, rinfo.address)
   })
   socket.on('error', () => { /* 组播不可用的网络（AP 隔离等）：发现降级为扫段/手动，服务不受影响 */ })
-  socket.bind(8771, () => socket.addMembership('239.255.42.42'))
+  s.bind(8771, () => {
+    for (const g of ['224.0.0.167', '239.255.42.42']) {
+      try { socket.addMembership(g) } catch { /* 逐组尽力加 */ }
+    }
+  })
 }
 ```
 

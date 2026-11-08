@@ -20,10 +20,14 @@
 import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core'
 import type { LedgerSyncData, NoteCache, NoteSyncData, NoteTreePage, PairedDevice, QueueOp, ScheduleSyncData, Todo } from './types'
 
-/* 组播发现插件（仅 Android 注册，见 PhrontisDiscover.java；iOS/web 无实现 → 走扫段回退） */
+/* 组播发现插件（仅 Android 注册，见 PhrontisDiscover.java；iOS/web 无实现 → 走扫段回退）。
+ * selfIp/selfPrefix = 原生层自知出口 IP 与本机 /24 前缀（UDP connect 不发包即得），
+ * 组播零应答也照回——JS 扫段回退优先扫自己网段（LocalSend 同款第二条腿）。 */
 interface PhrontisDiscoverPlugin {
   discover(opts: { timeoutMs?: number }): Promise<{
     found: Array<{ baseUrl: string; pcName: string; protocol: number; canRequest: boolean }>
+    selfIp?: string
+    selfPrefix?: string
   }>
 }
 const PhrontisDiscover = registerPlugin<PhrontisDiscoverPlugin>('PhrontisDiscover')
@@ -284,6 +288,7 @@ export async function discoverCompanions(opts: { timeoutMs?: number; concurrency
     if (hit) return { found: [hit], diag: '源提示命中' }
   }
   let mcastNote = ''
+  let selfPrefix = ''
   if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('PhrontisDiscover')) {
     try {
       const r = await PhrontisDiscover.discover({ timeoutMs: 900 })
@@ -293,6 +298,9 @@ export async function discoverCompanions(opts: { timeoutMs?: number; concurrency
         if (m) lsSet(K_SCAN_PREFIX, m[1])
         return { found, diag: `组播命中 ${found.length} 台` }
       }
+      /* 组播零应答 ≠ 白跑：自知 IP 照拿——AP 整类丢组播的网络（2026-11-08 实测，224/239 组全丢），
+       * 扫自己网段是唯一不依赖组播的发现路（LocalSend 式第二条腿） */
+      selfPrefix = typeof r.selfPrefix === 'string' && /^\d{1,3}(\.\d{1,3}){2}$/.test(r.selfPrefix) ? r.selfPrefix : ''
       mcastNote = '组播无应答'
     } catch {
       mcastNote = '组播不可用'
@@ -301,7 +309,8 @@ export async function discoverCompanions(opts: { timeoutMs?: number; concurrency
   /* 每 worker 双探 SCAN_PORTS：worker 数对半折，在途请求数与单端口时代持平（iOS ENOMEM 红线不动） */
   const concurrency = opts.concurrency ?? (Capacitor.getPlatform() === 'ios' ? 6 : 24)
   const found: DiscoveredPc[] = []
-  const prefixes = scanPrefixes()
+  /* 本机所在段最优先（手机现在就在的网段，桌面九成在这），记忆段次之，经验清单垫底 */
+  const prefixes = [...new Set([selfPrefix, ...scanPrefixes()].filter(Boolean))]
   for (const prefix of prefixes) {
     const hosts = Array.from({ length: 254 }, (_, i) => prefix + '.' + (i + 1))
     let cursor = 0
@@ -318,7 +327,10 @@ export async function discoverCompanions(opts: { timeoutMs?: number; concurrency
       return { found, diag: `${mcastNote ? mcastNote + ' · ' : ''}扫段命中（段 ${prefix}）` }
     }
   }
-  return { found, diag: `${mcastNote ? mcastNote + ' · ' : ''}已扫 ${prefixes.length} 段共 ${prefixes.length * 254} 个地址` }
+  return {
+    found,
+    diag: `${mcastNote ? mcastNote + ' · ' : ''}已扫 ${prefixes.length} 段 × ${SCAN_PORTS.length} 端口（本机段 ${selfPrefix || '拿不到'}）`,
+  }
 }
 
 /** 发起配对请求：电脑弹确认框，同屏显示 4 位码（手机与电脑一致才允许） */
