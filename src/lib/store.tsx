@@ -165,6 +165,8 @@ interface Store {
   togglePin: (id: string) => void
   streaming: boolean
   streamText: string
+  /** 流式阶段：wait=网络往返中（UI 渲染流光提示） reveal=逐字呈现中（正文+光标） */
+  streamPhase: 'wait' | 'reveal' | null
   sendChat: (text: string) => void
   /** 用户停止当前生成：在途请求中断；打字机阶段立即落完整消息 */
   stopStream: () => void
@@ -259,6 +261,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [curSession, setCurSession] = useState(() => sessions[0].id)
   const [streaming, setStreaming] = useState(false)
   const [streamText, setStreamText] = useState('')
+  const [streamPhase, setStreamPhase] = useState<'wait' | 'reveal' | null>(null)
 
   const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle')
   const [voiceElapsed, setVoiceElapsed] = useState(0)
@@ -1066,40 +1069,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  /* 打字机呈现（网络层非流式，观感流式）：完成后把最终消息挂进会话。
-     revealRef 记着完整消息与落盘回调——用户点停止时立即落完整消息，不丢回复 */
+  /* 打字机呈现 v2（2026-11-08 拍板「标点节奏」，prototype/ai-typewriter.html 体验后定稿）：
+     24ms 一跳、每跳 5~6 字（累加器取整保均值），标点后微顿——，、；：停 3 跳，。！？…与换行停 7 跳，
+     「字快句缓」约 200 字/秒，长答案不拖场。漂移补偿：宿主把 setTimeout 拉长时按实际耗时放大步长
+     保住字/秒（真机前台 dt≈24ms 即 scale=1，纯设计节奏；IAB 调试宿主 visible 也钳 ~1s/跳，靠它不龟速）。
+     revealRef 记着完整消息与落盘回调——停止/点正文时立即落完整消息，不丢回复 */
   const startReveal = (full: string, done: (finalText: string) => void) => {
     setStreaming(true)
+    setStreamPhase('reveal')
     revealRef.current = { full, done }
+    const pauseOf = (ch: string) =>
+      '，、；：'.includes(ch) ? 3 : ('。！？…\n'.includes(ch) ? 7 : 0)
     let i = 0
-    streamTimer.current = setInterval(() => {
-      i = Math.min(full.length, i + 2 + Math.floor(Math.random() * 3))
-      setStreamText(full.slice(0, i))
-      if (i >= full.length) {
-        if (streamTimer.current) clearInterval(streamTimer.current)
-        streamTimer.current = null
-        setStreaming(false)
-        setStreamText('')
-        revealRef.current = null
-        done(full)
+    let acc = 0
+    let pauseLeft = 0
+    let lastT = 0
+    const step = () => {
+      if (!revealRef.current) return   // 被停止接管（stopStream 已收尾落盘）
+      const now = performance.now()
+      const dt = lastT ? now - lastT : 24
+      lastT = now
+      if (pauseLeft > 0) { pauseLeft--; streamTimer.current = setTimeout(step, 24); return }
+      const scale = Math.min(6, Math.max(1, dt / 24))
+      acc += (5 + Math.floor(Math.random() * 2)) * scale
+      const n = Math.floor(acc)
+      if (n > 0) {
+        acc -= n
+        i = Math.min(full.length, i + n)
+        pauseLeft = pauseOf(full[i - 1])
+        setStreamText(full.slice(0, i))
       }
-    }, 24)
+      if (i >= full.length) {
+        revealRef.current = null
+        setStreaming(false)
+        setStreamPhase(null)
+        setStreamText('')
+        done(full)
+        return
+      }
+      streamTimer.current = setTimeout(step, 24)
+    }
+    streamTimer.current = setTimeout(step, 24)
   }
 
   /* 停止生成：在途请求中断（store 的 async catch 里静默收尾）；
      已进入打字机阶段则立即落完整消息；两者都没有时只复位状态 */
   const stopStream = useCallback(() => {
     abortRef.current?.abort()
-    if (streamTimer.current) { clearInterval(streamTimer.current); streamTimer.current = null }
+    if (streamTimer.current) { clearTimeout(streamTimer.current); streamTimer.current = null }
     const rv = revealRef.current
     if (rv) {
       revealRef.current = null
       setStreaming(false)
+      setStreamPhase(null)
       setStreamText('')
       rv.done(rv.full)
       return
     }
-    if (streamingRef.current) { setStreaming(false); setStreamText('') }
+    if (streamingRef.current) { setStreaming(false); setStreamPhase(null); setStreamText('') }
   }, [])
 
   /* 直连档真实工具循环（M4a）：上限 AI_MAX_ROUNDS 轮；写工具产出确认卡后停轮等确认 */
@@ -1109,7 +1136,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const ctrl = new AbortController()
     abortRef.current = ctrl
     setStreaming(true)
-    setStreamText('正在思考')
+    setStreamPhase('wait')
+    setStreamText('')
     void (async () => {
       try {
         const history: AiChatMsg[] = [{ role: 'system', content: buildSystemPrompt(TODAY, pairedRef.current?.pcName ?? null) }]
@@ -1151,6 +1179,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         abortRef.current = null
         setStreaming(false)
+        setStreamPhase(null)
         setStreamText('')
         if (e instanceof AiStopped) { toast('已停止生成', 'info'); return }
         const msg = e instanceof Error ? e.message : 'AI 请求失败'
@@ -1292,7 +1321,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     quizRecords, answerQuiz, upsertQuizAnswer,
     addQuizRecord, setQuizNote, deleteQuizRecord,
     aiConfig, updateAiConfig, sessions, curSession, newSession, switchSession, deleteSession, renameSession, togglePin,
-    streaming, streamText, sendChat, stopStream, confirmCard, dismissCard,
+    streaming, streamText, streamPhase, sendChat, stopStream, confirmCard, dismissCard,
     voicePhase, voiceElapsed, toggleVoice,
     notifPerm, requestNotifPerm,
   }

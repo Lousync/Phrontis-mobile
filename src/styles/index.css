@@ -607,6 +607,17 @@ button.vault-line:disabled { cursor: default; }
   content: ''; display: inline-block; width: 7px; height: 13px; margin-left: 3px;
   vertical-align: -2px; background: var(--accent); animation: pulse .8s infinite;
 }
+/* 等待阶段流光「正在思考…」（2026-11-08 拍板，替代静止文案）：
+   渐变扫过文字；不支持 background-clip:text 的内核回落普通灰色字 */
+.think-shimmer {
+  display: inline-block; font-size: 13.5px; color: var(--text-muted);
+  background: linear-gradient(90deg, var(--text-muted) 25%, var(--text-primary) 50%, var(--text-muted) 75%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: thinkShimmer 1.6s linear infinite;
+}
+@keyframes thinkShimmer { to { background-position: -200% 0; } }
 
 /* 思考痕迹（对齐桌面 .kb-think：一行折叠 + 左细线展开体，不做二级盒子） */
 .think { margin: 0 0 6px; }

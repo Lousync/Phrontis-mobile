@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>原型 · AI 逐字输出</title>
+<style>
+/* ============================================================
+   AI 逐字输出原型（2026-11-08）
+   目的：为「AI 回复逐字呈现」的落地拍板提供可体验的对比场。
+   复刻手机 AI 助手页观感（dark 主题，色值取 src/styles/index.css）。
+   页面顶部的「原型控制台」只属于原型，拍板后不带进实现。
+
+   可拍板维度（控制台里逐项切换）：
+   1. 节奏策略   现状复刻 / 匀速快显 / 标点节奏 / 前慢后快
+   2. 等待阶段   静止文字（现状）/ 呼吸点 / 流光字
+   3. 光标       无（现状）/ ▍闪烁
+   4. 代码围栏   逐字硬出（现状，未闭合露反引号）/ 围栏占位
+   5. 模拟等待   0.3s ~ 4s（对应真机网络往返时长）
+   交互语义与现 app 对齐：等待中停止=取消；逐字中停止=立即落全文；
+   新增候选交互：点流式气泡 → 跳到结尾。
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg-primary: #1e1e1e; --bg-secondary: #252526; --bg-tertiary: #2d2d2d;
+  --bg-hover: #2a2d2e; --text-primary: #cccccc; --text-secondary: #969696;
+  --text-muted: #6e6e6e; --accent: #007acc; --accent-hover: #1a8ad4;
+  --accent-soft: rgba(0, 122, 204, .14); --border: #3c3c3c;
+  --green: #89d185; --red: #f14c4c; --outside: #141516;
+}
+body {
+  background: var(--outside);
+  font-family: -apple-system, 'HarmonyOS Sans SC', 'Microsoft YaHei', sans-serif;
+  color: var(--text-primary);
+  min-height: 100vh; display: flex; align-items: flex-start; justify-content: center;
+  gap: 28px; padding: 28px 20px; flex-wrap: wrap;
+}
+
+/* ---------- 原型控制台（非产品 UI） ---------- */
+.console {
+  width: 320px; flex: none; background: #202123; border: 1px solid #33353a;
+  border-radius: 14px; padding: 16px 16px 12px; position: sticky; top: 28px;
+  font-size: 12.5px; line-height: 1.5;
+}
+.console h1 { font-size: 14.5px; margin-bottom: 4px; }
+.console .sub { color: var(--text-muted); font-size: 11.5px; margin-bottom: 12px; line-height: 1.6; }
+.cgroup { margin-bottom: 12px; }
+.cgroup > .lab { font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; letter-spacing: .04em; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-secondary);
+  border-radius: 999px; padding: 5px 11px; font-size: 12px; cursor: pointer; transition: all .15s;
+}
+.chip:hover { border-color: var(--accent); color: var(--text-primary); }
+.chip.on { background: var(--accent-soft); border-color: var(--accent); color: #6cb6ff; }
+.wait-slider { width: 100%; accent-color: var(--accent); margin-top: 4px; }
+.console .status {
+  border-top: 1px solid #33353a; margin-top: 12px; padding-top: 10px;
+  color: var(--text-muted); font-size: 11.5px; min-height: 34px;
+}
+.console .status b { color: var(--green); font-weight: 600; }
+.console .tips { color: #8a8f98; font-size: 11px; line-height: 1.7; margin-top: 8px; border-top: 1px dashed #33353a; padding-top: 8px; }
+.clear-btn {
+  width: 100%; margin-top: 10px; height: 32px; border-radius: 8px; border: 1px solid var(--border);
+  background: transparent; color: var(--text-secondary); font-size: 12px; cursor: pointer;
+}
+.clear-btn:hover { border-color: var(--red); color: var(--red); }
+
+/* ---------- 手机壳 ---------- */
+.phone {
+  width: 392px; height: 800px; flex: none; border-radius: 34px; overflow: hidden;
+  border: 1px solid #000; outline: 6px solid #26272b; position: relative;
+  box-shadow: 0 24px 70px rgba(0,0,0,.5); display: flex; flex-direction: column;
+  background: var(--bg-primary);
+}
+.page-head {
+  flex: none; height: 52px; display: flex; align-items: center; gap: 8px;
+  padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--bg-secondary);
+}
+.page-head .t { font-size: 16.5px; font-weight: 600; }
+.page-head .icon-btn {
+  margin-left: auto; width: 32px; height: 32px; border-radius: 8px; border: none;
+  background: transparent; color: var(--text-secondary); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.page-head .icon-btn:hover { background: var(--bg-hover); }
+
+/* 剧本快捷条 */
+.demo-rail { flex: none; display: flex; gap: 6px; padding: 8px 12px; overflow-x: auto; border-bottom: 1px solid var(--border-soft, rgba(60,60,60,.55)); }
+.demo-rail::-webkit-scrollbar { display: none; }
+.demo-q {
+  flex: none; font-size: 11.5px; color: var(--text-secondary); background: var(--bg-secondary);
+  border: 1px solid var(--border); border-radius: 999px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+.demo-q:hover { color: var(--text-primary); border-color: var(--accent); }
+
+/* ---------- 聊天区 ---------- */
+.chat { flex: 1; overflow-y: auto; padding: 14px 12px 10px; display: flex; flex-direction: column; gap: 12px; }
+.chat::-webkit-scrollbar { width: 0; }
+.msg { font-size: 14px; line-height: 1.65; word-break: break-word; }
+/* 用户消息：桌面同款 accent 实底气泡（右对齐 + 圆角小尾角 + 白字） */
+.msg.user {
+  align-self: flex-end; max-width: 86%;
+  background: var(--accent); color: #fff;
+  border-radius: 14px; border-bottom-right-radius: 5px; padding: 8px 12px;
+}
+/* AI 消息：桌面同款「去气泡」——平铺 markdown 原生排版，无底色无边框占满整行 */
+.msg.ai { align-self: stretch; padding: 2px 2px; }
+.msg.ai.streaming { cursor: pointer; }
+
+/* 气泡内 markdown（对齐 .md 排版的精简版） */
+.md p { margin: 0 0 6px; } .md p:last-child { margin-bottom: 0; }
+.md ul, .md ol { margin: 2px 0 6px 18px; }
+.md li { margin: 2px 0; }
+.md code { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 12.5px; font-family: 'Cascadia Code', Consolas, monospace; }
+.md pre { background: #161719; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 6px 0; overflow-x: auto; }
+.md pre code { background: none; border: none; padding: 0; font-size: 12px; line-height: 1.55; color: #d4d4d4; }
+.md strong { color: #e8e8e8; }
+.md h3 { font-size: 14px; margin: 4px 0; }
+
+/* 流式光标（可开关） */
+.md.caret-on > *:last-child::after {
+  content: '▍'; color: var(--accent-hover); margin-left: 1px;
+  animation: blink .9s steps(1) infinite; font-size: 13px;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* 围栏占位：未闭合代码块的候选处理 */
+.md pre.hold { border-style: dashed; border-color: #3f4a56; }
+.md pre.hold code { color: #5a7a95; }
+.hold-txt::after { content: '▍'; animation: blink .9s steps(1) infinite; }
+
+/* 思考指示（等待阶段）三种形态 */
+.think-static { color: var(--text-secondary); }
+.think-dots { display: inline-flex; align-items: center; gap: 2px; color: var(--text-secondary); }
+.think-dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--text-secondary); margin-left: 3px; animation: breathe 1.2s ease-in-out infinite; }
+.think-dots i:nth-child(2) { animation-delay: .2s; } .think-dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes breathe { 0%, 100% { opacity: .25; } 45% { opacity: 1; } }
+.think-shimmer {
+  background: linear-gradient(90deg, #5b6472 25%, #cfe3f5 50%, #5b6472 75%);
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text;
+  color: transparent; animation: shine 1.6s linear infinite;
+}
+@keyframes shine { to { background-position: -200% 0; } }
+
+/* 思考过程折叠（对齐 ThinkBlock） */
+.think { border-left: 2px solid var(--border); margin-bottom: 8px; }
+.think-head {
+  display: flex; align-items: center; gap: 5px; background: none; border: none;
+  color: var(--text-muted); font-size: 11.5px; cursor: pointer; padding: 2px 0 2px 8px;
+}
+.think-head:hover { color: var(--text-secondary); }
+.think-head .chev { transition: transform .16s; }
+.think.open .chev { transform: rotate(90deg); }
+.think-body { color: var(--text-muted); font-size: 12px; line-height: 1.7; padding: 2px 0 4px 10px; white-space: pre-wrap; }
+
+/* ---------- 输入区 ---------- */
+.composer { flex: none; padding: 10px 12px calc(14px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--border); background: var(--bg-primary); }
+.input-bar {
+  display: flex; align-items: center; gap: 8px; background: var(--bg-secondary);
+  border: 1px solid var(--border); border-radius: 22px; padding: 5px 6px 5px 12px;
+}
+.input-bar:focus-within { border-color: var(--accent); }
+.input-bar input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--text-primary); font-size: 14px; }
+.input-bar input::placeholder { color: var(--text-muted); }
+.send-btn {
+  width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer; flex: none;
+  background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center;
+}
+.send-btn:disabled { background: var(--bg-tertiary); color: var(--text-muted); cursor: default; }
+.send-btn.stop { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); }
+
+/* toast */
+.toast {
+  position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%);
+  background: rgba(45,45,48,.95); border: 1px solid var(--border); color: var(--text-primary);
+  font-size: 12.5px; padding: 8px 16px; border-radius: 10px; opacity: 0; pointer-events: none;
+  transition: opacity .2s; white-space: nowrap; z-index: 30;
+}
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- ============ 原型控制台 ============ -->
+<div class="console">
+  <h1>AI 逐字输出 · 原型控制台</h1>
+  <div class="sub">这一栏只属于原型，拍板后不带进实现。右侧手机 = 真实 AI 助手页观感（dark）。</div>
+
+  <div class="cgroup">
+    <div class="lab">① 逐字节奏策略</div>
+    <div class="chips" id="g-strat">
+      <button class="chip on" data-v="current">现状 24ms·2-4字</button>
+      <button class="chip" data-v="steady">匀速快显</button>
+      <button class="chip" data-v="punct">标点节奏</button>
+      <button class="chip" data-v="adaptive">前慢后快</button>
+    </div>
+  </div>
+
+  <div class="cgroup">
+    <div class="lab">② 等待阶段形态（网络往返期间）</div>
+    <div class="chips" id="g-wait">
+      <button class="chip on" data-v="static">静止「正在思考」</button>
+      <button class="chip" data-v="dots">呼吸点</button>
+      <button class="chip" data-v="shimmer">流光字</button>
+    </div>
+  </div>
+
+  <div class="cgroup">
+    <div class="lab">③ 打字光标</div>
+    <div class="chips" id="g-caret">
+      <button class="chip on" data-v="off">无（现状）</button>
+      <button class="chip" data-v="on">▍闪烁</button>
+    </div>
+  </div>
+
+  <div class="cgroup">
+    <div class="lab">④ 未闭合代码围栏（剧本②可感受）</div>
+    <div class="chips" id="g-fence">
+      <button class="chip on" data-v="raw">逐字硬出（现状·代码边写边长）</button>
+      <button class="chip" data-v="hold">围栏占位（闭合后浮现）</button>
+    </div>
+  </div>
+
+  <div class="cgroup">
+    <div class="lab">⑤ 模拟网络等待：<span id="wait-v">1.5</span>s</div>
+    <input type="range" class="wait-slider" id="g-waittime" min="0.3" max="4" step="0.1" value="1.5">
+  </div>
+
+  <div class="status" id="status">选个剧本发一条，体验开始。</div>
+
+  <div class="tips">
+    交互与现 app 同口径：<b>等待中点停止</b>＝取消不发；<b>逐字中点停止</b>＝立即落全文。<br>
+    候选新交互：<b>点流式正文</b>＝跳到结尾。<br>
+    逐字中往上滑动＝回看，不拽底；回到底部恢复跟随。
+  </div>
+
+  <button class="clear-btn" id="clear-btn">清空对话</button>
+</div>
+
+<!-- ============ 手机壳 ============ -->
+<div class="phone">
+  <div class="page-head">
+    <span class="t">AI 助手</span>
+    <button class="icon-btn" title="会话记录（装饰）">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/></svg>
+    </button>
+  </div>
+
+  <div class="demo-rail" id="demo-rail"></div>
+
+  <div class="chat" id="chat"></div>
+
+  <div class="composer">
+    <div class="input-bar">
+      <button class="send-btn" style="background:transparent;color:var(--text-secondary);width:28px;height:28px" title="语音（装饰）">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+      </button>
+      <input id="input" placeholder="问点什么…" autocomplete="off">
+      <button class="send-btn" id="send-btn">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M3 11.5 21 3l-8.5 18-2.3-7.2L3 11.5z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+/* ============================================================
+   剧本：三组问答，覆盖三类排版（短列表 / 代码围栏 / 长散文）
+   ============================================================ */
+const SCRIPTS = [
+  {
+    q: '帮我把这周的学习安排整理一下',
+    a: '好的，按**优先级**排好了：\n\n- 周一/周三晚 · 复习 `进程与线程` 笔记\n- 周二 · 做完第 3 章错题\n- 周末 · 把数据库索引那章过一遍\n\n其中错题那项最紧，建议放在状态最好的时段。',
+  },
+  {
+    q: '用 JS 写一个防抖函数，并解释一下',
+    a: '防抖的核心：**事件停下 N 毫秒后才真正执行**，中间每次触发都重新计时。\n\n```js\nfunction debounce(fn, ms) {\n  let t = null\n  return (...args) => {\n    clearTimeout(t)\n    t = setTimeout(() => fn(...args), ms)\n  }\n}\n```\n\n适合搜索框输入、窗口 resize 这类「高频触发、只要最后一次」的场景；如果需要「先立即执行一次」，那是节流（throttle）的活。',
+  },
+  {
+    q: '为什么天空是蓝色的？通俗点讲',
+    a: '简单说：**蓝光更容易被空气「弹开」**。\n\n太阳光其实是七种颜色混在一起的。穿过大气层时，会撞上无数细小的空气分子——波长越短的光越容易被撞得四处乱跳，蓝光波长最短，被弹得到处都是，整片天空都在「发光」，所以看起来是蓝的。\n\n那为什么晚霞是红的？因为傍晚阳光要斜穿更厚的大气，蓝光半路就全被弹光了，只剩波长最长的红光能坚持走到你眼睛里。\n\n一个冷知识：紫光波长其实更短，理论上更容易被弹开——但我们眼睛对蓝光更敏感，加上高层大气吸收掉了一部分紫光，所以天是蓝的而不是紫的。',
+    reason: '用户要通俗解释。核心是瑞利散射：散射强度与波长四次方成反比。\n要点：①蓝光波长短易散射；②晚霞红=斜穿厚大气蓝光被弹光；③为什么不是紫色=人眼敏感度+吸收。\n用「弹开」替代「散射」，加冷知识收尾增加趣味。',
+  },
+]
+
+/* ============================================================
+   节奏策略：以 24ms 为一跳（工作器时钟，不受页面定时器节流影响），
+   定义每跳前进字数（可为小数，由累加器取整）与标点停顿（跳数）。
+   ============================================================ */
+const STRATS = {
+  /* 现状复刻：store.tsx startReveal 的原参数（24ms · 2~4 字） */
+  current: { label: '现状 24ms·2-4字', adv: () => 2 + Math.floor(Math.random() * 3), pause: () => 0 },
+  /* 匀速快显：约 200 字/秒，长文不拖 */
+  steady: { label: '匀速快显', adv: () => 4.8, pause: () => 0 },
+  /* 标点节奏：字快，标点微顿——像人在打字 */
+  punct: {
+    label: '标点节奏',
+    adv: () => 5 + Math.floor(Math.random() * 2),
+    pause: ch => ('，、；：'.includes(ch) ? 3 : ('。！？…\n'.includes(ch) ? 7 : 0)),
+  },
+  /* 前慢后快：开头看得清，长文后段加速 */
+  adaptive: { label: '前慢后快', adv: (full, i) => (i < 60 ? 2 : 10), pause: () => 0 },
+}
+
+/* ---------- 原型状态 ---------- */
+const st = {
+  strat: 'current', waitStyle: 'static', caret: false, fence: 'raw',
+  waitSec: 1.5, scriptIdx: 0,
+  phase: 'idle',            // idle | wait | reveal
+  i: 0, full: '', t0: 0,
+  acc: 0, pauseTicks: 0, waitLeft: 0, script: null,
+  fast: location.hash.includes('fast'),   // #fast = 自测钩子，加速全部节奏
+}
+
+const $ = s => document.querySelector(s)
+const chatEl = $('#chat'), inputEl = $('#input'), sendBtn = $('#send-btn')
+const statusEl = $('#status'), toastEl = $('#toast')
+
+/* ---------- 时钟：dedicated worker 的 setInterval 不受页面定时器节流影响 ----------
+   IAB guest 实测（2026-11-08）：visibilityState=visible 仍被钳到 ~1s/跳，
+   主线程 setTimeout/setInterval 链全部失真——节拍器必须住进 worker。 */
+const ticker = new Worker(URL.createObjectURL(new Blob(
+  [`let id=null;onmessage=e=>{const d=e.data||{};if(d.cmd==='start'&&!id)id=setInterval(()=>postMessage(1),d.ms||24);if(d.cmd==='stop'&&id){clearInterval(id);id=null}}`],
+  { type: 'text/javascript' })))
+
+/* ---------- 极简 markdown（对齐 marked+breaks 的常用子集） ---------- */
+function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
+function inline(s) {
+  return esc(s)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+}
+function md(src) {
+  const lines = src.split('\n')
+  let html = '', inUl = false, inPre = false, preBuf = []
+  const closeUl = () => { if (inUl) { html += '</ul>'; inUl = false } }
+  for (const ln of lines) {
+    if (ln.trim().startsWith('```')) {
+      if (inPre) { html += '<pre><code>' + esc(preBuf.join('\n')) + '</code></pre>'; inPre = false; preBuf = [] }
+      else { closeUl(); inPre = true }
+      continue
+    }
+    if (inPre) { preBuf.push(ln); continue }
+    const t = ln.trim()
+    if (!t) { closeUl(); if (html && !html.endsWith('</p>')) html += '<br>'; continue }
+    if (/^[-*] /.test(t)) { if (!inUl) { closeUl(); html += '<ul>'; inUl = true } html += '<li>' + inline(t.slice(2)) + '</li>'; continue }
+    closeUl()
+    if (/^#{1,4} /.test(t)) { html += '<h3>' + inline(t.replace(/^#+ /, '')) + '</h3>'; continue }
+    html += '<p>' + inline(t) + '</p>'
+  }
+  if (inPre) html += '<pre><code>' + esc(preBuf.join('\n')) + '</code></pre>'
+  closeUl()
+  return html
+}
+
+/* ---------- 渲染 ---------- */
+let msgSeq = 0
+function el(html) { const d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild }
+
+function addUser(text) {
+  chatEl.appendChild(el(`<div class="msg user">${esc(text)}</div>`))
+}
+function pushFinal(text, reason) {
+  const think = reason
+    ? `<div class="think"><button class="think-head"><span class="chev">▸</span>思考过程<span style="opacity:.6">（${reason.length} 字）</span></button><div class="think-body" hidden>${esc(reason)}</div></div>`
+    : ''
+  const b = el(`<div class="msg ai">${think}<div class="md">${md(text)}</div></div>`)
+  if (think) {
+    b.querySelector('.think-head').onclick = () => {
+      const t = b.querySelector('.think'); t.classList.toggle('open')
+      b.querySelector('.think-body').hidden = !t.classList.contains('open')
+    }
+  }
+  chatEl.appendChild(b)
+  scrollFollow(true)
+}
+function thinkingEl(style) {
+  if (style === 'dots') return el(`<div class="msg ai"><span class="think-dots">正在思考<i></i><i></i><i></i></span></div>`)
+  if (style === 'shimmer') return el(`<div class="msg ai"><span class="think-shimmer">正在思考…</span></div>`)
+  return el(`<div class="msg ai"><span class="think-static">正在思考</span></div>`)
+}
+let thinkEl = null
+function showThinking() {
+  clearThink()
+  thinkEl = thinkingEl(st.waitStyle)
+  chatEl.appendChild(thinkEl)
+  scrollFollow(true)
+}
+function clearThink() { if (thinkEl) { thinkEl.remove(); thinkEl = null } }
+
+/* 围栏占位：未闭合 ``` 时，把残段换成占位块（候选策略④hold） */
+function renderStream(full, i) {
+  let preview = full.slice(0, i)
+  let hold = false
+  if (st.fence === 'hold') {
+    const fences = (preview.match(/```/g) || []).length
+    if (fences % 2 === 1) {
+      preview = preview.slice(0, preview.lastIndexOf('```'))
+      hold = true
+    }
+  }
+  const body = md(preview) + (hold ? '<pre class="hold"><code><span class="hold-txt">敲代码中 …</span></code></pre>' : '')
+  const b = el(`<div class="msg ai streaming" id="live"><div class="md ${st.caret ? 'caret-on' : ''}">${body}</div></div>`)
+  const old = $('#live')
+  if (old) old.replaceWith(b); else chatEl.appendChild(b)
+  b.onclick = () => skipToEnd()
+}
+
+function scrollFollow(force) {
+  const nearBottom = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 90
+  if (force || nearBottom) chatEl.scrollTop = chatEl.scrollHeight
+}
+chatEl.addEventListener('scroll', () => { /* 跟随逻辑在 scrollFollow 里按位置判断，无需记录状态 */ })
+
+/* ---------- 核心流程（全部由 worker 的 24ms 跳驱动） ---------- */
+function ask(text, script) {
+  if (st.phase !== 'idle') return
+  addUser(text)
+  st.script = script
+  st.phase = 'wait'
+  st.waitLeft = Math.max(1, Math.round(st.waitSec * 1000 / 24))
+  updateSendBtn()
+  showThinking()
+}
+
+function revealStart() {
+  clearThink()
+  st.full = st.script.a
+  st.i = 0; st.acc = 0; st.pauseTicks = 0
+  st.t0 = performance.now()
+  statusEl.textContent = `策略「${STRATS[st.strat].label}」逐字中…`
+  renderStream(st.full, 0)
+}
+
+ticker.onmessage = () => {
+  if (st.phase === 'wait') {
+    if (--st.waitLeft <= 0) { st.phase = 'reveal'; revealStart() }
+    return
+  }
+  if (st.phase !== 'reveal') return
+  if (st.pauseTicks > 0) { st.pauseTicks--; return }
+  const S = STRATS[st.strat]
+  let adv = S.adv(st.full, st.i)
+  if (st.fast) adv *= 16            // #fast 自测钩子：约 16 倍速
+  st.acc += adv
+  const step = Math.floor(st.acc)
+  if (step <= 0) return
+  st.acc -= step
+  st.i = Math.min(st.full.length, st.i + step)
+  st.pauseTicks = S.pause(st.full[st.i - 1])
+  renderStream(st.full, st.i)
+  scrollFollow()
+  if (st.i >= st.full.length) finish(st.script?.reason)
+}
+
+function finish(reason) {
+  const secs = Math.max(0.1, (performance.now() - st.t0) / 1000)
+  const n = st.full.length
+  $('#live')?.remove()
+  pushFinal(st.full, reason)
+  st.phase = 'idle'; st.full = ''
+  updateSendBtn()
+  statusEl.innerHTML = `<b>${n} 字 / ${secs.toFixed(1)}s ≈ ${Math.round(n / secs)} 字/秒</b> · 策略「${STRATS[st.strat].label}」`
+}
+
+/* 停止：等待中=取消；逐字中=立即落全文（与 store.stopStream 语义一致） */
+function stopGen() {
+  if (st.phase === 'wait') {
+    clearThink()
+    st.phase = 'idle'; updateSendBtn()
+    toast('已停止生成')
+  } else if (st.phase === 'reveal') {
+    finish(st.script?.reason)
+  }
+}
+/* 候选交互：点流式气泡 → 跳到结尾 */
+function skipToEnd() {
+  if (st.phase !== 'reveal') return
+  finish(st.script?.reason)
+}
+
+function updateSendBtn() {
+  if (st.phase !== 'idle') {
+    sendBtn.classList.add('stop')
+    sendBtn.title = '停止生成'
+    sendBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>'
+  } else {
+    sendBtn.classList.remove('stop')
+    sendBtn.title = '发送'
+    sendBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M3 11.5 21 3l-8.5 18-2.3-7.2L3 11.5z"/></svg>'
+  }
+}
+
+let toastTimer = null
+function toast(msg) {
+  toastEl.textContent = msg; toastEl.classList.add('show')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800)
+}
+
+/* ---------- 发送入口 ---------- */
+function send(text) {
+  if (st.phase !== 'idle') { toast('AI 正在回复，稍等或点停止'); return }
+  const t = (text ?? inputEl.value).trim()
+  if (!t) return
+  const script = SCRIPTS[st.scriptIdx % SCRIPTS.length]
+  st.script = script
+  st.scriptIdx++
+  inputEl.value = ''
+  ask(t, script)
+}
+
+sendBtn.onclick = () => { st.phase === 'idle' ? send() : stopGen() }
+inputEl.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); st.phase === 'idle' ? send() : stopGen() } })
+
+/* 剧本快捷条 */
+const rail = $('#demo-rail')
+SCRIPTS.forEach((s, idx) => {
+  const b = el(`<button class="demo-q">${['📋 短清单', '💻 带代码', '📄 长散文'][idx]}</button>`)
+  b.onclick = () => { st.scriptIdx = idx; send(s.q) }
+  rail.appendChild(b)
+})
+
+/* 控制台接线：chips 组通用 */
+function wireChips(groupId, key, cb) {
+  const g = $(groupId)
+  g.querySelectorAll('.chip').forEach(c => c.onclick = () => {
+    g.querySelectorAll('.chip').forEach(x => x.classList.remove('on'))
+    c.classList.add('on')
+    st[key] = c.dataset.v
+    cb?.(c.dataset.v)
+    /* 流式中改光标/围栏形态立即生效，重新渲染当前残段 */
+    if (st.phase === 'reveal' && st.full) renderStream(st.full, st.i)
+  })
+}
+wireChips('#g-strat', 'strat', v => { if (st.phase === 'reveal') statusEl.textContent = `已切到「${STRATS[v].label}」，下一跳生效` })
+wireChips('#g-wait', 'waitStyle')
+wireChips('#g-caret', 'caret', v => { st.caret = v === 'on' })
+wireChips('#g-fence', 'fence')
+$('#g-waittime').oninput = e => { st.waitSec = parseFloat(e.target.value); $('#wait-v').textContent = st.waitSec.toFixed(1) }
+$('#clear-btn').onclick = () => {
+  clearThink()
+  st.phase = 'idle'; st.full = ''; updateSendBtn()
+  chatEl.innerHTML = ''
+  statusEl.textContent = '已清空。选个剧本发一条。'
+}
+
+updateSendBtn()
+ticker.postMessage({ cmd: 'start', ms: 24 })
+/* 初始引导消息 */
+chatEl.appendChild(el(`<div class="msg ai"><div class="md"><p>演示开场：点上方<b>剧本快捷条</b>发一条（或输入框回车，循环用剧本）。左侧控制台可实时切节奏/等待形态/光标/围栏策略，逐字中随时：</p><p>· 点停止 → 立即落全文<br>· 点正文 → 跳到结尾<br>· 往上滑 → 回看不拽底</p></div></div>`))
+scrollFollow(true)
+</script>
+</body>
+</html>
