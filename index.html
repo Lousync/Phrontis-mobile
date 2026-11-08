@@ -5,7 +5,7 @@
     <!-- interactive-widget=resizes-content：Android Chrome 108+ 默认只缩「视觉视口」（resizes-visual），
          键盘弹出时 100dvh 壳不动、贴底输入框被盖住；resizes-content 让布局视口随键盘收缩，
          整壳与贴底控件随之上提（对应桌面 letterbox 的「模拟输入法」开关）。user-scalable=no 禁放大是可访问性反模式，一并移除。 -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="theme-color" content="#1e1e1e" />
     <!-- iOS PWA：「添加到主屏幕」后以独立窗口运行（无 Safari 浏览器框）。
          black-translucent 让状态栏透明叠加在内容上，需配合 safe-area-inset 让出顶部。 -->

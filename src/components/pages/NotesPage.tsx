@@ -236,13 +236,21 @@ export function NotesPage({ active }: { active: boolean }) {
                     <span className="chev"><IChevR /></span>
                   </button>
                   <div className="vf-files">
-                    {files.map(x => (
-                      <div key={x.id} className="file-row" onClick={() => openVaultNote(x)}>
-                        <span className={'c ' + (vaultCache[x.id] && vaultCache[x.id].mtimeMs === x.mtimeMs ? 'cached' : 'uncached')} />
-                        {x.title}
-                        <span className="arrow"><IChevR /></span>
-                      </div>
-                    ))}
+                    {files.map(x => {
+                      /* 平铺分组会跨子树同名（AI教学/我好 与 AI教学/nihao 各有一套），补子路径线索 */
+                      const segs = x.path.split('/')
+                      const sub = segs.length > 2 ? segs.slice(1, -1).join('/') : ''
+                      return (
+                        <div key={x.id} className="file-row" onClick={() => openVaultNote(x)}>
+                          <span className={'c ' + (vaultCache[x.id] && vaultCache[x.id].mtimeMs === x.mtimeMs ? 'cached' : 'uncached')} />
+                          <span className="t">
+                            <span className="n">{x.title}</span>
+                            {sub && <span className="p">{sub}</span>}
+                          </span>
+                          <span className="arrow"><IChevR /></span>
+                        </div>
+                      )
+                    })}
                     {!files.length && <div className="empty" style={{ padding: '14px 0' }}>无匹配笔记</div>}
                   </div>
                 </div>
