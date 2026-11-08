@@ -583,6 +583,14 @@ button.vault-line:disabled { cursor: default; }
 .file-row .c.cached { background: var(--green); }
 .file-row .c.uncached { background: transparent; border: 1.4px solid var(--text-muted); }
 .file-row .c.pending { background: var(--amber); }
+/* 缓存点通用（手机仓库树 .pt-tree 与平板侧栏 .vt-row 共用 file-row 的视觉） */
+.vt-row .c { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.vt-row .c.cached { background: var(--green); }
+.vt-row .c.uncached { background: transparent; border: 1.4px solid var(--text-muted); }
+/* 手机仓库树容器（内容区内的层级树；行样式直接复用 .vt-row） */
+.pt-tree { margin-top: 4px; }
+.pt-tree .vt-row { padding-right: 10px; }
+.pt-tree .vt-row.file.on { color: var(--accent-hover); background: var(--accent-soft); }
 .file-row .t { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .file-row .t .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .file-row .t .p { font-size: 10.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

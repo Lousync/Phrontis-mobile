@@ -3,7 +3,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import { mdRender } from '../../lib/data'
 import { useApp } from '../../lib/store'
 import { useFormFactor } from '../../lib/useFormFactor'
-import { buildFolders } from '../../lib/notesTree'
+import { buildTree, type NoteDir } from '../../lib/notesTree'
 import { splitDocSegments } from '../../lib/quizParse'
 import { IBack, IBars, IChevR, IFolder, IPen, IBook, ISearch } from '../../components/icons'
 import { QuizCard } from '../../components/QuizCard'
@@ -27,10 +27,9 @@ export function NotesPage({ active }: { active: boolean }) {
   const {
     phoneNotes, toast, createPhoneNote, updatePhoneNote, deletePhoneNote, syncPhoneNote, quizRecords,
     vaultReader, setVaultReader, setVaultBody, vaultBody, vaultState, vaultTree, vaultLoading, paired, fetchVaultTree,
-    openVaultNote, openPhoneNote, vaultKw, setVaultKw, vaultCache,
+    openVaultNote, openPhoneNote, vaultKw, setVaultKw, vaultCache, vaultExpanded, toggleVaultExpand,
   } = useApp()
   const tablet = useFormFactor() === 'tablet'
-  const [openMap, setOpenMap] = useState<Record<string, boolean>>({})
   /* 阅读体验：字号可调（localStorage 持久化）+ 标题目录跳转 */
   const [fontSz, setFontSz] = useState(() => {
     const v = Number(localStorage.getItem(FONT_KEY))
@@ -107,7 +106,43 @@ export function NotesPage({ active }: { active: boolean }) {
     setDraft('')
   }
 
-  const folders = useMemo(() => buildFolders(vaultTree.pages), [vaultTree])
+  /* 手机仓库树（2026-11-08 对齐平板侧栏层级结构——平铺分组跨子树同名时分不清，用户拍板换树） */
+  const treeRoot = useMemo(() => buildTree(vaultTree.pages), [vaultTree])
+  const countDeep = (d: NoteDir): number => d.files.length + d.dirs.reduce((t, x) => t + countDeep(x), 0)
+  const hasMatch = (d: NoteDir): boolean =>
+    d.files.some(x => x.title.includes(kwTrim)) || d.dirs.some(hasMatch)
+  const renderDir = (node: NoteDir, depth: number): ReactNode => {
+    const kwFiles = kwTrim ? node.files.filter(x => x.title.includes(kwTrim)) : node.files
+    const subDirs = kwTrim ? node.dirs.filter(hasMatch) : node.dirs
+    if (kwTrim && !kwFiles.length && !subDirs.length) return null
+    const open = !!vaultExpanded[node.path] || !!kwTrim || depth === 0
+    return (
+      <div key={node.path || '__root__'}>
+        {depth > 0 && (
+          <div className="vt-row dir" style={{ paddingLeft: 4 + depth * 14 }}
+            onClick={() => toggleVaultExpand(node.path)}>
+            <span className={'chev' + (open ? ' on' : '')}><IChevR size={12} /></span>
+            <IFolder size={14} style={{ color: 'var(--accent-hover)' }} />
+            <span className="vt-name">{node.name}</span>
+            <span className="count">{countDeep(node)}</span>
+          </div>
+        )}
+        {open && (
+          <div>
+            {subDirs.map(d => renderDir(d, depth + 1))}
+            {kwFiles.map(x => (
+              <div key={x.id} className={'vt-row file' + (vaultReader?.path === x.path ? ' on' : '')}
+                style={{ paddingLeft: 4 + (depth + 1) * 14 }}
+                onClick={() => openVaultNote(x)}>
+                <span className={'c ' + (vaultCache[x.id] && vaultCache[x.id].mtimeMs === x.mtimeMs ? 'cached' : 'uncached')} />
+                <span className="vt-name">{x.title}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
   const segs = useMemo(() => splitDocSegments(vaultBody), [vaultBody])
   const kwTrim = vaultKw.trim()
 
@@ -217,50 +252,12 @@ export function NotesPage({ active }: { active: boolean }) {
             : '已连接 ' + paired.pcName + ' · 全仓 ' + vaultTree.pages.length + ' 篇（点击刷新目录）')
           : '未配对电脑 · 配对后可看仓库笔记'}
       </button>
-      {/* 电脑仓库文件夹：单卡分组列表（2026-11-08 条目优化——原逐文件夹独立大卡在十余目录时占满整屏，
-          且 count 与 chev 双 margin:auto 平分剩余空间，数字悬在行中央） */}
-      {(() => {
-        const visible = folders.filter(f => !kwTrim || f.pages.some(x => x.title.includes(kwTrim)))
-        if (!visible.length) return null
-        return (
-          <div className="vfold">
-            {visible.map(f => {
-              const files = f.pages.filter(x => !kwTrim || x.title.includes(kwTrim))
-              const open = !!openMap[f.name] || !!kwTrim
-              return (
-                <div key={f.name} className={'vf-item' + (open ? ' open' : '')}>
-                  <button className="vf-head" onClick={() => setOpenMap(m => ({ ...m, [f.name]: !m[f.name] }))}>
-                    <IFolder style={{ color: 'var(--accent-hover)' }} />
-                    <span className="vf-name">{f.name}</span>
-                    <span className="count">{f.pages.length}</span>
-                    <span className="chev"><IChevR /></span>
-                  </button>
-                  <div className="vf-files">
-                    {files.map(x => {
-                      /* 平铺分组会跨子树同名（AI教学/我好 与 AI教学/nihao 各有一套），补子路径线索 */
-                      const segs = x.path.split('/')
-                      const sub = segs.length > 2 ? segs.slice(1, -1).join('/') : ''
-                      return (
-                        <div key={x.id} className="file-row" onClick={() => openVaultNote(x)}>
-                          <span className={'c ' + (vaultCache[x.id] && vaultCache[x.id].mtimeMs === x.mtimeMs ? 'cached' : 'uncached')} />
-                          <span className="t">
-                            <span className="n">{x.title}</span>
-                            {sub && <span className="p">{sub}</span>}
-                          </span>
-                          <span className="arrow"><IChevR /></span>
-                        </div>
-                      )
-                    })}
-                    {!files.length && <div className="empty" style={{ padding: '14px 0' }}>无匹配笔记</div>}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )
-      })()}
-      {paired && !vaultLoading && kwTrim && !folders.some(f => f.pages.some(x => x.title.includes(kwTrim))) && <div className="empty" style={{ padding: '16px 0' }}>无匹配笔记</div>}
-      {paired && !vaultLoading && !folders.length && <div className="empty" style={{ padding: '20px 0' }}>仓库没有可读的 md 笔记（或目录还没拉到）</div>}
+      {/* 电脑仓库：层级树（与平板侧栏同结构 vt-row；展开状态 vaultExpanded 与平板共享） */}
+      <div className="pt-tree">
+        {renderDir(treeRoot, 0)}
+      </div>
+      {paired && !vaultLoading && kwTrim && !hasMatch(treeRoot) && <div className="empty" style={{ padding: '16px 0' }}>无匹配笔记</div>}
+      {paired && !vaultLoading && !vaultTree.pages.length && <div className="empty" style={{ padding: '20px 0' }}>仓库没有可读的 md 笔记（或目录还没拉到）</div>}
 
       <div className="sec-title" style={{ marginTop: 6 }}>手机笔记 <span className="more">上行同步进电脑收件箱</span></div>
       <div className="folder phone-notes">
