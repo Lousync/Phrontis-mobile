@@ -198,7 +198,9 @@ export function SessionSheet() {
           <input className="sess-input" autoFocus value={renameVal}
             onChange={e => setRenameVal(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && renameVal.trim()) { renameSession(s.id, renameVal.trim()); setRenameId(null) } }} />
-          <div className="sess-acts">
+          {/* 操作条必须断冒泡：click 冒泡进行的 rowClick 会用本次渲染的旧闭包看到 menuId 仍为真，
+              走 resetModes() 把按钮刚 setState 的 renameId/armedId 抹掉——表现为「按钮全失灵」（2026-11-08 实测复现） */}
+          <div className="sess-acts" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
             <button onClick={() => { if (renameVal.trim()) { renameSession(s.id, renameVal.trim()); setRenameId(null) } }}>保存</button>
             <button onClick={resetModes}>取消</button>
           </div>
@@ -208,7 +210,7 @@ export function SessionSheet() {
       inner = (
         <>
           <div className="sess-body"><div className="sess-title" style={{ color: 'var(--red)' }}>删除这条会话？</div></div>
-          <div className="sess-acts">
+          <div className="sess-acts" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
             <button className="danger" onClick={() => { setArmedId(null); deleteSession(s.id) }}>删除</button>
             <button onClick={resetModes}>取消</button>
           </div>
@@ -218,7 +220,7 @@ export function SessionSheet() {
       inner = (
         <>
           <div className="sess-body"><div className="sess-title">{s.title}</div></div>
-          <div className="sess-acts">
+          <div className="sess-acts" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
             <button onClick={() => { togglePin(s.id); setMenuId(null) }}>{s.pinned ? '取消置顶' : '置顶'}</button>
             <button onClick={() => { setRenameVal(s.title); setRenameId(s.id); setMenuId(null) }}>重命名</button>
             <button className="danger" onClick={() => { setArmedId(s.id); setMenuId(null) }}>删除</button>
