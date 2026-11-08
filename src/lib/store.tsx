@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { ReactNode } from 'react'
-import type { AiChatMsg, AiConfig, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteCache, NoteProposal, NoteTreePage, PairedDevice, PhoneNote, QuizAddProposal, QuizDelProposal, QuizNoteProposal, QuizRecord, QuizSpec, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
+import type { AppPrefs, AiChatMsg, AiConfig, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteCache, NoteProposal, NoteTreePage, PairedDevice, PhoneNote, QuizAddProposal, QuizDelProposal, QuizNoteProposal, QuizRecord, QuizSpec, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
 import { THEME_IDS } from './types'
 import { TODAY, VOICE_PHRASES, welcomeText, dayIso, fmtMoney, monthOf, monthStats, txToDisplay } from './data'
 import {
@@ -49,6 +49,13 @@ const K_NOTES = 'pm.notes'
 const K_QUIZ = 'pm.quiz'
 const K_SYNC_SEL = 'pm.noteSyncSel'
 const K_THEME = 'pm.theme'
+/** 用户偏好单键（pm.settings）：新增偏好字段只要进 DEFAULT_PREFS，旧数据浅合并自动兜底，免迁移 */
+const K_PREFS = 'pm.settings'
+const DEFAULT_PREFS: AppPrefs = { themeAuto: false, remindLead: 0 }
+
+function loadPrefs(): AppPrefs {
+  return { ...DEFAULT_PREFS, ...loadJson<Partial<AppPrefs>>(K_PREFS, {}) }
+}
 
 /** 全新会话：仅一条欢迎语（时段问候），不注入任何演示历史 */
 const freshSession = (): Session => ({
@@ -65,6 +72,9 @@ interface Store {
   /* 全局 */
   theme: ThemeName
   setTheme: (t: ThemeName) => void
+  /** 用户偏好（pm.settings 单键，见 DEFAULT_PREFS） */
+  prefs: AppPrefs
+  setPref: <K extends keyof AppPrefs>(k: K, v: AppPrefs[K]) => void
   toast: (msg: string, type?: ToastItem['type']) => void
   toasts: ToastItem[]
   sheet: SheetId
@@ -192,6 +202,8 @@ interface Store {
   togglePin: (id: string) => void
   streaming: boolean
   streamText: string
+  /** 流式阶段：wait=网络往返中（UI 渲染流光提示） reveal=逐字呈现中（正文+光标） */
+  streamPhase: 'wait' | 'reveal' | null
   sendChat: (text: string) => void
   /** 用户停止当前生成：在途请求中断；打字机阶段立即落完整消息 */
   stopStream: () => void
@@ -225,10 +237,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const saved = loadJson<ThemeName>(K_THEME, 'dark')
     return THEME_IDS.includes(saved) ? saved : 'dark'
   })
+  const [prefs, setPrefsState] = useState<AppPrefs>(loadPrefs)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [sheet, setSheet] = useState<SheetId>(null)
   const [sheetOrigin, setSheetOrigin] = useState<HTMLElement | null>(null)
-  const [activeTab, setActiveTabState] = useState('ai')
+  /* 启动页：默认笔记区（2026-11-08 拍板：不做设置项，直接定死） */
+  const [activeTab, setActiveTabState] = useState('notes')
   const activeTabRef = useRef(activeTab); activeTabRef.current = activeTab
   const [kbSim, setKbSim] = useState(false)
   const [kbOpen, setKbOpen] = useState(false)
@@ -297,6 +311,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [curSession, setCurSession] = useState(() => sessions[0].id)
   const [streaming, setStreaming] = useState(false)
   const [streamText, setStreamText] = useState('')
+  const [streamPhase, setStreamPhase] = useState<'wait' | 'reveal' | null>(null)
 
   const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle')
   const [voiceElapsed, setVoiceElapsed] = useState(0)
@@ -321,6 +336,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const phoneNotesRef = useRef(phoneNotes); phoneNotesRef.current = phoneNotes
   const aiConfigRef = useRef(aiConfig); aiConfigRef.current = aiConfig
   const pairedRef = useRef(paired); pairedRef.current = paired
+  const prefsRef = useRef(prefs); prefsRef.current = prefs
   const vaultTreeRef = useRef(vaultTree); vaultTreeRef.current = vaultTree
   const syncSelRef = useRef(syncSel); syncSelRef.current = syncSel
   const vaultCacheRef = useRef(vaultCache); vaultCacheRef.current = vaultCache
@@ -330,7 +346,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const reconcileQuietRef = useRef<() => void>(() => {})
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => { document.documentElement.dataset.theme = theme; saveJson(K_THEME, theme) }, [theme])
+  /* 跟随系统深浅色（pm.settings.themeAuto）：开=按系统深浅映射 dark/light（七主题里只有这两套有系统语义）；
+     关=回落手动主题。effTheme 只驱动 data-theme；手动选择仍存 pm.theme——自动模式不覆盖用户的手动选择 */
+  const [sysDark, setSysDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const fn = (e: MediaQueryListEvent) => setSysDark(e.matches)
+    mq.addEventListener('change', fn)
+    return () => mq.removeEventListener('change', fn)
+  }, [])
+  const effTheme: ThemeName = prefs.themeAuto ? (sysDark ? 'dark' : 'light') : theme
+  useEffect(() => { document.documentElement.dataset.theme = effTheme }, [effTheme])
+
+  const setPref = useCallback(<K extends keyof AppPrefs>(k: K, v: AppPrefs[K]) => {
+    setPrefsState(p => ({ ...p, [k]: v }))
+  }, [])
+  useEffect(() => { saveJson(K_PREFS, prefs) }, [prefs])
 
   const toast = useCallback((msg: string, type: ToastItem['type'] = 'info') => {
     const id = Date.now() + Math.random()
@@ -338,7 +369,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 2400)
   }, [])
 
-  const setTheme = useCallback((t: ThemeName) => setThemeState(t), [])
+  const setTheme = useCallback((t: ThemeName) => { setThemeState(t); saveJson(K_THEME, t) }, [])
   const openSheet = useCallback((id: Exclude<SheetId, null>, from?: HTMLElement | null) => {
     setSheetOrigin(from ?? null)
     setSheet(id)
@@ -349,6 +380,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   /* Tab 切换 = 从按点圆形铺开：旧帧定格为底、新页经 clip-path 圆铺满（260ms）。
      View Transitions 需要 WebView 111+；不支持或系统减动效 → 瞬时切换 */
   const setActiveTab = useCallback((t: string, from?: HTMLElement | null) => {
+    /* 换区导航 = 收回任何挡在内容区上的全屏子页。平板 A+F 停靠后子页只盖内容区、
+       侧栏可点，但不关子页的话切页发生在子页底下，看起来像「无法跳转」；
+       手机子页盖整窗、导航本来就点不到，这个状态泄漏此前暴露不出来。
+       同区再点也收回（侧栏点当前区 = 回区根）。已空时 setState 原地 bailout，无开销 */
+    setSheet(null)
+    setSheetOrigin(null)
     if (t === activeTabRef.current) return
     const doc = document as Document & { startViewTransition?: (cb: () => void) => { ready: Promise<void> } }
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -1260,40 +1297,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  /* 打字机呈现（网络层非流式，观感流式）：完成后把最终消息挂进会话。
-     revealRef 记着完整消息与落盘回调——用户点停止时立即落完整消息，不丢回复 */
+  /* 打字机呈现 v2（2026-11-08 拍板「标点节奏」，prototype/ai-typewriter.html 体验后定稿）：
+     24ms 一跳、每跳 5~6 字（累加器取整保均值），标点后微顿——，、；：停 3 跳，。！？…与换行停 7 跳，
+     「字快句缓」约 200 字/秒，长答案不拖场。漂移补偿：宿主把 setTimeout 拉长时按实际耗时放大步长
+     保住字/秒（真机前台 dt≈24ms 即 scale=1，纯设计节奏；IAB 调试宿主 visible 也钳 ~1s/跳，靠它不龟速）。
+     revealRef 记着完整消息与落盘回调——停止/点正文时立即落完整消息，不丢回复 */
   const startReveal = (full: string, done: (finalText: string) => void) => {
     setStreaming(true)
+    setStreamPhase('reveal')
     revealRef.current = { full, done }
+    const pauseOf = (ch: string) =>
+      '，、；：'.includes(ch) ? 3 : ('。！？…\n'.includes(ch) ? 7 : 0)
     let i = 0
-    streamTimer.current = setInterval(() => {
-      i = Math.min(full.length, i + 2 + Math.floor(Math.random() * 3))
-      setStreamText(full.slice(0, i))
-      if (i >= full.length) {
-        if (streamTimer.current) clearInterval(streamTimer.current)
-        streamTimer.current = null
-        setStreaming(false)
-        setStreamText('')
-        revealRef.current = null
-        done(full)
+    let acc = 0
+    let pauseLeft = 0
+    let lastT = 0
+    const step = () => {
+      if (!revealRef.current) return   // 被停止接管（stopStream 已收尾落盘）
+      const now = performance.now()
+      const dt = lastT ? now - lastT : 24
+      lastT = now
+      if (pauseLeft > 0) { pauseLeft--; streamTimer.current = setTimeout(step, 24); return }
+      const scale = Math.min(6, Math.max(1, dt / 24))
+      acc += (5 + Math.floor(Math.random() * 2)) * scale
+      const n = Math.floor(acc)
+      if (n > 0) {
+        acc -= n
+        i = Math.min(full.length, i + n)
+        pauseLeft = pauseOf(full[i - 1])
+        setStreamText(full.slice(0, i))
       }
-    }, 24)
+      if (i >= full.length) {
+        revealRef.current = null
+        setStreaming(false)
+        setStreamPhase(null)
+        setStreamText('')
+        done(full)
+        return
+      }
+      streamTimer.current = setTimeout(step, 24)
+    }
+    streamTimer.current = setTimeout(step, 24)
   }
 
   /* 停止生成：在途请求中断（store 的 async catch 里静默收尾）；
      已进入打字机阶段则立即落完整消息；两者都没有时只复位状态 */
   const stopStream = useCallback(() => {
     abortRef.current?.abort()
-    if (streamTimer.current) { clearInterval(streamTimer.current); streamTimer.current = null }
+    if (streamTimer.current) { clearTimeout(streamTimer.current); streamTimer.current = null }
     const rv = revealRef.current
     if (rv) {
       revealRef.current = null
       setStreaming(false)
+      setStreamPhase(null)
       setStreamText('')
       rv.done(rv.full)
       return
     }
-    if (streamingRef.current) { setStreaming(false); setStreamText('') }
+    if (streamingRef.current) { setStreaming(false); setStreamPhase(null); setStreamText('') }
   }, [])
 
   /* 直连档真实工具循环（M4a）：上限 AI_MAX_ROUNDS 轮；写工具产出确认卡后停轮等确认 */
@@ -1303,7 +1364,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const ctrl = new AbortController()
     abortRef.current = ctrl
     setStreaming(true)
-    setStreamText('正在思考')
+    setStreamPhase('wait')
+    setStreamText('')
     void (async () => {
       try {
         const history: AiChatMsg[] = [{ role: 'system', content: buildSystemPrompt(TODAY, pairedRef.current?.pcName ?? null) }]
@@ -1349,6 +1411,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         abortRef.current = null
         setStreaming(false)
+        setStreamPhase(null)
         setStreamText('')
         if (e instanceof AiStopped) { toast('已停止生成', 'info'); return }
         const msg = e instanceof Error ? e.message : 'AI 请求失败'
@@ -1465,21 +1528,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void (async () => {
       const perm = await initNotifPermission()
       setNotifPerm(perm)
-      if (perm === 'granted') await rescheduleReminders(todos, habits)
+      if (perm === 'granted') await rescheduleReminders(todos, habits, prefsRef.current.remindLead)
     })()
     // 只在启动跑一次：todos 后续变更由下方随动 effect 接管
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  useEffect(() => { void rescheduleReminders(todos, habits) }, [todos, habits])
+  useEffect(() => { void rescheduleReminders(todos, habits, prefs.remindLead) }, [todos, habits, prefs.remindLead])
   const requestNotifPerm = useCallback(async () => {
     const perm = await requestNotifPermission()
     setNotifPerm(perm)
-    if (perm === 'granted') await rescheduleReminders(todos, habits)
+    if (perm === 'granted') await rescheduleReminders(todos, habits, prefs.remindLead)
     return perm
-  }, [todos, habits])
+  }, [todos, habits, prefs.remindLead])
 
   const value: Store = {
-    theme, setTheme, toast, toasts, sheet, openSheet, closeSheet, sheetOrigin, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
+    theme, setTheme, prefs, setPref, toast, toasts, sheet, openSheet, closeSheet, sheetOrigin, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
     sideCollapsed, toggleSide,
     online, syncing, syncPct, syncMode, pending, lastSync, paired, toggleOnline, runSync, markPending, pairWith, adoptPaired, unpair,
     schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, deleteTodo, habits, toggleHabit, addHabit, updateHabit, deleteHabit, editHabitId, openHabitForm,
@@ -1492,7 +1555,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     quizRecords, answerQuiz, upsertQuizAnswer,
     addQuizRecord, setQuizNote, deleteQuizRecord,
     aiConfig, updateAiConfig, sessions, curSession, newSession, switchSession, deleteSession, renameSession, togglePin,
-    streaming, streamText, sendChat, stopStream, confirmCard, dismissCard,
+    streaming, streamText, streamPhase, sendChat, stopStream, confirmCard, dismissCard,
     voicePhase, voiceElapsed, toggleVoice,
     notifPerm, requestNotifPerm,
     settingsSec, setSettingsSec,

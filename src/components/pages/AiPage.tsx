@@ -286,13 +286,21 @@ export function SessionSheet() {
 }
 
 export function AiPage({ active }: { active: boolean }) {
-  const { sessions, curSession, streaming, streamText, sendChat, stopStream, voicePhase, voiceElapsed, toggleVoice, openSheet } = useApp()
+  const { sessions, curSession, streaming, streamText, streamPhase, sendChat, stopStream, voicePhase, voiceElapsed, toggleVoice, openSheet } = useApp()
   const [input, setInput] = useState('')
   const sess = sessions.find(s => s.id === curSession) ?? sessions[0]
   const chatRef = useRef<HTMLDivElement>(null)
+  const prevSessRef = useRef<string | null>(null)
 
+  /* 滚动跟随「贴底才跟」（2026-11-08 拍板）：逐字中用户上翻回看时不拽底，
+     滚回贴底范围自动恢复跟随；切会话仍强制落底。 */
   useEffect(() => {
-    chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight })
+    const el = chatRef.current
+    if (!el) return
+    const switched = prevSessRef.current !== null && prevSessRef.current !== curSession
+    prevSessRef.current = curSession
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 90
+    if (switched || nearBottom) el.scrollTo({ top: el.scrollHeight })
   }, [sess.messages.length, streamText, curSession])
 
   const doSend = () => { if (!streaming && input.trim()) { sendChat(input); setInput('') } }
@@ -312,8 +320,14 @@ export function AiPage({ active }: { active: boolean }) {
 
       <div className="chat" ref={chatRef}>
         {sess.messages.map(m => <MsgView key={m.id} m={m} />)}
-        {streaming && (
-          <div className="msg ai streaming">
+        {streaming && streamPhase === 'wait' && (
+          /* 等待阶段（网络往返）：流光「正在思考…」，替代原静止文案（2026-11-08 拍板） */
+          <div className="msg ai"><span className="think-shimmer">正在思考…</span></div>
+        )}
+        {streaming && streamPhase === 'reveal' && (
+          /* 点正文跳结尾：复用 stopStream——reveal 阶段的停止语义就是「立即落全文」；
+             wait 阶段不挂点击，避免误触把在途请求取消掉 */
+          <div className="msg ai streaming" onClick={stopStream}>
             <div className="md" dangerouslySetInnerHTML={{ __html: mdRender(streamText).replace(/^<p>/, '').replace(/<\/p>$/, '') }} />
           </div>
         )}

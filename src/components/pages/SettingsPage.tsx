@@ -49,6 +49,16 @@ const THEME_PICKS: Array<{ id: ThemeName; name: string; bg: string; line: string
   { id: 'winter', name: '冬 · 初雪', bg: '#f1f6fb', line: '#2b3a47', dot: '#2f74b5' },
 ]
 
+/** 提醒提前量选项（分钟）：v=0 表示准点；消费点 notify.rescheduleReminders 的 leadMin */
+const LEAD_PICKS: Array<{ v: number; n: string }> = [
+  { v: 0, n: '准点' }, { v: 5, n: '5 分钟' }, { v: 10, n: '10 分钟' }, { v: 15, n: '15 分钟' }, { v: 30, n: '30 分钟' },
+]
+
+/** 「自动」chip 的分景色板（跟随系统深浅色）：左半深右半浅，中心点用 accent */
+const AUTO_SW = { background: 'linear-gradient(135deg, #1e1e1e 50%, #ececec 50%)' }
+const AUTO_SW_DOT = { background: 'var(--accent-hover)' }
+const AUTO_SW_LINE = { background: '#8a8a8a' }
+
 /**
  * 设置页。同步区 = M1 真实配对（协议 docs/design.md §2.1）：
  * 未配对时输入电脑地址 + 配对码（桌面端 工具箱 → 手机伴侣 出示），配对后长期互信。
@@ -56,7 +66,7 @@ const THEME_PICKS: Array<{ id: ThemeName; name: string; bg: string; line: string
  * AI 区 = M4a 直连档配置（pm.aiConfig，Key 只在本机）。
  */
 export function SettingsPage({ active }: { active: boolean }) {
-  const { paired, online, syncing, syncPct, syncMode, lastSync, runSync, pairWith, adoptPaired, unpair, theme, setTheme, toast, aiConfig, setActiveTab, kbSim, toggleKbSim, openSheet, settingsSec } = useApp()
+  const { paired, online, syncing, syncPct, syncMode, lastSync, runSync, pairWith, adoptPaired, unpair, theme, setTheme, prefs, setPref, toast, aiConfig, setActiveTab, kbSim, toggleKbSim, openSheet, settingsSec } = useApp()
   const ff = useFormFactor()
   /* 平板：分类隔离——侧栏点哪个分类就只渲染那个分类的设置项，后续设置项增多互不干扰；
    * 手机：单页滚动全展示。分类清单 SETTINGS_SECS 与此处 data-sec 一一对应（加分类两处同步加） */
@@ -307,6 +317,22 @@ export function SettingsPage({ active }: { active: boolean }) {
           </button>
           )}
           <NotifPermRow />
+          {/* 提醒提前量（pm.settings.remindLead，2026-11-08 拍板）：日程待办与打卡共用，
+              notify.rescheduleReminders 在开始时刻上减偏移；改选即触发全清重排 */}
+          <div style={{ borderTop: '1px solid var(--border-soft)', padding: '12px 0 4px' }}>
+            <div style={{ fontSize: 12.5, marginBottom: 9 }}>
+              提醒提前量 <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· 日程与打卡到点前</span>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', paddingBottom: 6 }}>
+              {LEAD_PICKS.map(l => (
+                <button
+                  key={l.v}
+                  className={'ph-chip' + (prefs.remindLead === l.v ? ' on' : '')}
+                  onClick={() => setPref('remindLead', l.v)}
+                >{l.n}</button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
       )}
@@ -345,24 +371,45 @@ export function SettingsPage({ active }: { active: boolean }) {
           {/* 外观：一行式主题入口（2026-11-06 方案 A——七套平铺占两行半高度，收进抽屉；
              色板展示目标主题自己的颜色，不随当前主题变） */}
           <button className="theme-entry" onClick={() => setThemeOpen(v => !v)}>
-            <span className="sw" style={{ background: curTheme.bg }}>
-              <span className="dot" style={{ background: curTheme.dot }} />
-              <i className="l1" style={{ background: curTheme.line }} />
-              <i className="l2" style={{ background: curTheme.line }} />
-            </span>
+            {prefs.themeAuto ? (
+              <span className="sw" style={AUTO_SW}>
+                <span className="dot" style={AUTO_SW_DOT} />
+                <i className="l1" style={AUTO_SW_LINE} />
+                <i className="l2" style={AUTO_SW_LINE} />
+              </span>
+            ) : (
+              <span className="sw" style={{ background: curTheme.bg }}>
+                <span className="dot" style={{ background: curTheme.dot }} />
+                <i className="l1" style={{ background: curTheme.line }} />
+                <i className="l2" style={{ background: curTheme.line }} />
+              </span>
+            )}
             <span className="body">
-              <span className="n">{curTheme.name}</span>
-              <span className="s">当前主题 · 点按更换</span>
+              <span className="n">{prefs.themeAuto ? '跟随系统' : curTheme.name}</span>
+              <span className="s">{prefs.themeAuto ? '深浅随系统切换 · 点按更换' : '当前主题 · 点按更换'}</span>
             </span>
             <IChevR size={14} style={{ transform: themeOpen ? 'rotate(90deg)' : 'none', transition: 'transform .16s' }} />
           </button>
           {themeOpen && (
             <div className="theme-grid" style={{ marginTop: 12, marginBottom: 4 }}>
+              {/* 自动（跟随系统深浅色，2026-11-08 拍板）：映射 dark/light 两套系统语义主题 */}
+              <button
+                className={'theme-chip' + (prefs.themeAuto ? ' on' : '')}
+                onClick={() => { setPref('themeAuto', true); setThemeOpen(false) }}
+              >
+                <span className="sw" style={AUTO_SW}>
+                  <span className="dot" style={AUTO_SW_DOT} />
+                  <i className="l1" style={AUTO_SW_LINE} />
+                  <i className="l2" style={AUTO_SW_LINE} />
+                </span>
+                <span className="nm">自动</span>
+                {prefs.themeAuto && <span className="tick"><ICheck size={10} /></span>}
+              </button>
               {THEME_PICKS.map(t => (
                 <button
                   key={t.id}
-                  className={'theme-chip' + (theme === t.id ? ' on' : '')}
-                  onClick={() => { setTheme(t.id); setThemeOpen(false) }}
+                  className={'theme-chip' + (!prefs.themeAuto && theme === t.id ? ' on' : '')}
+                  onClick={() => { setTheme(t.id); if (prefs.themeAuto) setPref('themeAuto', false); setThemeOpen(false) }}
                 >
                   <span className="sw" style={{ background: t.bg }}>
                     <span className="dot" style={{ background: t.dot }} />
@@ -370,7 +417,7 @@ export function SettingsPage({ active }: { active: boolean }) {
                     <i className="l2" style={{ background: t.line }} />
                   </span>
                   <span className="nm">{t.name}</span>
-                  {theme === t.id && <span className="tick"><ICheck size={10} /></span>}
+                  {!prefs.themeAuto && theme === t.id && <span className="tick"><ICheck size={10} /></span>}
                 </button>
               ))}
             </div>

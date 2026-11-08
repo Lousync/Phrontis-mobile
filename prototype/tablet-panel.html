@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>原型 · 平板全屏子页落位方案</title>
+<style>
+/* ============================================================
+   平板「全屏子页」落位原型（2026-11-08）
+   问题：FullPage 容器 inset:0 盖满整个窗口（含侧栏），手机密度的
+   表单在 ~1200px 宽下被拉成通栏——添加习惯是典型（用户截图点名的案例）。
+   受影响面（全部共用 .full-page 容器）：添加习惯 / 添加待办 / 记一笔 /
+   会话记录 / AI 配置 / 模型选择器——修一处全好。
+
+   本原型在平板壳层副本上，用「添加习惯」表单对比四种处理：
+   0 现状对照（撑满，体会问题）
+   A 全屏限宽（全屏保留 + 内容列 640px 居中——内容页已有 760px 同款先例）
+   B 居中浮卡（背板压暗 + 560px 圆角卡在内容区居中，桌面 app 对话框范式）
+   C 右侧抽屉（420px 全高列自右滑入——会话记录侧滑抽屉的同族镜像）
+   控制台只属于原型，拍板后不带进实现。
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg-primary: #1e1e1e; --bg-secondary: #252526; --bg-tertiary: #2d2d2d;
+  --bg-hover: #2a2d2e; --text-primary: #cccccc; --text-secondary: #969696;
+  --text-muted: #6e6e6e; --accent: #007acc; --accent-hover: #1a8ad4;
+  --accent-soft: rgba(0, 122, 204, .14); --border: #3c3c3c;
+  --border-soft: rgba(60, 60, 60, .55); --green: #89d185; --red: #f14c4c;
+  --outside: #141516; --glass: rgba(37, 37, 38, .78);
+}
+body {
+  background: var(--outside); color: var(--text-primary);
+  font-family: -apple-system, 'HarmonyOS Sans SC', 'Microsoft YaHei', sans-serif;
+  min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+  padding: 20px 16px 40px; gap: 14px;
+}
+
+/* ---------- 原型控制台 ---------- */
+.console {
+  width: min(1160px, 100%); background: #202123; border: 1px solid #33353a;
+  border-radius: 12px; padding: 12px 16px; font-size: 12.5px; line-height: 1.55;
+}
+.console .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.console b { font-size: 13px; }
+.chip {
+  border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-secondary);
+  border-radius: 999px; padding: 5px 12px; font-size: 12px; cursor: pointer; transition: all .15s;
+}
+.chip:hover { border-color: var(--accent); color: var(--text-primary); }
+.chip.on { background: var(--accent-soft); border-color: var(--accent); color: #6cb6ff; }
+.console .desc { color: var(--text-muted); font-size: 11.5px; margin-top: 7px; }
+.console .desc b { color: var(--text-secondary); font-size: 11.5px; }
+.console .inv { margin-left: auto; color: #8a8f98; font-size: 11px; cursor: pointer; text-decoration: underline dotted; }
+.console .inv-list {
+  display: none; margin-top: 9px; border-top: 1px dashed #33353a; padding-top: 8px;
+  color: var(--text-muted); font-size: 11.5px; line-height: 1.8;
+}
+.console .inv-list.show { display: block; }
+.console .inv-list code { color: #9cc3e0; font-size: 11px; background: #1a1b1d; padding: 1px 5px; border-radius: 4px; }
+
+/* ---------- 平板壳层副本 ---------- */
+.frame {
+  width: min(1160px, 100%); height: 800px; border-radius: 18px; overflow: hidden;
+  border: 1px solid #000; outline: 5px solid #26272b; box-shadow: 0 22px 60px rgba(0,0,0,.5);
+  display: flex; background: var(--bg-primary); position: relative;
+}
+/* 侧栏（域切换条 + 树的简化副本） */
+.side {
+  width: 232px; flex: none; background: var(--bg-secondary); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; z-index: 5; position: relative;
+}
+.side .brand { padding: 14px 16px 10px; font-weight: 700; font-size: 15px; border-bottom: 1px solid var(--border-soft); }
+.side .dom { display: flex; flex-direction: column; padding: 8px; gap: 2px; }
+.side .dom button {
+  display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 0; border-radius: 9px;
+  background: none; color: var(--text-secondary); font-size: 13px; cursor: pointer; text-align: left;
+}
+.side .dom button.on { background: var(--accent-soft); color: var(--text-primary); }
+.side .dom button:hover:not(.on) { background: var(--bg-hover); }
+.side .tree { flex: 1; border-top: 1px solid var(--border-soft); padding: 10px; font-size: 12px; color: var(--text-muted); overflow: hidden; }
+.side .tree .ti { padding: 4px 8px; border-radius: 6px; }
+.side .tree .ti.on { background: var(--bg-tertiary); color: var(--text-primary); }
+/* 内容区 */
+.content { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+.chead {
+  flex: none; height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 20px;
+  border-bottom: 1px solid var(--border); background: var(--bg-secondary);
+}
+.chead .t { font-size: 16px; font-weight: 700; }
+.chead .sub { font-size: 11.5px; color: var(--text-muted); }
+.cbody { flex: 1; overflow-y: auto; padding: 18px 22px; }
+.cbody .col { max-width: 760px; margin: 0 auto; }
+.sect { font-size: 12px; color: var(--text-muted); margin: 14px 0 8px; letter-spacing: .04em; }
+.habit-card {
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.habit-card .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.habit-card .nm { font-size: 13.5px; }
+.habit-card .meta { font-size: 11.5px; color: var(--text-muted); margin-left: auto; }
+.habit-card .pen {
+  width: 28px; height: 28px; border-radius: 8px; border: 0; background: none; color: var(--text-muted);
+  cursor: pointer; display: flex; align-items: center; justify-content: center; flex: none;
+}
+.habit-card .pen:hover { background: var(--bg-hover); color: var(--text-primary); }
+.add-bar {
+  margin-top: 12px; width: 100%; height: 42px; border-radius: 11px; border: 1px dashed var(--border);
+  background: none; color: var(--text-secondary); font-size: 13px; cursor: pointer;
+}
+.add-bar:hover { border-color: var(--accent); color: var(--text-primary); }
+.date-strip { display: flex; gap: 6px; margin-bottom: 4px; }
+.date-strip .d {
+  flex: 1; text-align: center; padding: 7px 0 6px; border-radius: 10px; font-size: 11.5px;
+  color: var(--text-muted); background: var(--bg-secondary); border: 1px solid transparent;
+}
+.date-strip .d.on { border-color: var(--accent); color: var(--text-primary); background: var(--accent-soft); }
+
+/* ---------- 覆盖层通用 ---------- */
+.overlay { position: absolute; inset: 0; z-index: 30; display: none; }
+.overlay.show { display: block; }
+.backdrop { position: absolute; inset: 0; background: rgba(10, 11, 12, .55); opacity: 0; transition: opacity .22s; }
+.overlay.show .backdrop { opacity: 1; }
+
+/* 表单本体（手机密度复刻：field / btn-primary） */
+.form { display: flex; flex-direction: column; height: 100%; }
+.fhead { flex: none; height: 50px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--border); }
+.fhead .back {
+  width: 30px; height: 30px; border-radius: 8px; border: 0; background: none; color: var(--text-secondary);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.fhead .back:hover { background: var(--bg-hover); }
+.fhead .tt { font-size: 15.5px; font-weight: 700; }
+.fbody { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 16px 22px; }
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+.field input {
+  width: 100%; height: 42px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--bg-secondary); color: var(--text-primary); font-size: 14px; padding: 0 12px; outline: none;
+}
+.field input:focus { border-color: var(--accent); }
+.hint { font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.6; }
+.btn-primary {
+  width: 100%; height: 44px; border-radius: 11px; border: 0; background: var(--accent);
+  color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.btn-primary:hover { background: var(--accent-hover); }
+
+/* ---------- 方案 0：现状（撑满，对照用） ---------- */
+.ov-plain { position: absolute; inset: 0; background: var(--bg-primary); }
+
+/* ---------- 方案 A：全屏限宽（内容列 640 居中，全屏保留） ---------- */
+.ov-cover { position: absolute; inset: 0; background: var(--bg-primary); }
+.ov-cover .col { max-width: 640px; margin: 0 auto; height: 100%; }
+
+/* ---------- 方案 B：居中浮卡（背板 + 560px 卡在内容区居中） ---------- */
+.ov-card { position: absolute; inset: 0; }
+.ov-card .card {
+  position: absolute; top: 50%; left: calc(50% + 116px);   /* 内容区（去掉 232px 侧栏）几何中心 */
+  transform: translate(-50%, -50%);
+  width: 560px; max-width: calc(100% - 280px);
+  height: fit-content; max-height: calc(100% - 90px);
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .55); overflow: hidden; display: flex; flex-direction: column;
+}
+.ov-card .card .fhead { border-bottom: 1px solid var(--border-soft); }
+.ov-card .card .fbody { padding-bottom: 18px; }
+.ov-card.anim .card { animation: cardIn .26s cubic-bezier(.23, 1, .32, 1); }
+@keyframes cardIn { from { opacity: 0; transform: translate(-50%, -50%) scale(.94); } }
+
+/* ---------- 方案 C：右侧抽屉（420px 全高列自右滑入） ---------- */
+.ov-drawer { position: absolute; inset: 0; }
+.ov-drawer .backdrop { left: 232px; }   /* 背板只压内容区，侧栏保持可用观感 */
+.ov-drawer .panel {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 420px; max-width: 88%;
+  background: var(--bg-secondary); border-left: 1px solid var(--border);
+  box-shadow: -18px 0 50px rgba(0, 0, 0, .45); display: flex; flex-direction: column;
+}
+.ov-drawer.anim .panel { animation: drawerIn .24s cubic-bezier(.23, 1, .32, 1); }
+.ov-drawer.anim .backdrop { animation: bdIn .24s; }
+@keyframes drawerIn { from { transform: translateX(60px); opacity: 0; } }
+@keyframes bdIn { from { opacity: 0; } }
+
+/* ---------- 方案 D：内联展开（就地浮起卡，列表下推） ---------- */
+.inline-form {
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 14px;
+  padding: 4px 16px 16px; margin: 12px 0 4px;
+  animation: bdIn .2s ease;
+}
+.inline-form .fhead { border-bottom: 0; height: 44px; padding: 0; }
+.inline-form .fbody { padding: 0; overflow: visible; }
+
+/* ---------- 方案 E：内容区分栏（列表收窄 + 表单停靠右栏，零遮罩） ---------- */
+.ov-split { position: absolute; top: 52px; right: 0; bottom: 0; width: 420px; background: var(--bg-primary); border-left: 1px solid var(--border); z-index: 20; }
+.content.split .cbody .col { max-width: none; margin-right: 444px; }   /* 列表收窄给右栏让位 */
+.ov-split.anim { animation: drawerIn .24s cubic-bezier(.23, 1, .32, 1); }
+
+/* ---------- 方案 F：内容区切页（表单占满内容列，侧栏不动） ---------- */
+.ov-page { position: absolute; top: 52px; left: 0; right: 0; bottom: 0; background: var(--bg-primary); z-index: 20; }
+.ov-page.anim { animation: bdIn .2s ease; }
+.ov-page.lim .form { max-width: 640px; width: 100%; margin: 0 auto; }   /* A+F：限宽列居中 */
+.content.page-on .cbody { visibility: hidden; }   /* 列表整列让位（保持滚动位置） */
+
+/* toast */
+.toast {
+  position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%);
+  background: rgba(45,45,48,.95); border: 1px solid var(--border); color: var(--text-primary);
+  font-size: 12.5px; padding: 8px 16px; border-radius: 10px; opacity: 0; pointer-events: none;
+  transition: opacity .2s; white-space: nowrap; z-index: 60;
+}
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="console">
+  <div class="row">
+    <b>平板全屏子页 · 落位方案</b>
+    <button class="chip on" data-v="plain">0 现状对照</button>
+    <button class="chip" data-v="cover">A 全屏限宽</button>
+    <button class="chip" data-v="card">B 居中浮卡</button>
+    <button class="chip" data-v="drawer">C 右侧抽屉</button>
+    <button class="chip" data-v="inline">D 内联展开</button>
+    <button class="chip" data-v="split">E 内容区分栏</button>
+    <button class="chip" data-v="page">F 内容区切页</button>
+    <button class="chip" data-v="af">A+F 合并</button>
+    <span class="inv" id="inv-toggle">受影响界面清单</span>
+  </div>
+  <div class="desc" id="desc"></div>
+  <div class="inv-list" id="inv">
+    受影响面（共用 <code>.full-page</code> 容器，<code>position:absolute; inset:0</code> 盖满含侧栏的整窗，内部手机密度表单无平板处理——常规内容页已有 <code>.app.tablet .page &gt; * max-width:760px</code> 先例，全屏子页漏了同款）：<br>
+    · 添加/编辑习惯（SchedulePage）· 添加待办（SchedulePage）· 记一笔/改一笔（LedgerPage）<br>
+    · 会话记录（AiPage）· AI 配置编辑（SettingsPage）· 模型选择器（ModelPicker，portal .app 同病）<br>
+    落码成本：三种方案都是 <code>FullPage</code> 一个容器 + CSS（useFormFactor 分支），五个调用点一次全好；ModelPicker 单独跟一行的 CSS。
+  </div>
+</div>
+
+<div class="frame" id="frame">
+  <!-- 平板侧栏副本 -->
+  <div class="side">
+    <div class="brand">Phrontis</div>
+    <div class="dom">
+      <button>📓 笔记</button>
+      <button class="on">✓ 日程</button>
+      <button>￥ 记账</button>
+      <button>✎ 错题</button>
+      <button>⚙ 设置</button>
+    </div>
+    <div class="tree">
+      <div class="ti on">打卡习惯</div>
+      <div class="ti">今天 · 3 条待办</div>
+      <div class="ti">明天 · 1 条待办</div>
+      <div class="ti">已归档</div>
+    </div>
+  </div>
+
+  <!-- 内容区：日程页副本 -->
+  <div class="content">
+    <div class="chead"><span class="t">日程</span><span class="sub">11 月 8 日 周六</span></div>
+    <div class="cbody">
+      <div class="col">
+        <div class="date-strip">
+          <div class="d">一 3</div><div class="d">二 4</div><div class="d">三 5</div><div class="d">四 6</div><div class="d">五 7</div><div class="d on">六 8</div><div class="d">日 9</div>
+        </div>
+        <div class="sect">打卡习惯</div>
+        <div class="habit-card">
+          <span class="dot" style="background:#4d6bfe"></span>
+          <span class="nm">背单词</span><span class="meta">本周 5/7 · 提醒 08:30</span>
+          <button class="pen" title="编辑（同样打开表单）">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </button>
+        </div>
+        <div class="habit-card">
+          <span class="dot" style="background:#178343"></span>
+          <span class="nm">跑步</span><span class="meta">本周 4/5 · 未设提醒</span>
+          <button class="pen" title="编辑（同样打开表单）">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </button>
+        </div>
+        <button class="add-bar" id="open-btn">＋ 添加习惯</button>
+        <div id="inline-slot"></div>
+        <div class="sect">今天的待办</div>
+        <div class="habit-card"><span class="dot" style="background:#3794ff"></span><span class="nm">复习进程与线程笔记</span><span class="meta">19:00</span></div>
+        <div class="habit-card"><span class="dot" style="background:#3794ff"></span><span class="nm">做完第 3 章错题</span><span class="meta">21:30</span></div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <!-- E：内容区右栏停靠表单（非遮罩，与列表并存） -->
+    <div class="ov-split" id="ov-split" hidden>
+      <div class="form">
+        <div class="fhead">
+          <button class="back" data-close aria-label="收起"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <span class="tt">添加习惯</span>
+        </div>
+        <div class="fbody" data-body></div>
+      </div>
+    </div>
+
+    <!-- F：内容区整页切换（侧栏不动） -->
+    <div class="ov-page" id="ov-page" hidden>
+      <div class="form">
+        <div class="fhead">
+          <button class="back" data-close aria-label="返回"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <span class="tt">添加习惯</span>
+        </div>
+        <div class="fbody" data-body></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== 覆盖层（四选一渲染；挂 frame 层=与 .full-page 的 inset:0 同语义，盖整窗含侧栏） ======== -->
+
+    <!-- 0 现状：手机表单原样撑满整窗 -->
+    <div class="overlay ov-plain" id="ov-plain">
+      <div class="ov-plain">
+        <div class="form">
+          <div class="fhead">
+            <button class="back" data-close aria-label="返回"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <span class="tt">添加习惯</span>
+          </div>
+          <div class="fbody" data-body></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- A 全屏限宽 -->
+    <div class="overlay ov-cover" id="ov-cover">
+      <div class="ov-cover">
+        <div class="col">
+          <div class="form">
+            <div class="fhead">
+              <button class="back" data-close aria-label="返回"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+              <span class="tt">添加习惯</span>
+            </div>
+            <div class="fbody" data-body></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- B 居中浮卡 -->
+    <div class="overlay ov-card" id="ov-card">
+      <div class="backdrop" data-close></div>
+      <div class="card">
+        <div class="form">
+          <div class="fhead">
+            <button class="back" data-close aria-label="返回"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <span class="tt">添加习惯</span>
+          </div>
+          <div class="fbody" data-body></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- C 右侧抽屉 -->
+    <div class="overlay ov-drawer" id="ov-drawer">
+      <div class="backdrop" data-close></div>
+      <div class="panel">
+        <div class="form">
+          <div class="fhead">
+            <button class="back" data-close aria-label="返回"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <span class="tt">添加习惯</span>
+          </div>
+          <div class="fbody" data-body></div>
+        </div>
+      </div>
+    </div>
+
+</div>
+
+<script>
+/* ---------- 表单体（复刻 HabitForm 的手机密度；四处引用同一份 DOM） ---------- */
+const FORM_HTML = `
+  <div class="field"><label>名称</label><input placeholder="比如：背单词" /></div>
+  <div class="field"><label>每周目标（天）</label><input class="mono" type="number" value="7" /></div>
+  <div class="field"><label>每天提醒（可选）</label><input type="time" placeholder="--:--" /><div class="hint">到点发本地通知提醒打卡；当天已打卡就不再提醒。通知权限在「设置 → 工具」查看。</div></div>
+  <button class="btn-primary" data-save>保存到手机</button>
+`
+document.querySelectorAll('[data-body]').forEach(b => { b.innerHTML = FORM_HTML })
+
+/* ---------- 方案切换 ---------- */
+const DESCS = {
+  plain:  '<b>现状对照</b>：表单撑满整窗、盖住侧栏，比例失衡（你截图点名的问题）。落码 = 什么都不改。',
+  cover:  '<b>A 全屏限宽</b>：全屏保留（圆形扩散入场不变），内容列 640px 居中——与常规内容页 760px 限宽同款先例。改动最小（纯 CSS 一行），但整屏仍被盖住、两侧留大片空底色。',
+  card:   '<b>B 居中浮卡</b>：背板压暗整窗，560px 圆角卡在<b>内容区</b>几何中心（不压侧栏视野重心）；侧栏与上下文透出。桌面 app 对话框范式，复杂表单/嵌套（AI 配置→模型选择器）也站得住。入场可保留从触发点圆形扩散（clip 在卡片上）。',
+  drawer: '<b>C 右侧抽屉</b>：420px 全高列自右滑入（会话记录左侧抽屉的同族镜像，AGENTS.md 只禁 bottom sheet），背板只压内容区；「在列表旁边快速填一条」的语境最好，适合记一笔/添加待办/添加习惯这类轻表单。',
+  inline: '<b>D 内联展开</b>：点「添加习惯」后表单卡<b>就地浮起</b>，列表被自然推下去，无遮罩无盖层——项目已有先例（平板快捷添加待办 QuickTodoAdd，2026-11-06 真机反馈拍的同款范式）。语境最顺，改完收起列表回弹；适合中短表单。',
+  split:  '<b>E 内容区分栏</b>：进入添加态时内容区变<b>双栏</b>——列表收窄留左、表单停靠右栏（master-detail 主从结构），零遮罩、互相可见。最「平板原生」的范式；适合添加/编辑频繁的域。成本中高：内容页要支持分栏态。',
+  page:   '<b>F 内容区切页</b>：表单临时占满<b>内容区</b>（侧栏纹丝不动，恒定两栏铁律不破），返回切回列表——与全局圆形扩散切页动效同源，相当于把「全屏子页」从盖整窗改为只在内容列里切页。专注度最高且不遮任何东西；所有表单统一走这一种最省心智。',
+  af:     '<b>A+F 合并</b>：F 的内容区整页切换（侧栏不动、两栏铁律不破）+ A 的<b>限宽 640px 内容列居中</b>——表单比例正常、无遮罩、盖层为 0；入场从触发点圆形扩散（clip 在内容列上，与全局切页动效完全同源）。宽表单（更多字段）时列内自然滚动。',
+}
+const frame = document.getElementById('frame')
+const toastEl = document.getElementById('toast')
+let mode = 'plain'
+let toastTimer = null
+function toast(msg) {
+  toastEl.textContent = msg; toastEl.classList.add('show')
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1600)
+}
+function applyMode() {
+  document.querySelectorAll('.console .chip[data-v]').forEach(c => c.classList.toggle('on', c.dataset.v === mode))
+  document.getElementById('desc').innerHTML = DESCS[mode]
+  /* 关掉再切，避免跨方案残留动画 */
+  closeAll()
+}
+document.querySelectorAll('.console .chip[data-v]').forEach(c => c.onclick = () => { mode = c.dataset.v; applyMode() })
+document.getElementById('inv-toggle').onclick = () => document.getElementById('inv').classList.toggle('show')
+
+/* ---------- 打开 / 关闭 ---------- */
+function closeAll() {
+  document.querySelectorAll('.overlay').forEach(o => { o.classList.remove('show', 'anim') })
+  document.getElementById('inline-slot').hidden = true
+  const split = document.getElementById('ov-split')
+  split.hidden = true; split.classList.remove('anim')
+  const page = document.getElementById('ov-page')
+  page.hidden = true; page.classList.remove('anim', 'lim')
+  document.querySelector('.content').classList.remove('split', 'page-on')
+}
+function openForm(fromLabel) {
+  closeAll()
+  const label = `方案 ${mode === 'plain' ? '0（现状）' : mode.toUpperCase()} · ${fromLabel}`
+  if (mode === 'inline') {
+    /* D：就地浮起——表单卡插进列表里，把内容推下去 */
+    const slot = document.getElementById('inline-slot')
+    if (!slot.childElementCount) slot.innerHTML = `<div class="inline-form"><div class="form"><div class="fhead"><button class="back" data-close aria-label="收起"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg></button><span class="tt">添加习惯</span></div><div class="fbody">${FORM_HTML}</div></div></div>`
+    slot.hidden = false
+    slot.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  } else if (mode === 'split') {
+    /* E：内容区分栏——列表收窄、表单停靠右栏，零遮罩 */
+    document.querySelector('.content').classList.add('split')
+    const ov = document.getElementById('ov-split')
+    ov.hidden = false; ov.classList.add('anim')
+  } else if (mode === 'page' || mode === 'af') {
+    /* F / A+F：内容区整页切换——列表让位（隐藏不销毁，滚动位置保留），侧栏不动 */
+    document.querySelector('.content').classList.add('page-on')
+    const ov = document.getElementById('ov-page')
+    ov.hidden = false; ov.classList.add('anim')
+    ov.classList.toggle('lim', mode === 'af')
+    if (mode === 'af') {
+      /* 入场动效与全局切页同源：从触发按钮中心圆形扩散（clip 在内容区上） */
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      const btn = document.getElementById('open-btn')
+      if (!reduce && btn) {
+        const rect = ov.getBoundingClientRect()
+        const b = btn.getBoundingClientRect()
+        const x = b.left + b.width / 2 - rect.left
+        const y = b.top + b.height / 2 - rect.top
+        const r = Math.hypot(Math.max(x, rect.width - x), Math.max(y, rect.height - y))
+        ov.animate(
+          [{ clipPath: `circle(0px at ${x}px ${y}px)` }, { clipPath: `circle(${r}px at ${x}px ${y}px)` }],
+          { duration: 280, easing: 'cubic-bezier(.23,1,.32,1)' },
+        )
+      }
+    }
+  } else {
+    const ov = document.getElementById('ov-' + mode)
+    ov.classList.add('show')
+    if (mode === 'card' || mode === 'drawer') ov.classList.add('anim')
+  }
+  toast(label)
+}
+document.getElementById('open-btn').onclick = () => openForm('添加习惯')
+document.querySelectorAll('.pen').forEach(p => p.onclick = () => openForm('编辑习惯（标题会换成「编辑习惯」，其余相同）'))
+document.querySelectorAll('[data-close]').forEach(b => b.onclick = closeAll)
+document.addEventListener('click', e => { if (e.target.closest('[data-close]')) closeAll() })
+document.querySelectorAll('[data-save]').forEach(b => b.onclick = closeAll)
+window.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll() })
+
+applyMode()
+</script>
+</body>
+</html>
