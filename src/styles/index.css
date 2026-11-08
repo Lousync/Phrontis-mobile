@@ -803,7 +803,7 @@ button.vault-line:disabled { cursor: default; }
 .chip-row { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0; scrollbar-width: none; }
 .chip-row::-webkit-scrollbar { display: none; }
 .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 6px; }
-.keypad button { height: 50px; border-radius: 12px; background: var(--bg-tertiary); font-size: 20px; font-weight: 600; color: var(--text-primary); transition: background .1s, transform .08s; }
+.keypad button { display: flex; align-items: center; justify-content: center; height: 50px; border-radius: 12px; background: var(--bg-tertiary); font-size: 20px; font-weight: 600; color: var(--text-primary); transition: background .1s, transform .08s; }
 .keypad button:hover { background: var(--bg-hover); }
 .keypad button:active { transform: scale(.93); }
 .field { margin: 12px 0; }
