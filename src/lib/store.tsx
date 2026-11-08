@@ -369,6 +369,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   /* Tab 切换 = 从按点圆形铺开：旧帧定格为底、新页经 clip-path 圆铺满（260ms）。
      View Transitions 需要 WebView 111+；不支持或系统减动效 → 瞬时切换 */
   const setActiveTab = useCallback((t: string, from?: HTMLElement | null) => {
+    /* 换区导航 = 收回任何挡在内容区上的全屏子页。平板 A+F 停靠后子页只盖内容区、
+       侧栏可点，但不关子页的话切页发生在子页底下，看起来像「无法跳转」；
+       手机子页盖整窗、导航本来就点不到，这个状态泄漏此前暴露不出来。
+       同区再点也收回（侧栏点当前区 = 回区根）。已空时 setState 原地 bailout，无开销 */
+    setSheet(null)
+    setSheetOrigin(null)
     if (t === activeTabRef.current) return
     const doc = document as Document & { startViewTransition?: (cb: () => void) => { ready: Promise<void> } }
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
