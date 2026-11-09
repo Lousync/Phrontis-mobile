@@ -702,8 +702,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [toast, applyRemoteLedger, applyRemoteSchedule, applyRemoteNotes, applyTombstones])
 
   /* v1.7 静默对账：写操作防抖 / 回前台的「立即拉平」——停循环（顶掉在途）→ push+pull → 重建循环。
-     无 toast（区别于手动 runSync）；失败静默，离线由循环退避接手。 */
+     无 toast（区别于手动 runSync）；失败静默，离线由循环退避接手。
+     离线使用总闸在入口单点收口：一切自动对账路径（写防抖、监督器恢复）统一进这里，
+     防抖在途时开了总闸也不许发出流量、不许在收尾重建挂起循环 */
   const reconcileQuiet = useCallback(() => {
+    if (offlineUseRef.current) return
     void (async () => {
       if (syncingRef.current) return
       if (!getPaired()) return
@@ -1166,12 +1169,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setVaultState('cached')
   }, [])
 
-  /* 进笔记页且已配对 → 自动拉目录树 */
+  /* 进笔记页且已配对 → 自动拉目录树；离线使用中不拉（否则进页必弹「目录拉取超时」，
+     笔记页恰是默认启动页）——离线看缓存，顶部手动刷新按钮仍在（显式动作照常报错） */
   useEffect(() => {
-    if (activeTab !== 'notes' || !paired) return
+    if (activeTab !== 'notes' || !paired || prefs.offlineUse) return
     fetchVaultTree()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, paired])
+  }, [activeTab, paired, prefs.offlineUse])
 
   /* 选择同步增量对账：60s 一轮 + 进页/选区变化即触发（mtimeMs 变了才重拉，在线时选中内容自动保持最新） */
   const vaultRefreshingRef = useRef(false)
@@ -1203,12 +1207,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })()
   }
   useEffect(() => {
-    if (activeTab !== 'notes' || !paired) return
+    if (activeTab !== 'notes' || !paired || prefs.offlineUse) return
     vaultRefreshRef.current()
     const t = setInterval(() => vaultRefreshRef.current(), 60_000)
     return () => clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, paired, vaultTree, syncSel])
+  }, [activeTab, paired, vaultTree, syncSel, prefs.offlineUse])
 
   /* ---------- 刷题（桌面 quiz 模块移动子集） ----------
    * 掌握判定对齐桌面：连续答对 ≥2 自动移出错题本（streak 累加），答错清零回流。
