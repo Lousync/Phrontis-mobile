@@ -279,4 +279,6 @@ export interface AppPrefs {
   themeAuto: boolean
   /** 提醒提前量（分钟）：日程待办与打卡到点前提醒；0=准点 */
   remindLead: number
+  /** 离线使用：开=连接监督器与挂起循环全停（conn 落 paused），不再自动重连电脑，数据只记本机；显式连接类操作（配对/重新连接）会自动退出该模式 */
+  offlineUse: boolean
 }

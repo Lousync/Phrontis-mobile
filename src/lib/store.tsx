@@ -54,7 +54,7 @@ const K_SYNC_SEL = 'pm.noteSyncSel'
 const K_THEME = 'pm.theme'
 /** 用户偏好单键（pm.settings）：新增偏好字段只要进 DEFAULT_PREFS，旧数据浅合并自动兜底，免迁移 */
 const K_PREFS = 'pm.settings'
-const DEFAULT_PREFS: AppPrefs = { themeAuto: false, remindLead: 0 }
+const DEFAULT_PREFS: AppPrefs = { themeAuto: false, remindLead: 0, offlineUse: false }
 
 function loadPrefs(): AppPrefs {
   return { ...DEFAULT_PREFS, ...loadJson<Partial<AppPrefs>>(K_PREFS, {}) }
@@ -100,7 +100,7 @@ interface Store {
 
   /* 同步 */
   online: boolean
-  /** 连接四态（conn==='online' 时 online 恒 true）：auth 需重新配对，offline 自动重连中 */
+  /** 连接四态（conn==='online' 时 online 恒 true）：auth 需重新配对，offline 自动重连中，paused 离线使用（不同步电脑） */
   conn: ConnState
   /** 立即重探一次（「重新连接」按钮） */
   reconnectNow: () => void
@@ -255,8 +255,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [kbSim, setKbSim] = useState(false)
   const [kbOpen, setKbOpen] = useState(false)
 
-  /* 连接四态（WP4 监督器的被控状态）；online 为派生兼容值（chrome 状态条等旧 UI 继续用） */
-  const [conn, setConn] = useState<ConnState>('online')
+  /* 连接四态（WP4 监督器的被控状态）；online 为派生兼容值（chrome 状态条等旧 UI 继续用）。
+     冷启动直接按离线使用偏好落 paused，避免先渲染一帧「已连接」 */
+  const [conn, setConn] = useState<ConnState>(() => (prefs.offlineUse ? 'paused' : 'online'))
   const online = conn === 'online'
   const [syncing, setSyncing] = useState(false)
   const [syncPct, setSyncPct] = useState(0)
@@ -337,6 +338,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   /* 最新状态镜像：供定时器/异步回调读取，避免陈旧闭包 */
   const connRef = useRef(conn); connRef.current = conn
   const onlineRef = useRef(online); onlineRef.current = online
+  const offlineUseRef = useRef(prefs.offlineUse); offlineUseRef.current = prefs.offlineUse
   const syncingRef = useRef(syncing); syncingRef.current = syncing
   const pendingRef = useRef(pending); pendingRef.current = pending
   const sessionsRef = useRef(sessions); sessionsRef.current = sessions
@@ -649,8 +651,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void (async () => {
       if (syncingRef.current) return
       if (!getPaired()) { toast('先到「设置」配对电脑，才能同步', 'warn'); return }
-      /* 离线/失效不再直接搁置：先 ping 一次给机会（auth 引导重新配对，offline 提示后自动重连） */
-      if (!onlineRef.current) {
+      /* 离线使用中（paused）：立即同步仍是用户显式动作，放行为一次性对账——conn 保持 paused，
+         也不重建挂起循环（off 为真时下面两处 maybeStart 全部跳过） */
+      const off = offlineUseRef.current
+      /* 离线/失效不再直接搁置：先 ping 一次给机会（auth 引导重新配对，offline 提示后自动重连）；
+         离线使用中跳过 pre-ping（conn 不许离开 paused），可达性交给 syncNow 的网络错误提示 */
+      if (!off && !onlineRef.current) {
         const r = await pingPaired()
         if (r.state === 'auth') { setConn('auth'); toast('电脑不再认识这台设备，请重新配对', 'warn'); return }
         if (r.state !== 'online') { toast('连不上电脑：确认同一网络、电脑端服务已开启（会自动重试）', 'warn'); return }
@@ -659,7 +665,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       /* v1.7：对账前先停挂起循环（顶掉在途，避免双 pull 并发），收尾重建 */
       rtRef.current?.stop()
       /* 真实对账（push 队列 + pull 三域增量 + 墓碑） */
-      if (getQueue().length === 0 && pendingRef.current.length === 0) { rtRef.current?.maybeStart(); toast('没有待同步的变更', 'info'); return }
+      if (getQueue().length === 0 && pendingRef.current.length === 0) { if (!off) rtRef.current?.maybeStart(); toast('没有待同步的变更', 'info'); return }
       setSyncing(true)
       setSyncPct(8)
       try {
@@ -690,7 +696,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setSyncPct(0)
         toast(e instanceof Error ? e.message : '同步失败', 'warn')
       } finally {
-        rtRef.current?.maybeStart()
+        if (!offlineUseRef.current) rtRef.current?.maybeStart()
       }
     })()
   }, [toast, applyRemoteLedger, applyRemoteSchedule, applyRemoteNotes, applyTombstones])
@@ -799,21 +805,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void supervisorTick()
   }, [supervisorStop, supervisorTick])
 
-  /* 配对即进监督器（auth/offline 转变不需要重启——tick 内自管）；解除配对/暂停时停 */
+  /* 配对即进监督器（auth/offline 转变不需要重启——tick 内自管）；解除配对/离线使用时停。
+     离线使用是总闸：开 → 监督器与挂起循环全停、conn 落 paused（不再自动重连，数据只记本机）；
+     关 + 已配对 → 监督器拉起恢复自动重连。显式连接类操作（pairWith/adoptPaired/reconnectNow）
+     走 setPref 退出离线使用，统一汇入这条 effect，不各自私自起监督器 */
   useEffect(() => {
+    if (prefs.offlineUse) {
+      supervisorStop()
+      rtRef.current?.stop()
+      if (paired) setConn('paused')
+      return
+    }
     if (!paired) { supervisorStop(); return }
     supervisorStart()
     return () => supervisorStop()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paired])
+  }, [paired, prefs.offlineUse])
 
-  /** 「重新连接」：立即探测一次（监督器停着时也拉起） */
+  /** 「重新连接」：立即探测一次（监督器停着时也拉起）；离线使用中 = 显式连接意图，自动退出该模式 */
   const reconnectNow = useCallback(() => {
     if (!getPaired()) { toast('先到「设置」配对电脑，才能连接', 'warn'); return }
+    if (offlineUseRef.current) {
+      setPref('offlineUse', false)
+      toast('已退出离线使用 · 正在连接 ' + (getPaired()?.pcName || '电脑') + '…', 'info')
+      return
+    }
     if (supervisorRef.current.stopped) supervisorStart()
     supervisorPoke()
     toast('正在连接 ' + (getPaired()?.pcName || '电脑') + '…', 'info')
-  }, [toast, supervisorStart, supervisorPoke])
+  }, [toast, supervisorStart, supervisorPoke, setPref])
 
   /** 地址修复（WP5）：发现到候选后用现有令牌试连，ping 通才替换 baseUrl（本地数据不动） */
   const repairAddress = useCallback(async (baseUrl: string): Promise<boolean> => {
@@ -838,21 +858,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const device = await pairRequest(input, code, getDeviceName())
       setPaired(device)
-      toast('已配对 ' + device.pcName + ' · 开始首次对账', 'ok')
+      /* 配对成功 = 显式连接意图：离线使用中自动退出，避免「刚配对完却永远 paused」。
+         offlineUseRef 仍持旧值（ref 随下一次渲染才刷新），正好用于本次 toast 文案 */
+      const back = offlineUseRef.current ? ' · 已退出离线使用' : ''
+      if (offlineUseRef.current) setPref('offlineUse', false)
+      toast('已配对 ' + device.pcName + ' · 开始首次对账' + back, 'ok')
       /* 监督器随 paired 变更自动起跑（首探确认后接首次对账）；这里不等探测，500ms 后直接对一次 */
       setTimeout(() => reconcileQuietRef.current(), 500)
     } catch (e) {
       toast(e instanceof Error ? e.message : '配对失败', 'warn')
     }
-  }, [toast])
+  }, [toast, setPref])
 
   /** v1.5 请求式配对：pollPair 已落盘令牌，这里同步内存态并接上首次对账 */
   const adoptPaired = useCallback(async (device: PairedDevice) => {
     setPaired(device)
-    toast('已配对 ' + device.pcName + ' · 开始首次对账', 'ok')
+    /* 同 pairWith：配对成功自动退出离线使用 */
+    const back = offlineUseRef.current ? ' · 已退出离线使用' : ''
+    if (offlineUseRef.current) setPref('offlineUse', false)
+    toast('已配对 ' + device.pcName + ' · 开始首次对账' + back, 'ok')
     /* 监督器随 paired 变更自动起跑；首次对账不等探测 */
     setTimeout(() => reconcileQuietRef.current(), 500)
-  }, [toast])
+  }, [toast, setPref])
 
   const unpair = useCallback(() => {
     rtRef.current?.stop()
@@ -874,13 +901,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   /* v1.7 前后台（电池硬要求）：退后台暂停挂起循环（取消在途——后台 fetch 被冻结行为不可控）；
      回前台无条件戳监督器（不看旧 online——WP4：电脑后开/换 IP 的场景旧值恒 false 会永远离线），
-     监督器首探在线 → reconcileQuiet 拉平积压 → 重建挂起循环 */
+     监督器首探在线 → reconcileQuiet 拉平积压 → 重建挂起循环。
+     离线使用中不戳（总闸 effect 已全停，回前台也不许自动重连） */
   useEffect(() => {
     const onVis = () => {
       if (document.hidden) {
         rtRef.current?.stop()
       } else {
-        supervisorPokeRef.current?.()
+        if (!offlineUseRef.current) supervisorPokeRef.current?.()
       }
     }
     document.addEventListener('visibilitychange', onVis)

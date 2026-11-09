@@ -319,8 +319,9 @@ const picker = (
                 <div className="info">
                   <div className="n">{paired.pcName}</div>
                   <div className="s"><span className="gdot" /><span>
-                    {/* 连接四态 + v1.7 同步三态：auth 是「需重新配对」，不是离线 */}
+                    {/* 连接四态 + v1.7 同步三态：auth 是「需重新配对」，不是离线；paused 是离线使用（主动不连） */}
                     {conn === 'auth' ? '电脑不认识这台设备 · 需重新配对'
+                      : conn === 'paused' ? '离线使用中 · 不同步电脑'
                       : syncMode === 'hang' ? '已连接 · 实时'
                       : syncMode === 'poll' ? '已连接 · 轮询 30s（电脑版本较旧）'
                       : online ? '已连接' : '离线 · 自动重连中'} · 上次同步 {lastSync}</span></div>
@@ -365,6 +366,22 @@ const picker = (
               </div>
             </>
           )}
+        </div>
+        {/* 离线使用（2026-11-09）：停自动重连的总闸——监督器/挂起循环全停（conn 落 paused），
+            数据只记本机；显式连接类操作（配对 / 重新连接）自动退出。总闸实现统一汇入 store 监督器 effect。
+            行内 why 小字「不自动连接电脑」即全部说明，用户拍板不再放修饰长文案 */}
+        <div className="ph-card" style={{ marginTop: 10 }}>
+          <div className="check-row">
+            <span>离线使用</span>
+            <span className="why">不自动连接电脑</span>
+            <Switch isSelected={prefs.offlineUse} onChange={v => setPref('offlineUse', v)} aria-label="离线使用" size="sm">
+              <SwitchContent>
+                <SwitchControl>
+                  <SwitchThumb />
+                </SwitchControl>
+              </SwitchContent>
+            </Switch>
+          </div>
         </div>
       </div>
       )}

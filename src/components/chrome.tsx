@@ -28,6 +28,12 @@ export function SyncMeta() {
   )
   /* WP5：auth（令牌失效）与 offline 是两回事——前者要去重新配对，不是干等重连 */
   if (conn === 'auth') return <div className="c-meta off"><span className="c-mdot" />电脑不认识这台设备 · 去设置重新配对</div>
+  /* paused：离线使用（用户主动停自动连接）——中性色，不挂红条吓人；有别于 offline 的自动重连 */
+  if (conn === 'paused') return (
+    <div className="c-meta">
+      <span className="c-mdot" />离线使用中{pending.length ? ` · 待同步 ${pending.length} 条留待之后同步` : ' · 数据照常记在本机'}
+    </div>
+  )
   if (!online) return <div className="c-meta off"><span className="c-mdot" />电脑离线 · 自动重连中 · 数据照常记在本机</div>
   if (pending.length) return <div className="c-meta warn"><span className="c-mdot" />待同步 {pending.length} 条 · 联网后自动重试</div>
   return <div className="c-meta"><span className="c-mdot" />已连接 {paired.pcName} · 上次同步 {lastSync}</div>
