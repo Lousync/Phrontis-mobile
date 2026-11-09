@@ -13,6 +13,7 @@ import { AI_MAX_ROUNDS, aiConfigReady, chatOnce, loadAiConfig, parseToolArgs, sa
 import { AI_TOOLS, buildSystemPrompt, quizQueryForModel, quizStatsForModel, validateLedgerAdd, validateNoteCreate, validateQuizAdd, validateQuizDel, validateQuizNote, validateTodoAdd, type ToolResult } from './aiTools'
 import { fetchNoteContent, fetchNoteTree, loadNoteCache, loadNoteTree, saveNoteCache, saveNoteTree } from './sync'
 import { initNotifPermission, rescheduleReminders, requestNotifPermission, type NotifPerm } from './notify'
+import { setUpdateFoundNotifier, updateStartupCheck } from './update'
 
 export interface ToastItem { id: number; msg: string; type: 'ok' | 'warn' | 'info' }
 
@@ -1677,6 +1678,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => { void rescheduleReminders(todos, habits, prefs.remindLead) }, [todos, habits, prefs.remindLead])
+
+  /* ---- 应用内更新（docs/design.md §7.1）：启动静默检查（≥24h 节流，模块内自带）；
+        发现新版 toast 一次指路设置-关于，状态本体走 lib/update 的独立订阅（不走本 Context，
+        进度事件 200ms 一跳不该牵动全部常挂页面） ---- */
+  useEffect(() => {
+    setUpdateFoundNotifier(ver => toast(`发现新版本 v${ver}，见设置 → 关于`, 'info'))
+    updateStartupCheck()
+  }, [toast])
   const requestNotifPerm = useCallback(async () => {
     const perm = await requestNotifPermission()
     setNotifPerm(perm)

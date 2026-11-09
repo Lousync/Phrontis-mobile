@@ -57,4 +57,9 @@
     <!-- 触感反馈：navigator.vibrate 在 WebView 里要求 app 持有该权限，未声明会静默失败
          （勾选待办 / 长按删除的 10ms 顿感此前在真机上实际不生效） -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 应用内更新（docs/design.md §7.1）：Android 8.0 起安装其他应用来源的 APK 要此权限声明，
+         首次拉起安装器前由用户在系统设置里给本应用开「允许安装未知应用」（一次性授权，
+         PhrontisUpdater.openInstallPermSettings 直达该页）。侧载分发没有静默安装，
+         最后一步永远停在系统安装器由用户点「安装」。 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 </manifest>

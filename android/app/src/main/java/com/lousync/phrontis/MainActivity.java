@@ -50,6 +50,7 @@ public class MainActivity extends BridgeActivity {
          *   从 0.8.0 起在真机上从未注册成功（isPluginAvailable 恒 false，组播与自知网段
          *   整条原生路是死的，2026-11-08 复盘实锤）。 */
         registerPlugin(PhrontisDiscover.class);
+        registerPlugin(PhrontisUpdater.class);
         super.onCreate(savedInstanceState);
         applyOrientationPolicy();
         hookInsets();

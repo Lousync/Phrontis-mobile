@@ -4,6 +4,11 @@ import { Clipboard } from '@capacitor/clipboard'
 import type { AiConfig, AiProvider, ThemeName } from '../../lib/types'
 import { AI_MAX_ROUNDS, AI_PRESETS, aiConfigReady, fetchModels, parseMaxRounds, presetOf, recOf, testAiConfig, type AiPreset } from '../../lib/ai'
 import { discoverCompanions, getDeviceName, pollPair, requestPair, type DiscoveredPc } from '../../lib/sync'
+import {
+  QUICK_MIRRORS, getMirrorInput, installPermGranted, openInstallPermSettings, openReleasePage,
+  setMirrorInput, updateCancel, updateCheck, updateDownload, updateFailMessage, updateInstall,
+  updatePause, updateStageText, updateSupported, useUpdateState,
+} from '../../lib/update'
 import { useApp, type SettingsSec } from '../../lib/store'
 import { useFormFactor } from '../../lib/useFormFactor'
 import { UsagePanel } from './UsagePage'
@@ -535,10 +540,160 @@ const picker = (
             </Switch>
           </div>
         </div>
+        {/* 应用内更新（docs/design.md §7.1）：仅 Android 原生壳渲染，web dev / iOS 无此卡 */}
+        {updateSupported() && <UpdateCard />}
         <div className="ver">Phrontis Mobile {__APP_VERSION__}</div>
       </div>
       )}
     </section>
+  )
+}
+
+/* =========================================================================
+   应用内更新卡（docs/design.md §7.1，2026-11-09）：检查 → 镜像链下载 → sha256 校验
+   → 拉起系统安装器。状态本体在 lib/update.ts（useSyncExternalStore 独立订阅，
+   不走 useApp——进度事件 200ms 一跳不该牵动全部常挂页面）；仅 Android 原生壳渲染。
+   交互全部行内展开零弹层（AGENTS.md UI 硬规则）。
+   ========================================================================= */
+function UpdateCard() {
+  const upd = useUpdateState()
+  const [open, setOpen] = useState(false)
+  const [mirror, setMirror] = useState(getMirrorInput())
+  const [mirrorOpen, setMirrorOpen] = useState(false)
+  const [permOk, setPermOk] = useState<boolean | null>(null)
+
+  /* 授权态随阶段变化重查（首次安装授权后回来自动翻绿） */
+  useEffect(() => { void installPermGranted().then(setPermOk) }, [upd.phase])
+
+  const sub =
+    upd.phase === 'idle' ? '检查 GitHub 上的新版本'
+    : upd.phase === 'checking' ? '检查中…'
+    : upd.phase === 'uptodate' ? `已是最新 · v${__APP_VERSION__}`
+    : upd.phase === 'available' ? `发现新版 v${upd.check?.latestVersion ?? ''}`
+    : upd.phase === 'downloading' ? (updateStageText(upd.stage) ?? `下载中 ${upd.progress.percent}%`)
+    : upd.phase === 'paused' ? `已暂停 · ${upd.progress.percent}%`
+    : upd.phase === 'downloaded' ? `v${upd.check?.latestVersion ?? ''} 已下载就绪`
+    : updateFailMessage(upd)
+
+  const onRow = () => {
+    if (upd.phase === 'idle' || upd.phase === 'uptodate') { void updateCheck(); return }
+    if (upd.phase === 'checking') return
+    setOpen(v => !v)
+  }
+
+  const downloadBtn = (
+    <button className="btn-primary" onClick={() => void updateDownload()}>下载更新</button>
+  )
+
+  return (
+    <div className="ph-card" style={{ marginTop: 10 }}>
+      <button className="tool-row" onClick={onRow}>
+        <span className="tool-ico"><IRefresh /></span>
+        <span className="tool-body">
+          <span className="n">检查更新</span>
+          <span className="s" style={upd.phase === 'error' ? { color: 'var(--red)' } : undefined}>{sub}</span>
+        </span>
+        {(upd.phase === 'available' || upd.phase === 'downloading' || upd.phase === 'paused' || upd.phase === 'downloaded' || upd.phase === 'error') && (
+          <IChevR size={14} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .16s' }} />
+        )}
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 4 }}>
+          {upd.phase === 'available' && upd.check && (
+            <>
+              {upd.check.notes && (
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 140, overflowY: 'auto', margin: '6px 2px' }}>
+                  {upd.check.notes}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                {downloadBtn}
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>下载后校验 SHA256，镜像失效自动换线</span>
+              </div>
+            </>
+          )}
+
+          {(upd.phase === 'downloading' || upd.phase === 'paused') && (
+            <>
+              <div className="progress-track" style={{ margin: '10px 2px' }}>
+                <div className="progress-fill" style={{ width: `${upd.progress.percent}%` }} />
+              </div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                {upd.phase === 'downloading' ? (
+                  <>
+                    <button className="btn-ghost" onClick={() => void updatePause()}>暂停</button>
+                    <button className="btn-ghost" onClick={() => void updateCancel()}>取消</button>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{updateStageText(upd.stage) ?? `${upd.progress.receivedBytes >> 20} / ${Math.max(1, upd.progress.totalBytes >> 20)} MB`}</span>
+                  </>
+                ) : (
+                  <>
+                    <button className="btn-primary" onClick={() => void updateDownload()}>继续下载</button>
+                    <button className="btn-ghost" onClick={() => void updateCancel()}>取消</button>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>断点已保留</span>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+
+          {upd.phase === 'downloaded' && upd.check && (
+            <>
+              {upd.metaMissing && (
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', margin: '6px 2px' }}>
+                  发布包缺 sha256 清单，本次仅按文件大小校验
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <button className="btn-primary" onClick={() => void updateInstall()}>安装更新</button>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>交给系统安装器，最后一步由你确认</span>
+              </div>
+              {permOk === false && (
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8, lineHeight: 1.6 }}>
+                  还差一步：系统里允许 Phrontis「安装未知应用」（一次性授权）
+                  <button className="btn-ghost" style={{ marginLeft: 8, padding: '4px 10px' }} onClick={() => void openInstallPermSettings()}>去授权</button>
+                </div>
+              )}
+            </>
+          )}
+
+          {upd.phase === 'error' && (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              {upd.check?.asset
+                ? <button className="btn-primary" onClick={() => void updateDownload()}>重新下载</button>
+                : <button className="btn-primary" onClick={() => void updateCheck()}>重新检查</button>}
+              <button className="btn-ghost" onClick={() => void openReleasePage(upd.check?.releaseUrl ?? 'https://github.com/Lousync/Phrontis/releases')}>打开发布页</button>
+            </div>
+          )}
+
+          {/* 镜像输入（移植桌面 AboutView）：留空 = 直连；下载中修改会在 2s 内自动切换续传 */}
+          <button className="adv-toggle" style={{ marginTop: 8 }} onClick={() => setMirrorOpen(v => !v)}>
+            <IChevR size={12} style={{ transform: mirrorOpen ? 'rotate(90deg)' : 'none', transition: 'transform .16s' }} />
+            下载镜像（GitHub 加速代理）
+          </button>
+          {mirrorOpen && (
+            <div className="field" style={{ marginTop: 6 }}>
+              <input
+                value={mirror}
+                onChange={e => { setMirror(e.target.value); setMirrorInput(e.target.value) }}
+                placeholder="留空直连 GitHub"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                inputMode="url"
+              />
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>常用:</span>
+                {QUICK_MIRRORS.map(u => (
+                  <button key={u} className={'ph-chip' + (mirror === u ? ' on' : '')} onClick={() => { setMirror(u); setMirrorInput(u) }}>{u.replace('https://', '')}</button>
+                ))}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>镜像仅用于加速下载，失效自动回退直连；下载中修改会断点续传。</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
