@@ -58,5 +58,24 @@
 	<!-- 扫码配对需要相机：WKWebView getUserMedia 的权限弹窗依赖此说明 -->
 	<key>NSCameraUsageDescription</key>
 	<string>用于扫描电脑「手机伴侣」出示的配对二维码</string>
+	<!-- 文件交接（§2.3）：Documents 在「文件」App 中可见，Prodrafts 导出的 PDF 也可以
+	     从「文件」选回 Phrontis；接收分享走 CFBundleDocumentTypes（PDF / Editor）。 -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>PDF 文档</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.adobe.pdf</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

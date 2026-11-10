@@ -1,7 +1,7 @@
 {
   "name": "phrontis-mobile",
   "private": true,
-  "version": "0.12.0",
+  "version": "0.13.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
@@ -10,16 +10,21 @@
     "preview": "vite preview --host",
     "smoke": "vite build && node scripts/smoke.mjs",
     "verify:md": "node --experimental-strip-types --no-warnings scripts/verify-markdown.mjs",
+    "verify:sync": "node --experimental-strip-types --no-warnings scripts/verify-sync.mjs",
     "cap:sync": "vite build && node scripts/sync-android.mjs",
     "android:open": "cap open android",
     "android:apk": "vite build && node scripts/sync-android.mjs && cd android && set \"JAVA_HOME=D:\\develp\\jdk-21.0.2\"&& set \"GRADLE_USER_HOME=D:\\develp\\.gradle\"&& gradlew.bat assembleDebug"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.4",
+    "@capacitor/app": "^7.1.2",
     "@capacitor/clipboard": "^7.0.4",
     "@capacitor/core": "^7.4.4",
+    "@capacitor/file-transfer": "^1.0.12",
+    "@capacitor/filesystem": "^7.1.9",
     "@capacitor/ios": "^7.6.10",
     "@capacitor/local-notifications": "^7.0.7",
+    "@capacitor/share": "^7.0.4",
     "@heroui/react": "^3.2.7",
     "@heroui/styles": "^3.2.7",
     "dompurify": "^3.4.17",

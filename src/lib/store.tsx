@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { ReactNode } from 'react'
-import type { AppPrefs, AiChatMsg, AiConfig, Card, CardKind, Folder, Habit, HabitRecordSyncData, HabitSyncData, LedgerEntry, LedgerSyncData, Msg, NoteCache, NoteProposal, NoteTreePage, PairedDevice, PhoneNote, QuizAddProposal, QuizDelProposal, QuizNoteProposal, QuizRecord, QuizSpec, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
+import { Capacitor } from '@capacitor/core'
+import { App as CapacitorApp } from '@capacitor/app'
+import type { AppPrefs, AiChatMsg, AiConfig, Card, CardKind, FileReturnItem, Folder, Habit, HabitRecordSyncData, HabitSyncData, LedgerEntry, LedgerSyncData, LocalVaultPdf, Msg, NoteCache, NoteProposal, NoteTreePage, PairedDevice, PhoneNote, QuizAddProposal, QuizDelProposal, QuizNoteProposal, QuizRecord, QuizSpec, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VaultFile, VoicePhase } from './types'
 import { THEME_IDS } from './types'
 import { TODAY, VOICE_PHRASES, welcomeText, dayIso, fmtMoney, isoOf, monthOf, monthStats, txToDisplay, weekOf } from './data'
 import {
@@ -11,9 +13,14 @@ import {
 } from './sync'
 import { AI_MAX_ROUNDS, aiConfigReady, chatOnce, loadAiConfig, parseToolArgs, saveAiConfig } from './ai'
 import { AI_TOOLS, buildSystemPrompt, quizQueryForModel, quizStatsForModel, validateLedgerAdd, validateNoteCreate, validateQuizAdd, validateQuizDel, validateQuizNote, validateTodoAdd, type ToolResult } from './aiTools'
-import { fetchNoteContent, fetchNoteTree, loadNoteCache, loadNoteTree, saveNoteCache, saveNoteTree } from './sync'
+import { ApiError, fetchFileTree, fetchNoteContent, fetchNoteTree, loadNoteCache, loadNoteTree, saveNoteCache, saveNoteTree } from './sync'
 import { initNotifPermission, rescheduleReminders, requestNotifPermission, type NotifPerm } from './notify'
 import { setUpdateFoundNotifier, updateStartupCheck } from './update'
+import {
+  LARGE_FILE_WARN_BYTES, MAX_RETURN_BYTES, deleteLocalFile, deleteStagedReturn, downloadVaultFile,
+  fileDisplayName, incomingPdfFromUrl, isNativeFileChannel, normalizeReturnName, pickPdfFile,
+  shareLocalFile, stageReturnFile, suggestReturnName, uploadReturnPdf,
+} from './fileHandoff'
 
 export interface ToastItem { id: number; msg: string; type: 'ok' | 'warn' | 'info' }
 
@@ -52,6 +59,10 @@ const K_HABITS = 'pm.habits'
 const K_NOTES = 'pm.notes'
 const K_QUIZ = 'pm.quiz'
 const K_SYNC_SEL = 'pm.noteSyncSel'
+const K_FILE_CATALOG = 'pm.fileCatalog'
+const K_FILE_DOWNLOADS = 'pm.fileDownloads'
+const K_FILE_RETURNS = 'pm.fileReturns'
+const K_FILES_SUPPORTED = 'pm.filesSupported'
 const K_THEME = 'pm.theme'
 /** 用户偏好单键（pm.settings）：新增偏好字段只要进 DEFAULT_PREFS，旧数据浅合并自动兜底，免迁移 */
 const K_PREFS = 'pm.settings'
@@ -215,6 +226,32 @@ interface Store {
   openVaultNote: (page: NoteTreePage) => void
   openPhoneNote: (id: string) => void
 
+  /* 文件通道 v1（iPad 交接 / 批注回传，docs/design.md §2.3） */
+  fileTree: { fetchedAt: number; files: VaultFile[] }
+  filesLoading: boolean
+  /** null=还没探测；true=当前桌面支持 /api/files/*；false=旧桌面（隐藏文件区） */
+  filesSupported: boolean | null
+  selectedFileId: string | null
+  selectedFile: VaultFile | null
+  openVaultFile: (file: VaultFile) => void
+  closeVaultFile: () => void
+  fetchVaultFiles: (silent?: boolean) => void
+  /** 下载到本机并（可选）交给系统分享面板；已下载则直接分享 */
+  prepareVaultFile: (file: VaultFile, mode: 'download' | 'share') => Promise<void>
+  deleteVaultFileLocal: (fileId: string) => Promise<void>
+  localFiles: Record<string, LocalVaultPdf>
+  /** 下载 / 暂存回传文件的忙碌态（pct 对 stage 无意义） */
+  fileBusy: { id: string; kind: 'download' | 'stage'; pct: number } | null
+  fileReturns: FileReturnItem[]
+  /** 待处理回传数（ready/queued/uploading/error） */
+  fileReturnBadge: number
+  /** 选择 PDF 并加入回传收件箱；返回新条目 id（取消选择返回 null） */
+  pickReturnFile: (fileId?: string | null) => Promise<string | null>
+  submitFileReturn: (id: string, targetName?: string) => Promise<void>
+  ignoreFileReturn: (id: string) => void
+  removeFileReturn: (id: string) => void
+  openFileInbox: (from?: HTMLElement | null) => void
+
   /* 刷题（桌面 quiz 模块移动子集；真相源暂为本地，协议 v1.3 接桌面 quiz 域） */
   quizRecords: QuizRecord[]
   answerQuiz: (id: string, correct: boolean) => void
@@ -360,6 +397,44 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [vaultReader, setVaultReader] = useState<VaultReader | null>(null)
   const [vaultBody, setVaultBody] = useState('')
   const [vaultState, setVaultState] = useState<'cached' | 'loading' | 'error' | 'stale'>('cached')
+
+  /* ---------- 文件通道 v1（iPad 交接 / 批注回传，§2.3） ---------- */
+  const [fileTree, setFileTree] = useState<{ fetchedAt: number; files: VaultFile[] }>(() => {
+    const v = loadJson<{ fetchedAt?: number; files?: VaultFile[] }>(K_FILE_CATALOG, {})
+    return { fetchedAt: Number(v?.fetchedAt) || 0, files: Array.isArray(v?.files) ? v.files : [] }
+  })
+  const [filesLoading, setFilesLoading] = useState(false)
+  const [filesSupported, setFilesSupported] = useState<boolean | null>(() =>
+    loadJson<boolean | null>(K_FILES_SUPPORTED, null))
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
+  const [localFiles, setLocalFiles] = useState<Record<string, LocalVaultPdf>>(() => {
+    const v = loadJson<Record<string, LocalVaultPdf>>(K_FILE_DOWNLOADS, {})
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {}
+  })
+  const [fileReturns, setFileReturns] = useState<FileReturnItem[]>(() => {
+    const saved = loadJson<FileReturnItem[]>(K_FILE_RETURNS, [])
+    return (Array.isArray(saved) ? saved : []).map(r => r.status === 'uploading'
+      /* 上次进程在上传中被杀：不保留半截 uploading（否则徽标永远转圈） */
+      ? { ...r, status: 'queued' as const, progress: 0, error: '上次上传中断，已加入队列' }
+      : r)
+  })
+  const [fileBusy, setFileBusy] = useState<{ id: string; kind: 'download' | 'stage'; pct: number } | null>(null)
+  useEffect(() => { saveJson(K_FILE_CATALOG, fileTree) }, [fileTree])
+  useEffect(() => { saveJson(K_FILE_DOWNLOADS, localFiles) }, [localFiles])
+  /* 上传进度 100ms 一跳：合并写入，避免每条进度都打一次 localStorage */
+  useEffect(() => {
+    const t = setTimeout(() => saveJson(K_FILE_RETURNS, fileReturns), 350)
+    return () => clearTimeout(t)
+  }, [fileReturns])
+  useEffect(() => { saveJson(K_FILES_SUPPORTED, filesSupported) }, [filesSupported])
+  const selectedFile = useMemo(
+    () => fileTree.files.find(f => f.id === selectedFileId) ?? null,
+    [fileTree, selectedFileId],
+  )
+  const fileReturnBadge = useMemo(
+    () => fileReturns.filter(r => r.status === 'ready' || r.status === 'queued' || r.status === 'uploading' || r.status === 'error').length,
+    [fileReturns],
+  )
   const [syncSel, setSyncSel] = useState<SyncSel>(() => {
     try {
       const v = JSON.parse(localStorage.getItem(K_SYNC_SEL) || '')
@@ -409,6 +484,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const vaultCacheRef = useRef(vaultCache); vaultCacheRef.current = vaultCache
   const vaultReaderRef = useRef(vaultReader); vaultReaderRef.current = vaultReader
   const vaultStateRef = useRef(vaultState); vaultStateRef.current = vaultState
+  const fileTreeRef = useRef(fileTree); fileTreeRef.current = fileTree
+  const selectedFileIdRef = useRef(selectedFileId); selectedFileIdRef.current = selectedFileId
+  const filesSupportedRef = useRef(filesSupported); filesSupportedRef.current = filesSupported
+  const filesLoadingRef = useRef(filesLoading); filesLoadingRef.current = filesLoading
+  const localFilesRef = useRef(localFiles); localFilesRef.current = localFiles
+  const fileReturnsRef = useRef(fileReturns); fileReturnsRef.current = fileReturns
+  /* web/PWA 没有原生暂存路径：选中的 Blob 只活在内存里（刷新后需重新选择） */
+  const stagedBlobsRef = useRef<Map<string, Blob>>(new Map())
+  const processingReturnsRef = useRef(false)
   const runSyncRef = useRef<() => void>(() => {})
   const reconcileQuietRef = useRef<() => void>(() => {})
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1102,6 +1186,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const device = await pairRequest(input, code, getDeviceName())
       setPaired(device)
+      /* 新电脑重新探测文件通道（旧电脑的 404 结论不能沿用） */
+      setFilesSupported(null)
+      setSelectedFileId(null)
       /* 配对成功 = 显式连接意图：离线使用中自动退出，避免「刚配对完却永远 paused」。
          offlineUseRef 仍持旧值（ref 随下一次渲染才刷新），正好用于本次 toast 文案 */
       const back = offlineUseRef.current ? ' · 已退出离线使用' : ''
@@ -1117,6 +1204,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   /** v1.5 请求式配对：pollPair 已落盘令牌，这里同步内存态并接上首次对账 */
   const adoptPaired = useCallback(async (device: PairedDevice) => {
     setPaired(device)
+    /* 新电脑重新探测文件通道（旧电脑的 404 结论不能沿用） */
+    setFilesSupported(null)
+    setSelectedFileId(null)
     /* 同 pairWith：配对成功自动退出离线使用 */
     const back = offlineUseRef.current ? ' · 已退出离线使用' : ''
     if (offlineUseRef.current) setPref('offlineUse', false)
@@ -1131,6 +1221,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     unpairDevice()
     setPaired(null)
     setConn('online')
+    setFilesSupported(null)
+    setSelectedFileId(null)
     toast('已解除配对，数据保留在手机', 'ok')
   }, [toast])
 
@@ -1393,6 +1485,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const openVaultNote = useCallback((page: NoteTreePage) => {
     const hit = vaultCacheRef.current[page.id]
     const fresh = !!hit && hit.mtimeMs === page.mtimeMs
+    setSelectedFileId(null)
     setVaultReader({ title: page.title, path: page.path, kind: 'vault' })
     if (fresh) {
       setVaultBody(hit.body)
@@ -1427,16 +1520,291 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const openPhoneNote = useCallback((id: string) => {
     const hit = phoneNotesRef.current.find(x => x.id === id)
     if (!hit) return
+    setSelectedFileId(null)
     setVaultReader({ title: hit.title, path: '手机笔记 / ' + hit.title, kind: 'phone', phoneId: hit.id })
     setVaultBody('# ' + hit.title + '\n\n' + hit.body)
     setVaultState('cached')
   }, [])
+
+  /* ---------- 文件通道 v1：列表 / 下载 / 回传 ---------- */
+
+  const fetchVaultFiles = useCallback((silent = true) => {
+    if (filesLoadingRef.current) return
+    /* 旧桌面已确认不支持时，自动轮询不再反复打 404；手动刷新（silent=false）仍可重试 */
+    if (silent && filesSupportedRef.current === false) return
+    if (!getPaired()) return
+    filesLoadingRef.current = true
+    setFilesLoading(true)
+    fetchFileTree()
+      .then(files => {
+        setFileTree({ fetchedAt: Date.now(), files })
+        setFilesSupported(true)
+        setSelectedFileId(cur => cur && files.some(f => f.id === cur) ? cur : null)
+      })
+      .catch((e: Error) => {
+        if (e instanceof ApiError && e.status === 404) {
+          setFilesSupported(false)
+          if (!silent) toast('电脑端还没有文件通道，请先更新桌面端', 'info')
+        } else if (!silent) {
+          toast(e.message, 'warn')
+        }
+      })
+      .finally(() => {
+        filesLoadingRef.current = false
+        setFilesLoading(false)
+      })
+  }, [toast])
+
+  const openVaultFile = useCallback((file: VaultFile) => {
+    setVaultReader(null)
+    setVaultBody('')
+    setSelectedFileId(file.id)
+  }, [])
+
+  const closeVaultFile = useCallback(() => setSelectedFileId(null), [])
+
+  const deleteVaultFileLocal = useCallback(async (fileId: string) => {
+    const hit = localFilesRef.current[fileId]
+    if (!hit) return
+    await deleteLocalFile(hit)
+    setLocalFiles(prev => {
+      const next = { ...prev }
+      delete next[fileId]
+      return next
+    })
+  }, [])
+
+  /**
+   * 下载并（可选）交给外部 App。已有本机副本 → 直接分享，省一次大文件传输；
+   * 远端已更新仍可分享旧副本，界面会提示「本机副本较旧」由用户决定是否重下。
+   */
+  const prepareVaultFile = useCallback(async (file: VaultFile, mode: 'download' | 'share') => {
+    const cached = localFilesRef.current[file.id]
+    if (mode === 'share' && cached) {
+      try {
+        await shareLocalFile(cached)
+        return
+      } catch (e) {
+        if (/取消|cancel|sharing in progress|正在分享/i.test(String((e as Error)?.message || ''))) return
+        /* 本机副本被系统清理 / 外部 App 打不开：删掉映射，下面按「未下载」重来 */
+        toast('本机副本不可用，正在重新下载', 'info')
+        void deleteLocalFile(cached)
+        setLocalFiles(prev => {
+          const next = { ...prev }
+          delete next[file.id]
+          return next
+        })
+      }
+    }
+    setFileBusy({ id: file.id, kind: 'download', pct: 0 })
+    try {
+      const local = await downloadVaultFile(file, pct => setFileBusy({ id: file.id, kind: 'download', pct }))
+      if (!local) {
+        toast(isNativeFileChannel() ? '下载完成' : '已交给浏览器 / 系统分享', 'ok')
+        return
+      }
+      setLocalFiles(prev => ({ ...prev, [file.id]: local }))
+      toast('已下载到 iPad', 'ok')
+      if (mode === 'share') {
+        try {
+          await shareLocalFile(local)
+        } catch (e) {
+          if (!/取消|cancel/i.test(String((e as Error)?.message || ''))) {
+            toast((e as Error).message || '无法打开外部 App', 'warn')
+          }
+        }
+      }
+    } catch (e) {
+      toast((e as Error).message || '下载失败', 'warn')
+    } finally {
+      setFileBusy(null)
+    }
+  }, [toast])
+
+  const patchReturn = useCallback((id: string, patch: Partial<FileReturnItem>) => {
+    setFileReturns(list => list.map(r => r.id === id ? { ...r, ...patch } : r))
+  }, [])
+
+  const addReturnItem = useCallback((item: FileReturnItem): boolean => {
+    const exists = fileReturnsRef.current.some(r =>
+      (r.status === 'ready' || r.status === 'queued' || r.status === 'uploading') &&
+      ((item.sourceUri && r.sourceUri === item.sourceUri) || (!item.sourceUri && r.sourceName === item.sourceName && Math.abs(r.receivedAt - item.receivedAt) < 5000)),
+    )
+    if (exists) return false
+    setFileReturns(list => [item, ...list].slice(0, 120))
+    return true
+  }, [])
+
+  const pickReturnFile = useCallback(async (fileId?: string | null): Promise<string | null> => {
+    const file = await pickPdfFile()
+    if (!file) return null
+    if (file.size > MAX_RETURN_BYTES) {
+      toast('文件超过 200MB，请先压缩或拆分', 'warn')
+      return null
+    }
+    setFileBusy({ id: 'stage', kind: 'stage', pct: 0 })
+    try {
+      const staged = await stageReturnFile(file)
+      const id = uuid()
+      if (!staged.uri && staged.blob) stagedBlobsRef.current.set(id, staged.blob)
+      const item: FileReturnItem = {
+        id,
+        fileId: fileId ?? null,
+        sourceName: staged.name,
+        targetName: suggestReturnName(staged.name),
+        sizeBytes: staged.sizeBytes,
+        receivedAt: Date.now(),
+        status: 'ready',
+        sourceUri: staged.uri,
+        sourcePath: staged.path,
+        origin: 'picker',
+      }
+      addReturnItem(item)
+      if (file.size >= LARGE_FILE_WARN_BYTES) toast('大文件已加入回传队列，上传时请保持前台', 'info')
+      else toast('已加入回传收件箱', 'ok')
+      return id
+    } catch (e) {
+      toast((e as Error).message || '读取文件失败', 'warn')
+      return null
+    } finally {
+      setFileBusy(null)
+    }
+  }, [addReturnItem, toast])
+
+  const submitFileReturn = useCallback(async (id: string, targetName?: string) => {
+    const item = fileReturnsRef.current.find(r => r.id === id)
+    if (!item || item.status === 'uploading' || item.status === 'done' || item.status === 'ignored') return
+    const name = normalizeReturnName(targetName || item.targetName, item.sourceName)
+    if (!pairedRef.current) {
+      toast('尚未配对电脑，配对后再回传', 'warn')
+      return
+    }
+    if (!onlineRef.current) {
+      patchReturn(id, { status: 'queued', targetName: name, error: undefined })
+      toast('电脑离线，已加入回传队列', 'info')
+      return
+    }
+    const blob = stagedBlobsRef.current.get(id)
+    if (!item.sourceUri && !blob) {
+      patchReturn(id, { status: 'error', targetName: name, error: '源文件已不在本机，请重新选择 PDF' })
+      toast('源文件已不在本机，请重新选择 PDF', 'warn')
+      return
+    }
+    patchReturn(id, { status: 'uploading', targetName: name, progress: 0, error: undefined })
+    try {
+      const uploaded = await uploadReturnPdf(
+        { uri: item.sourceUri, blob, name: item.sourceName, sizeBytes: item.sizeBytes },
+        name,
+        pct => patchReturn(id, { progress: pct }),
+      )
+      patchReturn(id, {
+        status: 'done',
+        progress: 100,
+        targetName: uploaded.name,
+        remotePath: uploaded.path,
+        doneAt: Date.now(),
+        sizeBytes: uploaded.size || item.sizeBytes,
+        error: undefined,
+      })
+      stagedBlobsRef.current.delete(id)
+      if (item.sourcePath) void deleteStagedReturn(item.sourcePath)
+      toast('已回传电脑 · ' + uploaded.path, 'ok')
+      /* 新副本已落进 vault，刷新文件树（iPad 批注/ 会出现在列表里） */
+      fetchVaultFiles(true)
+    } catch (e) {
+      const msg = (e as Error).message || '上传失败'
+      const status = (e as { status?: number }).status
+      const offline = status === undefined && (!onlineRef.current || /超时|连不上|network|fetch|failed to connect/i.test(msg))
+      patchReturn(id, { status: offline ? 'queued' : 'error', error: msg, progress: 0 })
+      toast(offline ? '电脑离线，已加入回传队列' : msg, 'warn')
+    }
+  }, [fetchVaultFiles, patchReturn, toast])
+
+  const ignoreFileReturn = useCallback((id: string) => {
+    const item = fileReturnsRef.current.find(r => r.id === id)
+    patchReturn(id, { status: 'ignored', doneAt: Date.now(), progress: 0 })
+    stagedBlobsRef.current.delete(id)
+    if (item?.sourcePath) void deleteStagedReturn(item.sourcePath)
+  }, [patchReturn])
+
+  const removeFileReturn = useCallback((id: string) => {
+    stagedBlobsRef.current.delete(id)
+    setFileReturns(list => list.filter(r => r.id !== id))
+  }, [])
+
+  const openFileInbox = useCallback((from?: HTMLElement | null) => {
+    setSheetOrigin(from ?? null)
+    setSheet('files-inbox')
+  }, [])
+
+  /* 从 Prodrafts「分享到 Phrontis」/ Files 打开 PDF：iOS 给 file:// URL。
+     冷启动走 getLaunchUrl，运行中走 appUrlOpen（App 插件会保留事件直到监听注册）。 */
+  const addIncomingReturn = useCallback((uri: string, name: string) => {
+    const id = uuid()
+    /* 当前正开着某个 PDF 面板时，按文件名把分享回来的批注稿关联到它（面板内联可见）；
+       不匹配/不在文件面板时只进收件箱，避免误挂到别的文件。 */
+    const sel = fileTreeRef.current.files.find(f => f.id === selectedFileIdRef.current)
+    const selStem = sel ? fileDisplayName(sel).replace(/\.pdf$/i, '') : ''
+    const incomingStem = name.replace(/\.pdf$/i, '')
+    const fileId = sel && selStem && (incomingStem.includes(selStem) || selStem.includes(incomingStem)) ? sel.id : null
+    const item: FileReturnItem = {
+      id,
+      fileId,
+      sourceName: name,
+      targetName: suggestReturnName(name),
+      sizeBytes: 0,
+      receivedAt: Date.now(),
+      status: 'ready',
+      sourceUri: uri,
+      origin: 'share',
+    }
+    if (addReturnItem(item)) toast('收到批注稿：' + name, 'info')
+  }, [addReturnItem, toast])
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return
+    let disposed = false
+    let handle: { remove: () => Promise<void> } | undefined
+    const ingest = (url: string) => {
+      if (disposed) return
+      const info = incomingPdfFromUrl(url)
+      if (info) addIncomingReturn(info.uri, info.name)
+    }
+    void CapacitorApp.addListener('appUrlOpen', ({ url }) => ingest(url)).then(h => {
+      if (disposed) void h.remove()
+      else handle = h
+    })
+    void CapacitorApp.getLaunchUrl().then(r => { if (r?.url) ingest(r.url) }).catch(() => {})
+    return () => {
+      disposed = true
+      void handle?.remove()
+    }
+  }, [addIncomingReturn])
+
+  /* 离线队列：连接恢复后依次重试（processingReturnsRef 防并发双发） */
+  useEffect(() => {
+    if (conn !== 'online' || !paired || prefs.offlineUse) return
+    if (!fileReturns.some(r => r.status === 'queued')) return
+    const timer = setTimeout(() => {
+      if (processingReturnsRef.current) return
+      processingReturnsRef.current = true
+      void (async () => {
+        for (const r of fileReturnsRef.current.filter(x => x.status === 'queued')) {
+          await submitFileReturn(r.id, r.targetName)
+        }
+      })().finally(() => { processingReturnsRef.current = false })
+    }, 900)
+    return () => clearTimeout(timer)
+    // 只在连接恢复时自动跑一轮；在线失败转 queued 不自动无限重试（用户可手动重试）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conn, paired, prefs.offlineUse, submitFileReturn])
 
   /* 进笔记页且已配对 → 自动拉目录树；离线使用中不拉（否则进页必弹「目录拉取超时」，
      笔记页恰是默认启动页）——离线看缓存，顶部手动刷新按钮仍在（显式动作照常报错） */
   useEffect(() => {
     if (activeTab !== 'notes' || !paired || prefs.offlineUse) return
     fetchVaultTree()
+    fetchVaultFiles(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, paired, prefs.offlineUse])
 
@@ -1966,6 +2334,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     vaultKw, setVaultKw, vaultTree, vaultLoading, vaultExpanded, toggleVaultExpand, vaultCache,
     vaultReader, setVaultReader, vaultBody, setVaultBody, vaultState, syncSel, toggleSyncDir, toggleSyncNote,
     noteInSync, fetchVaultTree, openVaultNote, openPhoneNote,
+    fileTree, filesLoading, filesSupported, selectedFileId, selectedFile,
+    openVaultFile, closeVaultFile, fetchVaultFiles, prepareVaultFile, deleteVaultFileLocal,
+    localFiles, fileBusy, fileReturns, fileReturnBadge, pickReturnFile, submitFileReturn,
+    ignoreFileReturn, removeFileReturn, openFileInbox,
     quizRecords, answerQuiz, upsertQuizAnswer,
     addQuizRecord, setQuizNote, deleteQuizRecord,
     aiConfig, updateAiConfig, sessions, curSession, newSession, switchSession, deleteSession, renameSession, togglePin,

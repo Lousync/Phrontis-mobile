@@ -104,7 +104,7 @@ export interface Session {
 /** 主题：内置深浅两套 + 移植桌面「主题合集」插件的 5 套（OpenCode 终端灰 / 四季包，色值出自该插件 plugin.json） */
 export const THEME_IDS = ['dark', 'light', 'opencode', 'spring', 'summer', 'autumn', 'winter'] as const
 export type ThemeName = (typeof THEME_IDS)[number]
-export type SheetId = 'tx' | 'tx-edit' | 'todo' | 'habit' | 'sessions' | 'ai-config' | 'scan' | null
+export type SheetId = 'tx' | 'tx-edit' | 'todo' | 'habit' | 'sessions' | 'ai-config' | 'files-inbox' | 'scan' | null
 
 /* ---------- 同步（M1，协议 docs/design.md §2.1） ---------- */
 
@@ -204,6 +204,70 @@ export interface NoteTreePage {
   categoryId: string | null
   mtimeMs: number
   sizeBytes: number
+}
+
+/* ---------- 文件通道 v1（iPad 交接 / 批注回传，docs/design.md §2.3） ---------- */
+
+/** GET /api/files/tree 的 PDF 条目（知识索引的只读投影） */
+export interface VaultFile {
+  /** 知识索引 id，客户端只传它，永不传路径 */
+  id: string
+  /** 仓库内相对路径（/ 分隔，展示用） */
+  path: string
+  /** 去扩展名的文件名（展示名以 path 末段为准） */
+  title: string
+  fileType: string
+  sizeBytes: number
+  mtimeMs: number
+}
+
+/** POST /api/files/upload 成功后电脑端返回的新文件信息 */
+export interface UploadedVaultFile {
+  name: string
+  path: string
+  size: number
+  mtimeMs: number
+}
+
+/** 本机已下载的 vault PDF（pm.fileDownloads；Library/NoCloud） */
+export interface LocalVaultPdf {
+  fileId: string
+  /** 原生 file:// URI（分享面板用） */
+  uri: string
+  /** LibraryNoCloud 内相对路径（删除副本用） */
+  path: string
+  name: string
+  sizeBytes: number
+  mtimeMs: number
+  downloadedAt: number
+}
+
+export type FileReturnStatus = 'ready' | 'uploading' | 'queued' | 'done' | 'ignored' | 'error'
+
+/** 回传收件箱条目（pm.fileReturns；源文件不落 localStorage，只有元数据） */
+export interface FileReturnItem {
+  id: string
+  /** 从 vault PDF 回传时关联原文件 id；从「文件」直接选择的批注稿可为空 */
+  fileId?: string | null
+  sourceName: string
+  targetName: string
+  sizeBytes: number
+  /** 收到时间（ms） */
+  receivedAt: number
+  status: FileReturnStatus
+  /** 原生暂存 file:// URI（stageReturnFile / iOS Inbox）；web blob 源不持久化 */
+  sourceUri?: string
+  /** LibraryNoCloud 内相对路径（自己暂存的回传稿，成功后清理） */
+  sourcePath?: string
+  /** 0–100；仅 uploading 时有意义 */
+  progress?: number
+  error?: string
+  /** 电脑端最终落盘路径（iPad 批注/…） */
+  remotePath?: string
+  /** 完成 / 忽略时间（ms） */
+  doneAt?: number
+  /** picker = 从「文件」选择；share = 从 Prodrafts 分享进 App */
+  origin: 'picker' | 'share'
 }
 
 /** 正文缓存条目（pm.noteCache；mtimeMs 与 tree 对账判定绿点/空心点） */

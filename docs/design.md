@@ -51,6 +51,7 @@
 | 2026-11-08 | **平板全屏子页落位拍板（A+F 合并，原型 `prototype/tablet-panel.html` 七案对比后定稿）**。问题：`.full-page` 容器 `inset:0` 盖满含侧栏的整窗，手机密度表单在 ~1200px 下被拉成通栏（添加习惯为典型；受影响面 = 习惯/待办/记一笔/会话记录/AI 配置五处 FullPage + ModelPicker，共用容器修一处全好——常规内容页早有 `.app.tablet .page > * max-width:760px` 先例，全屏子页漏了同款）。对比过 0 现状 / A 全屏限宽 / B 居中浮卡 / C 右侧抽屉 / D 内联展开 / E 内容区分栏 / F 内容区切页七案，拍板 **A+F 合并**：子页 portal 进 `.pages` **停靠内容区**（侧栏纹丝不动、恒定两栏铁律不破、随侧栏折叠自适应），头与体收进 **640px 居中列**（内容页 760px 同族、表单密度窄一档），入场保留**从触发点圆形扩散**（clip 坐标改相对子页自身盒，`circleFrom(sheetOrigin, el)`，手机端与原行为完全等价）。落码：`FullPage` 平板分支 portal 进 `.pages`（`.pages` 本就是 position:relative 定位上下文）+ `fullPageHost()` 助手（平板=.pages / 手机=.app）；ModelPicker 同口径换宿主（嵌套时在内容列内盖住配置页，z 60>50 不变）；`index.css` 仅增 `.app.tablet .full-page .fp-head/.fp-body { max-width:640px }` 一组。已验证：平板停靠/限宽/侧栏可见、选择器嵌套、手机端盖整窗零回归。手机端行为零改动，不碰协议与原生层。 |
 | 2026-11-09 | **同步协议 v1.8 拍板 + 手机侧落地（打卡域）**：用户需求——打卡也要同步。新增 `habit` 域，两类负载：习惯定义 `{ kind:'habit', name, color, target, remind, archived }`（id = 习惯 UUID）与每日打卡记录 `{ kind:'record', habitId, date }`（id = `hr:<habitId>:<date>`）。桌面映射 `checkin/habits.json` / `records.json`（records 增可选 `updated_at`，同步记录 id 统一 `hr:`）；手机 `pm.habits` 增 `updatedAt` 与 `records: Record<date, ISO>`，`hist` 由 records 派生（当前周）。LWW：updatedAt 新者赢，相同桌面赢；取消打卡 = 记录墓碑；删除习惯 = 习惯墓碑 + 级联记录墓碑。手机只显示当前周，但记录全量同步（桌面历史可回填 streak）。提醒 `remind` 随定义同步，桌面暂只保留不展示；`rule_type`/`rule_days` 桌面独有、手机更新时原样保留。旧桌面忽略 habit（手机队列保留 unsupported-domain），旧手机不传 habit（桌面零影响）。0.12.0（semver 新功能 y+1）。 |
 | 2026-11-09 | **应用内自动更新落地（§7.1 冻结设计实施，0.11.0）**。原生半边 `PhrontisUpdater.java`（字节管线：候选循环 → Range 断点续传 → content-length 前置校验 → 15s/2MB 慢速看门狗 → 进度节流 256KB/200ms floor 锁 99% → size 兜底 + sha256 流内边下边算 → 坏包删了换下一候选；`canInstall`/`openInstallPermSettings`（直达系统授权页）/`install`（路径围栏 + FileProvider + ACTION_VIEW）/`openReleasePage` 兜底/`load()` 清理 marker——装完启动 versionCode 已变才删旧 APK）；JS 半边 `src/lib/update.ts`（releases?per_page=30 过滤 `-mobile` tag → 两件套 manifest 走镜像候选拉取 → `__APP_VERSION__` semver 对比；镜像链用户镜像→备用→直连，默认 gh-proxy.com、留空直连；八态 phase 机 + 结构化失败文案移植桌面 updateStore.ts；启动静默检查 6s 延迟 3×10s 重试 + **≥24h 节流**（§7.1）；镜像热切换 = JS 侧 2s 巡检 pause 后按新候选续传，桌面 MIRROR_CHANGED 的等价实现）。设置页「关于」段更新卡：行内展开零弹层，进度条复用 `.progress-track`，镜像输入 + 快捷 chips（gh-proxy.com/gh.dpik.top/ghfast.top），未授权引导直达系统设置。两处与 §7.1 冻结文的实现口径差异（行为等价）：① 版本对比用 vite `__APP_VERSION__` 而非 Capacitor App 插件——同一 package.json 派生，免新增依赖；② 状态订阅用 `useSyncExternalStore` 独立 store 而非全局 Context——进度事件 200ms 一跳不该牵动全部常挂页面。Manifest 增 `REQUEST_INSTALL_PACKAGES`、FileProvider 增 `update/` 路径条目，涉及原生层**必须装新包**。发布侧两件套门禁脚本与主仓 `publish-release.py --platform mobile` 收编另批（交接 `docs/handoff-publish-mobile.md`）。 |
+| 2026-11-10 | **iPad 文件交接 / 批注回传 v1 拍板（文件通道，只做 PDF）**：用户场景 = 电脑 vault 里的 PDF 在 iPad 上交给 Prodrafts 手写批注，导出后回传电脑。① **回传只另存副本，不覆盖原文件**，统一落 `<vault>/iPad 批注/<原名>（批注）.pdf`，重名自动加 ` (2)`；② **v1 只列 PDF**（知识索引 `entryKind==='file'` + `fileType==='pdf'`），其他类型后续按同一通道扩展；③ **独立文件通道** `/api/files/tree|content|upload`，不动 notes 域；复用知识索引与 lanShare 流式上传，客户端只传 id 不传路径；④ **iPad 首发**，Android 后补；PWA 只做 UI/端点联调，Files/document types/FileTransfer 必须在 SideStore IPA 验收；⑤ 原型 `prototype/ipad-file-handoff.html`（文件面板内联回传卡 + 回传收件箱全屏子页），桌面施工图 `docs/handoff-files-ipad-desktop.md`。**手机侧 0.13.0 已落码**（原生依赖 app/filesystem/share/file-transfer；桌面端点未上线时优雅降级）。 |
 
 ---
 
@@ -229,6 +230,50 @@ body: {}
 - 桌面侧：注销该设备令牌（内存 tokenIndex 立即失效，不等重启）+ 设备表移除；`notesStates` 保留（重配对后新 deviceId 重建，旧 state 由后续清理策略处理）；
 - 桌面面板主动删除设备仍无法实时通知手机，手机下次 ping 401 → UI 显示「重新配对」而非「离线」。
 
+### 2.3 文件通道 v1（iPad 交接 / 批注回传，2026-11-10 拍板）
+
+> 定位：vault 里的 PDF 在 iPad 上交给 Prodrafts 等手写 App 批注，导出后回传电脑。**不是 PDF 阅读器**——手机端不解析内容，只做文件搬运与状态管理。iPad 首发，Android 后补。原型 `prototype/ipad-file-handoff.html`，桌面施工图 `docs/handoff-files-ipad-desktop.md`。
+
+**已拍板口径：**
+
+- **v1 只列 `.pdf`**（知识索引 `entryKind === 'file'` + `fileType === 'pdf'`）；其他文件类型后续按同一通道扩展，不改形态。
+- **回传只另存副本，不覆盖原文件**：统一落 `<vault>/iPad 批注/<原名>（批注）.pdf`；重名自动加 ` (2)` 后缀；原文件永不改动。
+- **不改现有 notes 域**：md 笔记继续走 v1.2 / v1.6 的内容 API 与同步；PDF 走独立的只读文件通道。
+- **iPad 首发**：Android 平板复用同一套端点与 UI，文件桥另行实现（FileProvider / ACTION_VIEW）。
+- **测试**：PWA 只用于 UI 与桌面端点联调；Files App、document types、FileTransfer、分享面板必须在 SideStore IPA 上验收。
+
+**手机侧实现（2026-11-10 落码）：** `src/lib/fileHandoff.ts` 负责下载 / 系统分享 / PDF 选择 / 暂存 / 流式上传；`src/lib/store.tsx` 的 `fileTree` + `fileReturns`（`pm.fileCatalog` / `pm.fileDownloads` / `pm.fileReturns`）负责状态与离线队列；`src/components/FilePanel.tsx`（单文件内联卡）与 `FileInbox.tsx`（回传收件箱全屏子页）负责 UI。原生依赖 `@capacitor/{app,filesystem,share,file-transfer}`；iOS `Info.plist` 增加 PDF document types + `UIFileSharingEnabled`，从 Prodrafts 分享进 App 的文件走 `App.addListener('appUrlOpen')` 入队。桌面端点未上线时 `/api/files/tree` 404 → 侧栏只留「文件交接未启用 · 重试」，笔记/同步零影响。
+
+**UI 口径（拍板问题时按原型推荐默认落码，后续可改）：** 单文件走文件面板内联卡，同时所有回传都进「回传收件箱」；文件名可改（默认 `原名（批注）.pdf`）；成功后保留一张成功卡并写入历史；不做下载→交接→回传的步骤时间线（避免啰嗦），只显示当前状态与最近记录。
+
+**端点（伴侣服务 8770，沿用设备令牌 + vaultFingerprint + 私有网段）：**
+
+| 端点 | 说明 |
+|---|---|
+| `GET /api/files/tree` | 列出当前 vault 内可交接的 PDF：`{ id, path, title, fileType, sizeBytes, mtimeMs }`；排除 `移动端/**`、`.knowbase/**`、隐藏/忽略项。复用知识索引，不新增扫描。 |
+| `GET /api/files/content?id=` | 按知识索引 id 服务端解析路径，二进制流返回 PDF；客户端永不传路径；`Content-Type: application/pdf` + `Content-Length` + `Content-Disposition`；404 = 不存在 / 不是 PDF。 |
+| `POST /api/files/upload?name=<目标名>` | multipart（字段 `file`）；`name` 为客户端建议的最终名（原生 FileTransfer 无法单独指定 multipart 文件名，故走 query；缺省回落 multipart filename，服务端一律按 §4.3 规则消毒）。流式落盘到 `iPad 批注/.tmp-*` → 原子 rename；只接受 PDF（魔数 `%PDF-`），上限 200MB；重名自动加后缀；永不覆盖。响应 `{ ok, file: { name, path, size, mtimeMs } }`。 |
+| `GET /api/ping` | 增加 `features: ['files']`；旧桌面无此字段 → 新手机隐藏文件区，旧手机忽略，零破坏。 |
+
+**仓库布局：**
+
+```
+<vault>/
+  iPad 批注/
+    讲义 03（批注）.pdf
+    设计心理学（批注）.pdf
+```
+
+- `iPad 批注/` 自动创建、可见、走正常知识索引；不做隐藏。
+- 上传成功后 `markSelfWrite` + `invalidateKnowledgeIndex` + `broadcastDataChanged('knowledge')`，桌面树立即出现。
+- 不删除 / 不改名 / 不覆盖 vault 里的任何原文件；文件清理由用户在桌面端自己做。
+
+**兼容矩阵：**
+
+- 新手机 + 旧桌面 → `/api/files/tree` 404 / ping 无 `features` → 手机隐藏文件区；笔记/同步零影响。
+- 旧手机 + 新桌面 → 新端点无人调用，零影响。
+- 新手机 + 新桌面 → 完整交接 / 回传。
+
 ## 3. AI（单档：手机直连）
 
 > **电脑档已于 2026-11-06 整体移除**（原 M4b）：把对话中继到桌面 `agentService` 的维护成本高于价值，
@@ -330,7 +375,7 @@ body: {}
 
 **文档格式路线（按成本排序，逐个落地不并发）**：
 1. **Markdown 笔记**（T1 首发）：现有笔记只读阅读器直接升级——目录、字号/主题、划线批注。
-2. **PDF**（T1.5）：引 pdf.js 渲染层；批注功能在 PDF 上工作量最大，只读先行。
+2. **PDF**（T1.5）：引 pdf.js 渲染层；批注功能在 PDF 上工作量最大，只读先行。**与 §2.3 的 iPad 文件交接/回传是两条线**——本项是应用内阅读，§2.3 是把 vault 里的 PDF 交给 Prodrafts 等外部 App 批注并回传副本。
 3. **图片/扫描件**（T2 顺手）：存储走同步协议扩容 + 图片查看器，无解析成本。
 4. **Word/EPUB**（T3 缓行）：解析器 + 格式保真是长期坑，等前三类稳定后再立项。
 

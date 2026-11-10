@@ -12,6 +12,11 @@ on:
   push:
     tags: ['ios-v*']
 
+# 出 tag 时把 ipa 挂到 GitHub Release：artifact 下载接口要登录，
+# Release 资产公开可直接 curl -L 拉取，也避免 14 天过期。
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-latest
@@ -57,3 +62,15 @@ jobs:
           name: phrontis-unsigned-ipa
           path: phrontis-unsigned.ipa
           retention-days: 14
+
+      - name: Attach IPA to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --title "iOS $TAG" \
+                 --notes "Phrontis 未签名 IPA（SideStore / iloader 用免费 Apple ID 证书签名安装）。"
+          gh release upload "$TAG" phrontis-unsigned.ipa --clobber

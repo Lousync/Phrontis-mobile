@@ -10,6 +10,7 @@ import { QuizPage } from './components/pages/QuizPage'
 import { UsagePage } from './components/pages/UsagePage'
 import { SettingsPage, AiConfigSheet } from './components/pages/SettingsPage'
 import { ScanOverlay } from './components/ScanOverlay'
+import { FileInbox } from './components/FileInbox'
 
 function Shell() {
   const { activeTab, sheet, kbSim, kbOpen, selDate } = useApp()
@@ -35,6 +36,7 @@ function Shell() {
         {sheet === 'habit' && <HabitForm />}
         {sheet === 'sessions' && <SessionSheet />}
         {sheet === 'ai-config' && <AiConfigSheet />}
+        {sheet === 'files-inbox' && <FileInbox />}
         {sheet === 'scan' && <ScanOverlay />}
         <Toasts />
       </div>

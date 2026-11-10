@@ -378,5 +378,20 @@ console.log('\n§3 协议文档契约（docs/design.md §2.1 与手机实现一�
     && !typesSrc.includes('AiMode'))
 }
 
+console.log('\n§2.3 文件通道 v1（iPad 交接 / 批注回传，2026-11-10）')
+{
+  const design = readFileSync(join(HERE, '..', 'docs', 'design.md'), 'utf-8')
+  const handoff = readFileSync(join(HERE, '..', 'docs', 'handoff-files-ipad-desktop.md'), 'utf-8')
+  const filesSrc = readFileSync(join(HERE, '..', 'src', 'lib', 'fileHandoff.ts'), 'utf-8')
+  const typesSrc = readFileSync(join(HERE, '..', 'src', 'lib', 'types.ts'), 'utf-8')
+  check('§2.3 已冻结（只做 PDF / 只另存副本）', design.includes('### 2.3 文件通道 v1') && design.includes('entryKind === \'file\'') && design.includes('只另存副本'))
+  check('§2.3 三端点 + name query 入协议', design.includes('/api/files/tree') && design.includes('/api/files/content?id=') && design.includes('/api/files/upload?name='))
+  check('§2.3 ping 能力位 features', design.includes("features: ['files']"))
+  check('统一落盘目录 iPad 批注/', design.includes('iPad 批注/') && handoff.includes('iPad 批注/'))
+  check('手机端文件桥已落码（下载 / 分享 / 上传）', filesSrc.includes('downloadVaultFile') && filesSrc.includes('shareLocalFile') && filesSrc.includes('uploadReturnPdf'))
+  check('回传状态类型存在', typesSrc.includes('interface FileReturnItem') && typesSrc.includes('interface VaultFile'))
+  check('桌面施工图记录 name query 优先', handoff.includes('?name=') && handoff.includes('query `name`'))
+}
+
 console.log('\n' + (failures === 0 ? 'PASS (' + checks + ' checks)' : 'FAIL (' + failures + '/' + checks + ')'))
 process.exit(failures === 0 ? 0 : 1)

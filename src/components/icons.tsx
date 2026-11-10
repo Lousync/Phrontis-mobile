@@ -47,3 +47,8 @@ export const IBell = make(<><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" 
 export const IClip = make(<><rect width="8" height="4" x="8" y="2" rx="1" ry="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /></>)
 
 export const IRefresh = make(<><path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" /></>)
+export const IFilePdf = make(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M8 13h2a1.5 1.5 0 0 1 0 3H8v-3zm0 3v2M13 13v5h1.4a1.6 1.6 0 0 0 1.6-1.6v-1.8A1.6 1.6 0 0 0 14.4 13H13z" /></>, { sw: 1.5 })
+export const IDownload = make(<><path d="M12 3v12" /><path d="M7 10l5 5 5-5" /><path d="M5 21h14" /></>)
+export const IUpload = make(<><path d="M12 21V9" /><path d="M7 14l5-5 5 5" /><path d="M5 3h14" /></>)
+export const IShare = make(<><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" /></>)
+export const IInbox = make(<><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.5 5.5L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.5A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.5z" /></>)

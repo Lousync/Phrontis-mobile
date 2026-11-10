@@ -2,6 +2,9 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="my_images" path="." />
     <cache-path name="my_cache_images" path="." />
+    <!-- 文件交接（§2.3）：下载的 PDF 与暂存回传稿都在 getFilesDir()（Directory.LibraryNoCloud），
+         @capacitor/share 用本 app 的 FileProvider 分享，必须把 files 根纳入白名单 -->
+    <files-path name="app_files" path="." />
     <!-- 应用内更新的 APK 落 cacheDir/update/（PhrontisUpdater 拉起系统安装器用）；
          与上面图片条目分开命名，路径语义各自独立 -->
     <cache-path name="update_apk" path="update/" />

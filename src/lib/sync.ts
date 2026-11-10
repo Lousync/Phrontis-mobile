@@ -18,7 +18,7 @@
  * 所有键带 pm. 前缀，迁移时整体搬运。
  */
 import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core'
-import type { Habit, HabitRecordSyncData, HabitSyncData, LedgerSyncData, NoteCache, NoteSyncData, NoteTreePage, PairedDevice, QueueOp, ScheduleSyncData, Todo } from './types'
+import type { Habit, HabitRecordSyncData, HabitSyncData, LedgerSyncData, NoteCache, NoteSyncData, NoteTreePage, PairedDevice, QueueOp, ScheduleSyncData, Todo, VaultFile } from './types'
 
 /* 组播发现插件（仅 Android 注册，见 PhrontisDiscover.java；iOS/web 无实现 → 走扫段回退）。
  * selfIp/selfPrefix = 原生自知出口 IP 与 /24 前缀；selfPrefixes = 全部可用私有网段
@@ -552,6 +552,16 @@ export function pruneNoteCache(cache: NoteCache, maxChars = NOTE_CACHE_MAX_CHARS
   return Object.fromEntries(keep)
 }
 
+/** 伴侣端点 HTTP 错误（带 status，调用方据此区分旧桌面 404 / 鉴权 401） */
+export class ApiError extends Error {
+  readonly status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
 /** 拉目录树（GET /api/notes/tree，带令牌）。失败抛 Error（文案可 toast） */
 export async function fetchNoteTree(timeoutMs = 8000): Promise<NoteTreePage[]> {
   const p = getPaired()
@@ -566,6 +576,28 @@ export async function fetchNoteTree(timeoutMs = 8000): Promise<NoteTreePage[]> {
     throw new Error(json?.error || '目录拉取失败（' + r.status + '）')
   }
   return json.pages.filter(x => x && typeof x.id === 'string')
+}
+
+/** 拉可交接的 PDF 列表（GET /api/files/tree，§2.3）。旧桌面 404 → ApiError(404)，
+ *  调用方隐藏文件区；其他 HTTP 错误也抛 ApiError，网络错误保持原始文案。 */
+export async function fetchFileTree(timeoutMs = 8000): Promise<VaultFile[]> {
+  const p = getPaired()
+  if (!p) throw new Error('尚未配对电脑')
+  const r = await lanRequest(p.baseUrl + '/api/files/tree', {
+    headers: { authorization: 'Bearer ' + p.token },
+    timeoutMs,
+    connectTimeoutMs: 3000,
+  }).catch(() => { throw new Error('文件目录拉取超时：确认电脑在线且服务已开启') })
+  const json = r.data as { ok?: boolean; files?: VaultFile[]; error?: string }
+  if (r.status === 404) throw new ApiError(404, '电脑端暂不支持文件交接，请更新桌面端')
+  if (r.status === 401) throw new ApiError(401, '电脑不再认识这台设备，请重新配对')
+  if (r.status < 200 || r.status >= 300 || !json?.ok || !Array.isArray(json.files)) {
+    throw new ApiError(r.status, json?.error || '文件目录拉取失败（' + r.status + '）')
+  }
+  return json.files.filter(f =>
+    f && typeof f.id === 'string' && typeof f.path === 'string' &&
+    String(f.fileType || '').toLowerCase() === 'pdf',
+  )
 }
 
 /** 按 id 拉正文（GET /api/notes/content?id=，服务端解析路径）。404 → 明确文案 */
@@ -674,18 +706,27 @@ export class AuthError extends Error {
   }
 }
 
-export type PingResult = { state: 'online' } | { state: 'offline'; error?: string } | { state: 'auth' }
+export type PingResult =
+  | { state: 'online'; features: string[] }
+  | { state: 'offline'; error?: string }
+  | { state: 'auth' }
 
 /** 电脑是否在线（GET /api/ping 带令牌）：200=online / 401=auth / 其余与网络错误=offline。
  *  指定 baseUrl+token 可探「换地址后的同一台电脑」（地址修复用），缺省探当前配对设备。 */
 export async function pingDevice(baseUrl: string, token: string, timeoutMs = 2500): Promise<PingResult> {
   try {
-    const { status } = await lanRequest(baseUrl + '/api/ping', {
+    const { status, data } = await lanRequest(baseUrl + '/api/ping', {
       headers: { authorization: 'Bearer ' + token },
       timeoutMs,
       connectTimeoutMs: Math.min(timeoutMs, 2500),
     })
-    if (status >= 200 && status < 300) return { state: 'online' }
+    if (status >= 200 && status < 300) {
+      const body = data as { features?: unknown }
+      return {
+        state: 'online',
+        features: Array.isArray(body?.features) ? body.features.filter((x): x is string => typeof x === 'string') : [],
+      }
+    }
     if (status === 401) return { state: 'auth' }
     return { state: 'offline', error: 'HTTP ' + status }
   } catch (e) {

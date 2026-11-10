@@ -1498,3 +1498,197 @@ button.vault-line:disabled { cursor: default; }
   --button-fg: #fff;
 }
 .hq-skip { align-self: center; }
+
+/* ============ 文件通道 v1：iPad 交接 / 批注回传（§2.3） ============
+ * 与 notes 域隔离：PDF 不进入 md 阅读器；回传统一落 iPad 批注/，原文件永不覆盖。
+ * 形态：文件面板内联回传卡 + 回传收件箱全屏子页，禁止 bottom sheet。 */
+.fh-pdf-mini {
+  flex: none; width: 24px; height: 17px; border-radius: 3px;
+  background: linear-gradient(135deg, #c94b4b, #9e2f2f); color: #fff;
+  font-size: 7.5px; font-weight: 800; letter-spacing: .02em;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.fh-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+.fh-dot.ok { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 14%, transparent); }
+.fh-dot.warn { background: var(--amber); box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 14%, transparent); }
+.fh-dot.idle { background: transparent; border: 1.4px solid var(--text-muted); opacity: .65; }
+
+/* 侧栏：PDF 区 + 回传收件箱入口 */
+.fh-side-sec .dom-title { padding-top: 8px; }
+.fh-side-empty { padding: 8px 8px 10px; font-size: 11.5px; color: var(--text-muted); line-height: 1.65; }
+.fh-unsupported {
+  margin: 6px 6px 10px; padding: 7px 9px; text-align: left; border-radius: 8px;
+  border: 1px dashed var(--border); color: var(--text-muted); font-size: 11px;
+}
+.fh-unsupported:hover { border-color: var(--accent); color: var(--text-secondary); }
+.fh-inbox-entry {
+  flex: none; display: flex; align-items: center; gap: 8px; width: 100%; height: 38px;
+  padding: 0 10px; margin-top: 4px; border-top: 1px solid var(--border-soft);
+  color: var(--text-secondary); font-size: 12.5px; text-align: left;
+}
+.fh-inbox-entry:hover { color: var(--text-primary); background: var(--bg-tertiary); border-radius: 8px; }
+.fh-badge {
+  margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  background: var(--amber); color: #1e1e1e; font-size: 10px; font-weight: 800;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+
+/* 文件面板 */
+.file-reader { background: var(--bg-secondary); }
+.file-reader .fh-body { padding: 18px 20px 44px; }
+.fh-col { width: 100%; max-width: 720px; margin: 0 auto; }
+.fh-hero {
+  background: var(--bg-primary); border: 1px solid var(--border-soft); border-radius: 14px;
+  padding: 18px; box-shadow: 0 10px 30px rgba(0, 0, 0, .12);
+}
+.fh-hero-top { display: flex; align-items: flex-start; gap: 16px; }
+.fh-pdf-lg {
+  flex: none; width: 62px; height: 80px; border-radius: 8px;
+  background: linear-gradient(160deg, #d65454, #9e2f2f); color: #fff;
+  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 9px;
+  font-size: 10px; font-weight: 800; letter-spacing: .08em;
+  box-shadow: 0 6px 16px rgba(158, 47, 47, .25); position: relative; overflow: hidden;
+}
+.fh-pdf-lg::before {
+  content: ''; position: absolute; top: 0; right: 0;
+  border-width: 0 18px 18px 0; border-style: solid;
+  border-color: transparent rgba(255, 255, 255, .22) transparent transparent;
+}
+.fh-hero-main { min-width: 0; flex: 1; }
+.fh-name { font-size: 18px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.fh-path { margin-top: 4px; font-size: 11.5px; color: var(--text-muted); overflow-wrap: anywhere; }
+.fh-facts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.fh-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.fh-hero-actions { margin-top: 16px; }
+.fh-actions .btn-primary.fh-btn { width: auto; height: 38px; padding: 0 18px; font-size: 13.5px; border-radius: 10px; }
+.fh-danger { color: var(--red); }
+.fh-danger:hover { border-color: var(--red); color: var(--red); }
+
+.fh-progress-box { margin-top: 14px; padding: 12px; border-radius: 11px; background: var(--bg-tertiary); border: 1px solid var(--border-soft); }
+.fh-progress-top { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-secondary); }
+.fh-pct { margin-left: auto; color: var(--accent-hover); font-variant-numeric: tabular-nums; }
+.fh-track { height: 6px; margin-top: 10px; border-radius: 999px; background: var(--bg-primary); overflow: hidden; }
+.fh-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width .12s linear; }
+.fh-hint { margin-top: 10px; font-size: 11px; color: var(--text-muted); line-height: 1.7; }
+.fh-hint code, .fh-done-line code, .fh-foot code, .fh-success-s code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px; color: var(--text-secondary); background: var(--bg-tertiary);
+  padding: 1px 4px; border-radius: 3px;
+}
+
+.fh-card { margin-top: 14px; padding: 15px; border-radius: 14px; background: var(--bg-primary); border: 1px solid var(--border-soft); }
+.fh-card-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; }
+.fh-card-head > span { display: inline-flex; align-items: center; gap: 6px; }
+.fh-link { margin-left: auto; font-size: 11.5px; color: var(--accent-hover); }
+.fh-link:hover { text-decoration: underline; }
+.fh-link:disabled { opacity: .5; }
+.fh-return-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.fh-empty-line { margin-top: 12px; padding: 14px 0 4px; text-align: center; font-size: 11.5px; color: var(--text-muted); }
+
+.fh-return {
+  border: 1px solid var(--border-soft); border-radius: 12px; padding: 13px;
+  background: var(--bg-secondary);
+}
+.fh-return.ready { border-color: color-mix(in srgb, var(--amber) 34%, var(--border-soft)); background: color-mix(in srgb, var(--amber) 6%, var(--bg-secondary)); }
+.fh-return.queued { border-color: color-mix(in srgb, var(--amber) 34%, var(--border-soft)); }
+.fh-return.error { border-color: color-mix(in srgb, var(--red) 34%, var(--border-soft)); }
+.fh-return-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fh-return-time { margin-left: auto; font-size: 10.5px; color: var(--text-muted); }
+.fh-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 6px; font-size: 10px; font-weight: 600; color: var(--text-muted); background: var(--bg-tertiary); }
+.fh-chip.warn { color: var(--amber); background: color-mix(in srgb, var(--amber) 13%, transparent); }
+.fh-chip.ok { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.fh-chip.mid { color: var(--accent-hover); background: var(--accent-soft); }
+.fh-chip.err { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+.fh-return-file { display: flex; align-items: center; gap: 10px; margin-top: 11px; }
+.fh-pdf-badge {
+  flex: none; width: 34px; height: 44px; border-radius: 5px;
+  background: linear-gradient(160deg, #d65454, #9e2f2f); color: #fff;
+  font-size: 9px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center;
+}
+.fh-pdf-badge.sm { width: 24px; height: 30px; border-radius: 4px; font-size: 7px; }
+.fh-return-main { min-width: 0; flex: 1; }
+.fh-return-name { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.fh-return-sub { margin-top: 3px; font-size: 10.5px; color: var(--text-muted); }
+.fh-target { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; font-size: 10.5px; color: var(--text-muted); }
+.fh-folder { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-secondary); background: var(--bg-tertiary); padding: 1px 5px; border-radius: 4px; }
+.fh-field { display: block; margin: 12px 0 0; }
+.fh-field > span { display: block; margin-bottom: 5px; font-size: 10.5px; color: var(--text-muted); }
+.fh-field input {
+  width: 100%; height: 36px; padding: 0 10px; border-radius: 8px; outline: none;
+  border: 1px solid var(--border); background: var(--bg-primary); font-size: 16px;
+}
+.fh-field input:focus { border-color: var(--accent); }
+.fh-field input:disabled { opacity: .55; }
+.fh-return .fh-actions { margin-top: 12px; }
+.fh-return .fh-actions .btn-primary.fh-btn { height: 34px; font-size: 12.5px; }
+.fh-return .fh-actions .btn-ghost { padding: 7px 14px; font-size: 12px; }
+.fh-notice { margin-top: 11px; padding: 9px 10px; border-radius: 8px; font-size: 11px; line-height: 1.6; }
+.fh-notice.warn { color: var(--amber); background: color-mix(in srgb, var(--amber) 10%, transparent); }
+.fh-notice.err { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
+.fh-done-line { margin-top: 11px; font-size: 11px; color: var(--text-secondary); line-height: 1.6; overflow-wrap: anywhere; }
+
+.fh-success {
+  display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 13px;
+  border-radius: 13px; border: 1px solid color-mix(in srgb, var(--green) 32%, var(--border-soft));
+  background: color-mix(in srgb, var(--green) 9%, var(--bg-primary));
+}
+.fh-success-ic {
+  flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--green);
+  color: #1e1e1e; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800;
+}
+.fh-success-main { flex: 1; min-width: 0; }
+.fh-success-t { font-size: 12.5px; font-weight: 700; color: var(--green); }
+.fh-success-s { margin-top: 3px; font-size: 10.5px; color: var(--text-secondary); line-height: 1.6; overflow-wrap: anywhere; }
+
+.fh-row-list { margin-top: 6px; }
+.fh-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border-soft); }
+.fh-row:first-child { border-top: 0; padding-top: 0; }
+.fh-row-main { flex: 1; min-width: 0; }
+.fh-row-name { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fh-row-sub { margin-top: 2px; font-size: 10.5px; color: var(--text-muted); overflow-wrap: anywhere; }
+.fh-row-x { flex: none; width: 24px; height: 24px; border-radius: 6px; color: var(--text-muted); font-size: 16px; line-height: 1; }
+.fh-row-x:hover { background: var(--bg-tertiary); color: var(--red); }
+.fh-history { padding: 12px 14px; }
+.fh-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 18px; font-size: 10.5px; color: var(--text-muted); line-height: 1.7; }
+
+/* 收件箱 */
+.fh-head-act {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+  height: 32px; padding: 0 11px; border-radius: 9px;
+  background: var(--accent-soft); color: var(--accent-hover); font-size: 12px; font-weight: 600;
+}
+.fh-head-act:disabled { opacity: .5; }
+.fh-sect { display: flex; align-items: center; gap: 8px; margin: 2px 0 10px; font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: .02em; }
+.fh-sect-n { margin-left: auto; font-weight: 400; }
+.fh-empty { flex: 1 0 auto; text-align: center; }
+.fh-empty-ic {
+  width: 48px; height: 48px; margin: 0 auto 10px; border-radius: 14px;
+  background: var(--bg-tertiary); color: var(--text-secondary);
+  display: flex; align-items: center; justify-content: center;
+}
+.fh-empty-t { font-size: 13px; color: var(--text-secondary); }
+.fh-empty-s { margin-top: 5px; font-size: 11px; line-height: 1.65; }
+.fh-empty .btn-primary.fh-btn { width: auto; height: 36px; padding: 0 16px; margin-top: 14px; font-size: 12.5px; border-radius: 10px; }
+
+/* 手机笔记页的 PDF 列表 */
+.fh-phone-list { display: flex; flex-direction: column; gap: 2px; }
+.fh-phone-row {
+  display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 8px;
+  border-radius: 9px; color: var(--text-secondary); cursor: pointer;
+}
+.fh-phone-row:hover, .fh-phone-row.on { background: var(--bg-tertiary); color: var(--text-primary); }
+.fh-phone-main { flex: 1; min-width: 0; }
+.fh-phone-name { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fh-phone-sub { margin-top: 2px; font-size: 10.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 平板：文件面板随内容区限宽（与 md 阅读器同族） */
+.app.tablet .file-reader .fh-body { padding: 24px 32px 44px; }
+.app.tablet .file-reader .fh-col { max-width: 720px; }
+/* FullPage 空态弹簧：.fp-body.flex > * 的 flex:none 会压掉 .empty-spring，单独放开 */
+.fp-body.flex > .empty-spring { flex: 1 0 auto; }
+.fh-phone-inbox {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 40px;
+  margin-top: 4px; padding: 0 8px; border-radius: 9px;
+  color: var(--text-secondary); font-size: 12.5px; text-align: left;
+}
+.fh-phone-inbox:hover { background: var(--bg-tertiary); color: var(--text-primary); }

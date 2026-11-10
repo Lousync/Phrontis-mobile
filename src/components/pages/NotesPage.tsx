@@ -5,9 +5,11 @@ import { useApp } from '../../lib/store'
 import { useFormFactor } from '../../lib/useFormFactor'
 import { buildTree, type NoteDir } from '../../lib/notesTree'
 import { splitDocSegments } from '../../lib/quizParse'
-import { IBack, IBars, IChevR, IFolder, IPen, IBook, ISearch } from '../../components/icons'
+import { IBack, IBars, IChevR, IFolder, IPen, IBook, ISearch, IFilePdf, IInbox } from '../../components/icons'
 import { QuizCard } from '../../components/QuizCard'
 import { PageHead } from '../../components/chrome'
+import { FilePanel } from '../../components/FilePanel'
+import { fileDisplayName, formatBytes } from '../../lib/fileHandoff'
 
 /* 备忘录式内容→条目：首行为标题（去掉 markdown # 前缀），其余为正文 */
 function splitTitleBody(text: string): { title: string; body: string } {
@@ -28,6 +30,8 @@ export function NotesPage({ active }: { active: boolean }) {
     phoneNotes, toast, createPhoneNote, updatePhoneNote, deletePhoneNote, syncPhoneNote, quizRecords,
     vaultReader, setVaultReader, setVaultBody, vaultBody, vaultState, vaultTree, vaultLoading, paired, fetchVaultTree,
     openVaultNote, openPhoneNote, vaultKw, setVaultKw, vaultCache, vaultExpanded, toggleVaultExpand,
+    fileTree, filesSupported, filesLoading, selectedFile, openVaultFile, localFiles,
+    fileReturnBadge, openFileInbox, fetchVaultFiles,
   } = useApp()
   const tablet = useFormFactor() === 'tablet'
   /* 阅读体验：字号可调（localStorage 持久化）+ 标题目录跳转 */
@@ -145,6 +149,9 @@ export function NotesPage({ active }: { active: boolean }) {
   }
   const segs = useMemo(() => splitDocSegments(vaultBody), [vaultBody])
   const kwTrim = vaultKw.trim()
+  const pdfFiles = fileTree.files
+    .filter(f => !kwTrim || fileDisplayName(f).includes(kwTrim))
+    .sort((a, b) => fileDisplayName(a).localeCompare(fileDisplayName(b), 'zh-Hans-CN'))
 
   /* 阅读块：目录、字号、缓存徽标、题卡分段渲染。
    * 平板：直接铺满内容区（树在侧栏）；手机：列表内覆盖层，返回键回列表。 */
@@ -220,13 +227,15 @@ export function NotesPage({ active }: { active: boolean }) {
   if (tablet) {
     return (
       <section className={'page' + (active ? ' active' : '')}>
-        {vaultReader ? (
+        {selectedFile ? (
+          <div className="reader open file-reader"><FilePanel /></div>
+        ) : vaultReader ? (
           <div className="reader open">{readerEl}</div>
         ) : (
           <div className="notes-empty">
             <IBook size={30} />
-            <p>从左侧文件树选一篇笔记开始阅读</p>
-            <span>目录跳转 · 字号调节 · 选择同步自动保持最新</span>
+            <p>从左侧文件树选一篇笔记，或从「PDF 交接」选一份 PDF</p>
+            <span>笔记可阅读批注 · PDF 交给 Prodrafts 手写后回传</span>
             <button className="btn-primary" onClick={startNewNote}><IPen size={14} />新建笔记</button>
           </div>
         )}
@@ -241,7 +250,7 @@ export function NotesPage({ active }: { active: boolean }) {
       <PageHead title="笔记" />
       <div className="search-box">
         <ISearch />
-        <input value={vaultKw} onChange={e => setVaultKw(e.target.value)} placeholder="搜索笔记标题" />
+        <input value={vaultKw} onChange={e => setVaultKw(e.target.value)} placeholder="搜索笔记 / PDF" />
       </div>
       <button className="vault-line" onClick={fetchVaultTree} disabled={!paired || vaultLoading}
         title={paired ? '重新拉取电脑笔记目录' : undefined}>
@@ -256,8 +265,42 @@ export function NotesPage({ active }: { active: boolean }) {
       <div className="pt-tree">
         {renderDir(treeRoot, 0)}
       </div>
-      {paired && !vaultLoading && kwTrim && !hasMatch(treeRoot) && <div className="empty" style={{ padding: '16px 0' }}>无匹配笔记</div>}
+      {paired && !vaultLoading && kwTrim && !hasMatch(treeRoot) && !pdfFiles.length && <div className="empty" style={{ padding: '16px 0' }}>无匹配笔记</div>}
       {paired && !vaultLoading && !vaultTree.pages.length && <div className="empty" style={{ padding: '20px 0' }}>仓库没有可读的 md 笔记（或目录还没拉到）</div>}
+
+      {(((paired || fileTree.files.length > 0) && filesSupported !== false) || fileReturnBadge > 0) && (
+        <>
+          <div className="sec-title" style={{ marginTop: 6 }}>
+            PDF 交接 <span className="more">{filesLoading ? '刷新中…' : fileTree.files.length + ' 个 · 只读'}</span>
+          </div>
+          <div className="fh-phone-list">
+            {pdfFiles.map(f => (
+              <div key={f.id} className={'fh-phone-row' + (selectedFile?.id === f.id ? ' on' : '')} onClick={() => openVaultFile(f)}>
+                <span className="fh-pdf-mini">PDF</span>
+                <div className="fh-phone-main">
+                  <div className="fh-phone-name">{fileDisplayName(f)}</div>
+                  <div className="fh-phone-sub">
+                    {f.path.split('/').slice(0, -1).join(' / ') || '根目录'} · {formatBytes(f.sizeBytes)}
+                  </div>
+                </div>
+                {localFiles[f.id] && <span className="fh-dot ok" title="已下载到 iPad" />}
+                <IFilePdf size={14} style={{ color: 'var(--text-muted)' }} />
+              </div>
+            ))}
+            {!pdfFiles.length && <div className="empty" style={{ padding: '16px 0' }}>{kwTrim ? '无匹配 PDF' : '电脑里没有可交接的 PDF'}</div>}
+            <button className="fh-phone-inbox" onClick={e => openFileInbox(e.currentTarget)}>
+              <IInbox size={15} />
+              <span>回传收件箱</span>
+              {fileReturnBadge > 0 && <span className="fh-badge">{fileReturnBadge}</span>}
+            </button>
+          </div>
+        </>
+      )}
+      {paired && filesSupported === false && (
+        <button className="fh-unsupported" onClick={() => fetchVaultFiles(false)}>
+          文件交接未启用 · 点此重试
+        </button>
+      )}
 
       <div className="sec-title" style={{ marginTop: 6 }}>手机笔记 <span className="more">上行同步进电脑收件箱</span></div>
       <div className="folder phone-notes">
@@ -286,7 +329,8 @@ export function NotesPage({ active }: { active: boolean }) {
       {listEl}
       <button className="fab" onClick={startNewNote}><IPen /></button>
       {editorEl}
-      <div className={'reader' + (vaultReader ? ' open' : '')}>{vaultReader ? readerEl : null}</div>
+      <div className={'reader file-reader' + (selectedFile ? ' open' : '')}>{selectedFile ? <FilePanel /> : null}</div>
+      <div className={'reader' + (vaultReader && !selectedFile ? ' open' : '')}>{vaultReader && !selectedFile ? readerEl : null}</div>
     </section>
   )
 }
