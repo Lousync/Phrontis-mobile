@@ -49,6 +49,7 @@
 | 2026-11-08 | **发现改版：自知 IP 扫自己网段为主路，组播降级双组加速器（LocalSend 对齐）**。A/B 实锤：手机本机双组监听对照——Phrontis 的 239 组 ping 与 LocalSend 的 224 组开屏宣告**双双零到达**，即本网络 AP 对客户端组播整类丢弃（与 0.8.0「组播可用」的推断相反，当时实测的其实是 LocalSend 的 HTTP/缓存路径，不是组播）。按 LocalSend 真实骨架重排：① `PhrontisDiscover` 原生加 `selfIpv4()`（UDP connect 公网地址不发包得出口 IP → 本机 /24 前缀），扫段回退**本机段最优先**——不依赖组播通不通、重装免疫、换网自适应；② 组播组改双组——**224.0.0.167 主**（LocalSend 同款，RFC 4541 要求 AP 无条件泛洪）+ 239.255.42.42 过渡兼容旧 APK，手机双组交错发、桌面双组逐接口收；③ diag 带「本机段」——报障自带手机所在网段，与桌面网段一比对即可判「不同网」还是「被防火墙拦」。涉及原生层，**必须装新包验收**。0.8.4（semver 修丁 z+1，修复 0.8.0 发现功能在本网络的失效）。 |
 | 2026-11-08 | **配对链路修复·桌面侧拍板（交接文档 `docs/handoff-pairing-hotspot-repair.md` WP1/WP5/WP7 桌面部分）**。① **地址推荐**：桌面 `getLanAddresses` 不再把 docker 网桥（`br-…`/`veth…`）排前——新增纯函数 `orderLanAddresses`（手机最近来源 IP 同 /24 最优先 → 默认路由出口次之 → 真实网卡 → 虚拟网卡 → link-local），面板列全部地址供选、二维码用选中项；`status.urls` **不再嵌过期配对码**（无有效码时 URL 不带码段）。② **双向解除**：新增 `POST /api/unpair`（Bearer 设备令牌，见 §2.2）——手机解除配对时 best-effort 调它再清本地，旧桌面 404 忽略；桌面面板删除设备同时**立即失效内存 tokenIndex**（此前只删设备文件，运行中令牌仍可用，手机侧 401「重新配对」提示永不触发）。③ **配对确认全局可见**：桌面任意页面收到 `companion:pairRequest` 广播弹 toast（此前确认框只在手机伴侣面板打开时出现）；过期待确认请求不再永久挂在面板。手机侧 401→auth 提示 / 离线重连监督器 / 热点前缀归 WP4/WP5/WP2（另批）。 |
 | 2026-11-08 | **平板全屏子页落位拍板（A+F 合并，原型 `prototype/tablet-panel.html` 七案对比后定稿）**。问题：`.full-page` 容器 `inset:0` 盖满含侧栏的整窗，手机密度表单在 ~1200px 下被拉成通栏（添加习惯为典型；受影响面 = 习惯/待办/记一笔/会话记录/AI 配置五处 FullPage + ModelPicker，共用容器修一处全好——常规内容页早有 `.app.tablet .page > * max-width:760px` 先例，全屏子页漏了同款）。对比过 0 现状 / A 全屏限宽 / B 居中浮卡 / C 右侧抽屉 / D 内联展开 / E 内容区分栏 / F 内容区切页七案，拍板 **A+F 合并**：子页 portal 进 `.pages` **停靠内容区**（侧栏纹丝不动、恒定两栏铁律不破、随侧栏折叠自适应），头与体收进 **640px 居中列**（内容页 760px 同族、表单密度窄一档），入场保留**从触发点圆形扩散**（clip 坐标改相对子页自身盒，`circleFrom(sheetOrigin, el)`，手机端与原行为完全等价）。落码：`FullPage` 平板分支 portal 进 `.pages`（`.pages` 本就是 position:relative 定位上下文）+ `fullPageHost()` 助手（平板=.pages / 手机=.app）；ModelPicker 同口径换宿主（嵌套时在内容列内盖住配置页，z 60>50 不变）；`index.css` 仅增 `.app.tablet .full-page .fp-head/.fp-body { max-width:640px }` 一组。已验证：平板停靠/限宽/侧栏可见、选择器嵌套、手机端盖整窗零回归。手机端行为零改动，不碰协议与原生层。 |
+| 2026-11-09 | **同步协议 v1.8 拍板 + 手机侧落地（打卡域）**：用户需求——打卡也要同步。新增 `habit` 域，两类负载：习惯定义 `{ kind:'habit', name, color, target, remind, archived }`（id = 习惯 UUID）与每日打卡记录 `{ kind:'record', habitId, date }`（id = `hr:<habitId>:<date>`）。桌面映射 `checkin/habits.json` / `records.json`（records 增可选 `updated_at`，同步记录 id 统一 `hr:`）；手机 `pm.habits` 增 `updatedAt` 与 `records: Record<date, ISO>`，`hist` 由 records 派生（当前周）。LWW：updatedAt 新者赢，相同桌面赢；取消打卡 = 记录墓碑；删除习惯 = 习惯墓碑 + 级联记录墓碑。手机只显示当前周，但记录全量同步（桌面历史可回填 streak）。提醒 `remind` 随定义同步，桌面暂只保留不展示；`rule_type`/`rule_days` 桌面独有、手机更新时原样保留。旧桌面忽略 habit（手机队列保留 unsupported-domain），旧手机不传 habit（桌面零影响）。0.12.0（semver 新功能 y+1）。 |
 | 2026-11-09 | **应用内自动更新落地（§7.1 冻结设计实施，0.11.0）**。原生半边 `PhrontisUpdater.java`（字节管线：候选循环 → Range 断点续传 → content-length 前置校验 → 15s/2MB 慢速看门狗 → 进度节流 256KB/200ms floor 锁 99% → size 兜底 + sha256 流内边下边算 → 坏包删了换下一候选；`canInstall`/`openInstallPermSettings`（直达系统授权页）/`install`（路径围栏 + FileProvider + ACTION_VIEW）/`openReleasePage` 兜底/`load()` 清理 marker——装完启动 versionCode 已变才删旧 APK）；JS 半边 `src/lib/update.ts`（releases?per_page=30 过滤 `-mobile` tag → 两件套 manifest 走镜像候选拉取 → `__APP_VERSION__` semver 对比；镜像链用户镜像→备用→直连，默认 gh-proxy.com、留空直连；八态 phase 机 + 结构化失败文案移植桌面 updateStore.ts；启动静默检查 6s 延迟 3×10s 重试 + **≥24h 节流**（§7.1）；镜像热切换 = JS 侧 2s 巡检 pause 后按新候选续传，桌面 MIRROR_CHANGED 的等价实现）。设置页「关于」段更新卡：行内展开零弹层，进度条复用 `.progress-track`，镜像输入 + 快捷 chips（gh-proxy.com/gh.dpik.top/ghfast.top），未授权引导直达系统设置。两处与 §7.1 冻结文的实现口径差异（行为等价）：① 版本对比用 vite `__APP_VERSION__` 而非 Capacitor App 插件——同一 package.json 派生，免新增依赖；② 状态订阅用 `useSyncExternalStore` 独立 store 而非全局 Context——进度事件 200ms 一跳不该牵动全部常挂页面。Manifest 增 `REQUEST_INSTALL_PACKAGES`、FileProvider 增 `update/` 路径条目，涉及原生层**必须装新包**。发布侧两件套门禁脚本与主仓 `publish-release.py --platform mobile` 收编另批（交接 `docs/handoff-publish-mobile.md`）。 |
 
 ---
@@ -174,6 +175,25 @@
   - 任意一方离线 → 手机退避重试，不影响本地记录。
 - **UI**：同步状态三态文案——「实时」（挂起中）/「轮询 30s（电脑版本较旧）」/「离线待同步」，沿用设置页配对卡状态行，不新开面板。
 - **不做**：WebSocket / SSE（长轮询已 <1s，不值新端点）；分域唤醒的精细信号（粗粒度 poke 足够，空 pull 开销可忽略）；后台常驻同步（后台静默，回前台拉平）；桌面 → 手机反向直连（协议模型不变，手机仍无服务端）。
+
+**v1.8 打卡域（2026-11-09 拍板，用户需求：打卡也要同步）**
+
+> 新增同步域 `habit`，习惯定义与每日打卡记录共用一条 LWW 时线与墓碑机制；端点不变，`since`/`cursor` 增 `habit` 维度。
+
+- **习惯定义**（id = 习惯 UUID）负载 `{ kind:'habit', name, color, target, remind, archived }`：
+  - 桌面 `checkin/habits.json` 映射：`name` / `color` / `weekly_target` ↔ `target` / `remind`（新增可选字段，桌面暂不展示）/ `archived`；`rule_type` / `rule_days` / `icon` / `sort_order` 桌面独有，手机上行不覆盖（原样保留）。
+  - 手机 `pm.habits` 映射：`name` / `color` / `target` / `remind` / `archived`；`char` 由名称派生，`updatedAt` 为 LWW 时钟。
+- **每日打卡记录**（id = `hr:<habitId>:<YYYY-MM-DD>`）负载 `{ kind:'record', habitId, date }`，表示该日已打卡；取消打卡 = 该 id 的墓碑。
+  - 桌面 `checkin/records.json` 增可选 `updated_at`（新写入 ISO）；同步记录 id 统一 `hr:`，按 `habit_id + date` 幂等。
+  - 手机 `Habit.records: Record<date, ISO>` 存每条记录的最后变更时间；`hist` / `weekDone` / `streak` 由 records 派生（当前周 hist；streak 可跨周）。
+- **LWW 与墓碑**：定义与记录都按 `updatedAt` 新者赢，相同桌面赢；已墓碑 id 收到更旧 upsert → `tombstoned`。删除习惯 = 习惯墓碑 + 级联记录墓碑；取消某天 = 记录墓碑。桌面侧 `habit:delete` / 取消打卡必须经 repo 钩子 `emitVaultDeletes('habit', …)` 记墓碑。
+- **pull/push**：`SYNC_DOMAINS` 增 `habit`；pull 响应 `changes.habit: [{ id, updatedAt, data }]`；cursor 增 `habit`；push 按 `data.kind` 分派。
+- **兼容矩阵**：
+  - 新手机 + 旧桌面 → habit push 回 `unsupported-domain`，手机保留队列；pull 无 `changes.habit`，habit 游标不动；本地打卡照常。
+  - 旧手机 + 新桌面 → 旧手机不发 habit，桌面零影响。
+  - 新手机 + 新桌面 → 双向同步；桌面历史记录全量下行，手机当前周 hist 由 records 回填。
+- **UI**：手机打卡页沿用现有卡片；`archived` 习惯不显示、不排提醒；桌面看板收到 `broadcastDataChanged('habit')` 后刷新。提醒 `remind` 仍由手机本地排程，桌面暂不展示。
+- **不做**：打卡提醒的桌面排程；习惯排序的跨端强一致（各自本地排序）；`rule_type` / `rule_days` 的手机 UI（桌面独有）。
 
 **触发：** v1.7 起 = 前台常挂挂起 pull 循环（桌面任何域一动 <1s 下行）+ 本地写操作防抖立即对账（push + pull）+ 启动/连接/手动「立即同步」；未配对/离线时一切照旧记本地，待同步条数 UI 常显（琥珀色徽标）。
 

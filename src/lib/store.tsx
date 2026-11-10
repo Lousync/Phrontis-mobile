@@ -1,13 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { ReactNode } from 'react'
-import type { AppPrefs, AiChatMsg, AiConfig, Card, CardKind, Folder, Habit, LedgerEntry, LedgerSyncData, Msg, NoteCache, NoteProposal, NoteTreePage, PairedDevice, PhoneNote, QuizAddProposal, QuizDelProposal, QuizNoteProposal, QuizRecord, QuizSpec, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
+import type { AppPrefs, AiChatMsg, AiConfig, Card, CardKind, Folder, Habit, HabitRecordSyncData, HabitSyncData, LedgerEntry, LedgerSyncData, Msg, NoteCache, NoteProposal, NoteTreePage, PairedDevice, PhoneNote, QuizAddProposal, QuizDelProposal, QuizNoteProposal, QuizRecord, QuizSpec, Session, SheetId, SchedView, ThemeName, Todo, TodoProposal, Tx, TxProposal, VoicePhase } from './types'
 import { THEME_IDS } from './types'
-import { TODAY, VOICE_PHRASES, welcomeText, dayIso, fmtMoney, monthOf, monthStats, txToDisplay } from './data'
+import { TODAY, VOICE_PHRASES, welcomeText, dayIso, fmtMoney, isoOf, monthOf, monthStats, txToDisplay, weekOf } from './data'
 import {
-  AiStopped, AuthError, buildNoteData, buildScheduleData, commitPullCursor, enqueueOp, getDeviceName, getPaired, getQueue, loadJson, nextProbeDelayMs,
-  noteLww, pairWith as pairRequest, pingDevice, pingPaired, pullOnce, removeFromQueue, saveJson, savePaired, syncNow, unpair as unpairDevice, uuid,
-  RtDriver, type RemoteLedgerItem, type RemoteNoteItem, type RemoteScheduleItem, type RtMode,
+  AiStopped, AuthError, buildHabitData, buildHabitRecordData, buildNoteData, buildScheduleData, commitPullCursor, enqueueOp, getDeviceName, getLastSync, getPaired, getQueue, habitLww, habitRecordId, loadJson, nextProbeDelayMs,
+  noteLww, pairWith as pairRequest, parseHabitRecordId, pingDevice, pingPaired, pullOnce, removeFromQueue, resetSyncCursor, saveJson, savePaired, syncNow, unpair as unpairDevice, uuid,
+  RtDriver, type RemoteHabitItem, type RemoteLedgerItem, type RemoteNoteItem, type RemoteScheduleItem, type RemoteTombstone, type RtMode,
 } from './sync'
 import { AI_MAX_ROUNDS, aiConfigReady, chatOnce, loadAiConfig, parseToolArgs, saveAiConfig } from './ai'
 import { AI_TOOLS, buildSystemPrompt, quizQueryForModel, quizStatsForModel, validateLedgerAdd, validateNoteCreate, validateQuizAdd, validateQuizDel, validateQuizNote, validateTodoAdd, type ToolResult } from './aiTools'
@@ -72,6 +72,31 @@ function queuedDeleteIds(): Set<string> {
   return new Set(getQueue().filter(op => (op.data as { deleted?: boolean }).deleted === true).map(op => op.id))
 }
 
+/** v1.8：由 records（date → 最后变更 ISO）派生当前周 hist / weekDone / streak。
+ *  hist 只是 UI 缓存，真实记录以 records 为准；streak 可跨周。 */
+function deriveHabit(h: Habit): Habit {
+  const records = h.records || {}
+  const week = weekOf(0)
+  const hist = week.map(d => records[d.iso] ? 1 : 0)
+  const todayIdx = (new Date().getDay() + 6) % 7
+  const weekDone = hist.slice(0, todayIdx + 1).reduce((s: number, v) => s + v, 0)
+  let streak = 0
+  const d = new Date()
+  if (!records[isoOf(d)]) d.setDate(d.getDate() - 1)
+  while (records[isoOf(d)]) { streak++; d.setDate(d.getDate() - 1) }
+  return { ...h, hist, weekDone, streak }
+}
+
+/** v1.8 旧数据迁移：只有 hist 没有 records 的习惯，把当前周的 hist 回填成 records。
+ *  返回 migrated = 有需要上行的旧打卡（调用方入队，桌面才会收到）。 */
+function migrateHabit(h: Habit): { habit: Habit; migrated: boolean } {
+  if (h.records) return { habit: deriveHabit(h), migrated: false }
+  const records: Record<string, string> = {}
+  const at = h.updatedAt || '1970-01-01T00:00:00.000Z'
+  weekOf(0).forEach((d, i) => { if (h.hist?.[i]) records[d.iso] = at })
+  return { habit: deriveHabit({ ...h, updatedAt: at, records }), migrated: Object.keys(records).length > 0 }
+}
+
 interface Store {
   /* 全局 */
   theme: ThemeName
@@ -115,6 +140,8 @@ interface Store {
   lastSync: string
   paired: PairedDevice | null
   runSync: () => void
+  /** 全量重新对账：清空三域游标后从电脑重拉（本地数据为空/换仓/重配对后的修复入口） */
+  fullResync: () => void
   markPending: (label: string, opId?: string) => void
   pairWith: (input: string, code: string) => Promise<void>
   adoptPaired: (device: PairedDevice) => Promise<void>
@@ -271,7 +298,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [selDate, setSelDate] = useState(TODAY)
   /* 日程/待办落本地存储（M2a）：重启不丢；干净启动，数据由用户与同步产生 */
   const [todos, setTodos] = useState<Todo[]>(() => loadJson<Todo[]>(K_TODOS, []))
-  const [habits, setHabits] = useState<Habit[]>(() => loadJson<Habit[]>(K_HABITS, []))
+  const [habits, setHabits] = useState<Habit[]>(() => {
+    const loaded = loadJson<Habit[]>(K_HABITS, [])
+    const nowIso = new Date().toISOString()
+    const out: Habit[] = []
+    for (const h of loaded) {
+      const m = migrateHabit(h)
+      const legacy = !h.updatedAt || h.updatedAt.startsWith('1970-')
+      if (legacy) {
+        m.habit.updatedAt = nowIso
+        enqueueOp({ id: m.habit.id, domain: 'habit', updatedAt: nowIso, data: buildHabitData(m.habit), label: '习惯「' + m.habit.name + '」' })
+      }
+      out.push(m.habit)
+      if (m.migrated) {
+        for (const date of Object.keys(m.habit.records || {})) {
+          enqueueOp({
+            id: habitRecordId(m.habit.id, date),
+            domain: 'habit',
+            updatedAt: m.habit.records![date],
+            data: buildHabitRecordData(m.habit.id, date),
+            label: '打卡：' + m.habit.name,
+          })
+        }
+      }
+    }
+    return out
+  })
 
   /* 账本本地真相 = 同步形态（M2b）；展示形态派生 */
   const [entries, setEntries] = useState<LedgerEntry[]>(() => loadJson<LedgerEntry[]>(K_LEDGER, []))
@@ -347,6 +399,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const streamingRef = useRef(streaming); streamingRef.current = streaming
   const entriesRef = useRef(entries); entriesRef.current = entries
   const todosRef = useRef(todos); todosRef.current = todos
+  const habitsRef = useRef(habits); habitsRef.current = habits
   const phoneNotesRef = useRef(phoneNotes); phoneNotesRef.current = phoneNotes
   const aiConfigRef = useRef(aiConfig); aiConfigRef.current = aiConfig
   const pairedRef = useRef(paired); pairedRef.current = paired
@@ -578,6 +631,67 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  /* v1.8：桌面下行的习惯定义 + 打卡记录 → LWW 合并进本地。
+     定义先于记录处理（记录需要 habit 存在）；本地新 → 重新入队自愈；在途取消打卡的 id 跳过。 */
+  const applyRemoteHabits = useCallback((remote: RemoteHabitItem[]) => {
+    if (!remote.length) return
+    const delIds = queuedDeleteIds()
+    const nowIso = new Date().toISOString()
+    const byId = new Map(habitsRef.current.map(h => [h.id, { ...h }]))
+    for (const id of delIds) byId.delete(id)
+    const takeIds: string[] = []
+
+    for (const r of remote) {
+      if (!r || typeof r.id !== 'string' || !r.data || r.data.kind !== 'habit') continue
+      if (delIds.has(r.id)) continue
+      const d = r.data as HabitSyncData
+      const prev = byId.get(r.id)
+      if (!prev) {
+        const next: Habit = {
+          id: r.id, name: d.name, char: [...d.name][0] ?? '习', color: d.color,
+          weekDone: 0, target: d.target, streak: 0, hist: [0, 0, 0, 0, 0, 0, 0],
+          remind: d.remind ?? undefined, archived: d.archived, updatedAt: r.updatedAt, records: {},
+        }
+        byId.set(r.id, deriveHabit(next))
+        takeIds.push(r.id)
+        continue
+      }
+      if (habitLww(prev.updatedAt, r.updatedAt) === 'local') {
+        enqueueOp({ id: prev.id, domain: 'habit', updatedAt: prev.updatedAt || nowIso, data: buildHabitData(prev), label: '习惯「' + prev.name + '」' })
+        markPending('习惯「' + prev.name + '」', prev.id)
+        continue
+      }
+      const next: Habit = {
+        ...prev,
+        name: d.name, char: [...d.name][0] ?? prev.char, color: d.color,
+        target: d.target, remind: d.remind ?? undefined, archived: d.archived,
+        updatedAt: r.updatedAt,
+      }
+      byId.set(r.id, deriveHabit(next))
+      takeIds.push(r.id)
+    }
+
+    for (const r of remote) {
+      if (!r || typeof r.id !== 'string' || !r.data || r.data.kind !== 'record') continue
+      const d = r.data as HabitRecordSyncData
+      if (delIds.has(r.id)) continue
+      const h = byId.get(d.habitId)
+      if (!h) continue
+      const localAt = h.records?.[d.date]
+      if (habitLww(localAt, r.updatedAt) === 'local') {
+        enqueueOp({ id: r.id, domain: 'habit', updatedAt: localAt || nowIso, data: buildHabitRecordData(d.habitId, d.date), label: '打卡：' + h.name })
+        markPending('打卡：' + h.name, r.id)
+        continue
+      }
+      const records = { ...(h.records || {}), [d.date]: r.updatedAt }
+      byId.set(d.habitId, deriveHabit({ ...h, records }))
+      takeIds.push(r.id)
+    }
+
+    if (takeIds.length) removeFromQueue(takeIds)
+    setHabits([...byId.values()])
+  }, [markPending])
+
   /* v1.6 U 盘模式：桌面在设备文件夹里的笔记增改 → LWW 合并进手机笔记列表。
      远端新 = 覆盖本地（synced 置真——桌面文件就是已同步态）；本地新 = 保留并把本地版重新入队上行（自愈）。
      在途删除的 id 跳过（用户刚删的笔记不被桌面旧版本复活）；远端赢的丢弃该 id 在途旧版 op。 */
@@ -608,15 +722,65 @@ export function AppProvider({ children }: { children: ReactNode }) {
     removeFromQueue(take.map(u => u.id))
   }, [markPending])
 
-  /* 墓碑下行：本地删除 + 丢弃这些 id 的在途队列操作（幂等） */
-  const applyTombstones = useCallback((removedIds: string[]) => {
-    if (!removedIds.length) return
-    const gone = new Set(removedIds)
-    setTodos(list => list.filter(t => !gone.has(t.id)))
-    setEntries(list => list.filter(e => !gone.has(e.id)))
-    setPhoneNotes(list => list.filter(n => !gone.has(n.id)))
-    removeFromQueue(removedIds)
+  /* 墓碑下行：非 habit 域按 id 从三域删除；habit 域按 domain 分派（定义/记录），
+     本地更新的记录/定义 → 自愈重推，不删。 */
+  const applyTombstones = useCallback((tombstones: RemoteTombstone[]) => {
+    if (!tombstones.length) return
+    const gone = new Set(tombstones.filter(t => t.domain !== 'habit').map(t => String(t.id)))
+    if (gone.size) {
+      setTodos(list => list.filter(t => !gone.has(t.id)))
+      setEntries(list => list.filter(e => !gone.has(e.id)))
+      setPhoneNotes(list => list.filter(n => !gone.has(n.id)))
+    }
+
+    const habitTombstones = tombstones.filter(t => t.domain === 'habit')
+    const tombstoneWins: string[] = []
+    if (habitTombstones.length) {
+      const byId = new Map(habitsRef.current.map(h => [h.id, { ...h }]))
+      for (const t of habitTombstones) {
+        const rec = parseHabitRecordId(t.id)
+        if (rec) {
+          const h = byId.get(rec.habitId)
+          if (!h) { tombstoneWins.push(t.id); continue }
+          const localAt = h.records?.[rec.date]
+          if (localAt && habitLww(localAt, t.deletedAt) === 'local') {
+            enqueueOp({ id: t.id, domain: 'habit', updatedAt: localAt, data: buildHabitRecordData(rec.habitId, rec.date), label: '打卡：' + h.name })
+            markPending('打卡：' + h.name, t.id)
+            continue
+          }
+          const records = { ...(h.records || {}) }
+          delete records[rec.date]
+          byId.set(rec.habitId, deriveHabit({ ...h, records }))
+          tombstoneWins.push(t.id)
+          continue
+        }
+        const h = byId.get(t.id)
+        if (!h) { tombstoneWins.push(t.id); continue }
+        if (h.updatedAt && habitLww(h.updatedAt, t.deletedAt) === 'local') {
+          enqueueOp({ id: h.id, domain: 'habit', updatedAt: h.updatedAt, data: buildHabitData(h), label: '习惯「' + h.name + '」' })
+          markPending('习惯「' + h.name + '」', h.id)
+          continue
+        }
+        byId.delete(t.id)
+        tombstoneWins.push(t.id)
+      }
+      setHabits([...byId.values()])
+    }
+
+    const removeIds = [...new Set([...gone, ...tombstoneWins])]
+    if (removeIds.length) removeFromQueue(removeIds)
+  }, [markPending])
+
+  /* 自动对账成功也要更新「上次同步」——此前只有手动 runSync 会写，状态行长期停在旧时间，
+     看起来像「一直没同步」。 */
+  const touchLastSync = useCallback(() => {
+    const now = new Date()
+    setLastSync('今天 ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'))
   }, [])
+
+  /* 本次启动是否已经做过「本地日程为空 → 重置 schedule 游标」的自愈。只做一次：
+     用户主动删空日程时不会每轮对账都全量重拉。 */
+  const autoResyncedRef = useRef(false)
 
   /* ---------- v1.7 实时同步：挂起循环驱动器（前台常挂 pull；合并走既有 applyRemote*，零改动） ---------- */
   const rtRef = useRef<RtDriver | null>(null)
@@ -627,21 +791,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
         applyRemoteLedger(out.remoteLedger)
         applyRemoteSchedule(out.remoteSchedule)
         applyRemoteNotes(out.remoteNotes)
-        applyTombstones(out.removedIds)
+        applyRemoteHabits(out.remoteHabits)
+        applyTombstones(out.removedTombstones)
       },
       /* 游标提交收口（WP6.3）：pullOnce 不再自行落盘，应用完成后这里统一提交 */
-      commit: out => commitPullCursor(out),
+      commit: out => { commitPullCursor(out); touchLastSync() },
       onError: e => {
         if (e instanceof AuthError) {
           setConn('auth')
           supervisorStopRef.current?.()
           return
         }
-        /* 挂起循环网络失败 → 立即进重连节奏（监督器 ping 修正，是抖动就弹回 online） */
-        if (connRef.current === 'online') {
-          setConn('offline')
-          supervisorPokeRef.current?.()
-        }
+        /* 挂起循环网络失败只戳监督器复探，不直接改 conn：
+           弱网下单次长轮询超时很常见，直接落 offline 会让页头「已连接 ↔ 电脑离线」闪烁
+           （2026-11-10 热点场景反馈）。是否真离线交给监督器按连续失败次数裁定。 */
+        supervisorPokeRef.current?.()
       },
     })
     d.onMode = m => { setSyncMode(m) }
@@ -665,8 +829,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       /* v1.7：对账前先停挂起循环（顶掉在途，避免双 pull 并发），收尾重建 */
       rtRef.current?.stop()
-      /* 真实对账（push 队列 + pull 三域增量 + 墓碑） */
-      if (getQueue().length === 0 && pendingRef.current.length === 0) { if (!off) rtRef.current?.maybeStart(); toast('没有待同步的变更', 'info'); return }
+      /* 真实对账（push 队列 + pull 三域增量 + 墓碑）。
+         注意：队列为空也必须 pull——「立即同步」此前在无待上行时直接 return，用户点了等于什么都没做，
+         正好掩盖「游标已推到现在、本地却没数据」的问题（2026-11-09 实锤）。 */
+      if (!autoResyncedRef.current && todosRef.current.length === 0 && getLastSync().schedule > 0) {
+        autoResyncedRef.current = true
+        resetSyncCursor('schedule')
+      }
       setSyncing(true)
       setSyncPct(8)
       try {
@@ -674,7 +843,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         applyRemoteLedger(out.remoteLedger)
         applyRemoteSchedule(out.remoteSchedule)
         applyRemoteNotes(out.remoteNotes)
-        applyTombstones(out.removedIds)
+        applyRemoteHabits(out.remoteHabits)
+        applyTombstones(out.removedTombstones)
         commitPullCursor(out)
         const handled = new Set(out.handledIds)
         setPending(list => list.filter(x => !x.opId || !handled.has(x.opId)))
@@ -684,8 +854,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         setSyncing(false)
         setSyncPct(0)
-        const now = new Date()
-        setLastSync('今天 ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'))
+        touchLastSync()
         const parts: string[] = []
         if (out.applied) parts.push('上行 ' + out.applied + ' 条')
         if (out.conflicts) parts.push(out.conflicts + ' 条以电脑为准')
@@ -700,7 +869,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!offlineUseRef.current) rtRef.current?.maybeStart()
       }
     })()
-  }, [toast, applyRemoteLedger, applyRemoteSchedule, applyRemoteNotes, applyTombstones])
+  }, [toast, applyRemoteLedger, applyRemoteSchedule, applyRemoteNotes, applyRemoteHabits, applyTombstones, touchLastSync])
+
+  /* 全量重新对账：清空三域游标 → push 积压 + pull 全量 → 应用。
+     用于「本地为空但游标已推到现在」/ 换仓 / 重配对后的修复；不清本地数据与队列（push 会先上行）。 */
+  const fullResync = useCallback(() => {
+    void (async () => {
+      if (syncingRef.current) return
+      if (!getPaired()) { toast('先到「设置」配对电脑，才能同步', 'warn'); return }
+      const off = offlineUseRef.current
+      if (!off && !onlineRef.current) {
+        const r = await pingPaired()
+        if (r.state === 'auth') { setConn('auth'); toast('电脑不再认识这台设备，请重新配对', 'warn'); return }
+        if (r.state !== 'online') { toast('连不上电脑：确认同一网络、电脑端服务已开启', 'warn'); return }
+        setConn('online')
+      }
+      rtRef.current?.stop()
+      resetSyncCursor()
+      setSyncing(true)
+      setSyncPct(8)
+      try {
+        const out = await syncNow(pct => setSyncPct(pct))
+        applyRemoteLedger(out.remoteLedger)
+        applyRemoteSchedule(out.remoteSchedule)
+        applyRemoteNotes(out.remoteNotes)
+        applyRemoteHabits(out.remoteHabits)
+        applyTombstones(out.removedTombstones)
+        commitPullCursor(out)
+        touchLastSync()
+        const handled = new Set(out.handledIds)
+        setPending(list => list.filter(x => !x.opId || !handled.has(x.opId)))
+        if (out.handledIds.length) {
+          setPhoneNotes(list => list.map(x => handled.has(x.id) ? { ...x, synced: true } : x))
+        }
+        setSyncing(false)
+        setSyncPct(0)
+        toast('全量对账完成：日程 ' + out.remoteSchedule.length + ' 条 · 记账 ' + out.remoteLedger.length + ' 条 · 笔记 ' + out.remoteNotes.length + ' 条 · 打卡 ' + out.remoteHabits.length + ' 条', 'ok')
+      } catch (e) {
+        setSyncing(false)
+        setSyncPct(0)
+        toast(e instanceof Error ? e.message : '全量对账失败', 'warn')
+      } finally {
+        if (!offlineUseRef.current) rtRef.current?.maybeStart()
+      }
+    })()
+  }, [toast, applyRemoteLedger, applyRemoteSchedule, applyRemoteNotes, applyRemoteHabits, applyTombstones, touchLastSync])
+
+  /* 启动自愈：本地日程为空但游标已推到现在 → 自动全量重拉一次（本次启动只做一次）。
+     覆盖「手机已连接实时但日程模块全空」的场景，用户不必先找到按钮。延迟 800ms 让配对/网络就绪。 */
+  useEffect(() => {
+    if (!paired || offlineUseRef.current || autoResyncedRef.current) return
+    if (todos.length > 0 || getLastSync().schedule <= 0) return
+    const t = setTimeout(() => {
+      if (autoResyncedRef.current) return
+      autoResyncedRef.current = true
+      fullResync()
+    }, 800)
+    return () => clearTimeout(t)
+  }, [paired, todos.length, fullResync])
 
   /* v1.7 静默对账：写操作防抖 / 回前台的「立即拉平」——停循环（顶掉在途）→ push+pull → 重建循环。
      无 toast（区别于手动 runSync）；失败静默，离线由循环退避接手。
@@ -711,14 +937,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void (async () => {
       if (syncingRef.current) return
       if (!getPaired()) return
+      /* 自愈：本地日程为空但游标已推到现在 → 本次启动只重置一次 schedule 游标，从 0 重拉。
+         2026-11-09 实锤：手机「已连接 · 实时」但日程模块全空，游标却已是今天。 */
+      if (!autoResyncedRef.current && todosRef.current.length === 0 && getLastSync().schedule > 0) {
+        autoResyncedRef.current = true
+        resetSyncCursor('schedule')
+      }
       rtRef.current?.stop()
       try {
         const out = await syncNow()
         applyRemoteLedger(out.remoteLedger)
         applyRemoteSchedule(out.remoteSchedule)
         applyRemoteNotes(out.remoteNotes)
-        applyTombstones(out.removedIds)
+        applyRemoteHabits(out.remoteHabits)
+        applyTombstones(out.removedTombstones)
         commitPullCursor(out)
+        touchLastSync()
         const handled = new Set(out.handledIds)
         setPending(list => list.filter(x => !x.opId || !handled.has(x.opId)))
         if (out.handledIds.length) {
@@ -727,7 +961,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch { /* 静默：断网 / 桌面重启由循环退避接手 */ }
       rtRef.current?.maybeStart()
     })()
-  }, [applyRemoteLedger, applyRemoteSchedule, applyRemoteNotes, applyTombstones])
+  }, [applyRemoteLedger, applyRemoteSchedule, applyRemoteNotes, applyRemoteHabits, applyTombstones, touchLastSync])
 
   /* ---------- 连接监督器（WP4）：配对即运行，conn 四态单一真相 ----------
    * online → 60s keepalive（自愈检测）；offline → 1/2/5/10/15s 退避重探；auth → 停（UI 引导重新配对）。
@@ -754,6 +988,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const s = supervisorRef.current
     const gen = s.gen
     if (s.stopped || pingingRef.current) return
+    /* 本次探测已消费掉触发它的 poke；探测期间再收到的 poke 会重新置位，
+       由本发收尾时的「立即续探」接管——避免一次 poke 连打两发 ping。 */
+    pokePendingRef.current = false
     pingingRef.current = true
     let r: Awaited<ReturnType<typeof pingPaired>>
     try { r = await pingPaired() } finally { pingingRef.current = false }
@@ -772,7 +1009,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       rtRef.current?.stop() /* 令牌失效：循环停，红条引导重新配对；adoptPaired 后监督器重启 */
     } else {
       s.fails++
-      setConn('offline')
+      /* 抖动保护（2026-11-10 用户反馈）：热点 / 弱网下单次 ping 失败很可能只是瞬时丢包，
+         直接落 offline 会让状态行「亮一下灭一下」。连续 2 次失败才显示离线；
+         第一次失败保持原状态，1s 后立刻复探。恢复时 fails 归零、立即回 online。 */
+      if (s.fails >= 2) setConn('offline')
       s.timer = setTimeout(() => { s.timer = null; void supervisorTick() }, nextProbeDelayMs(s.fails))
     }
     /* 探测期间收到 poke：立即重探一次（不叠加并发——pingingRef 已放行） */
@@ -956,52 +1196,74 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toast('已删除 · 待同步进电脑', 'ok')
   }, [todos, markPending, toast])
 
-  /* 打卡只记本地（打卡暂不参与同步，不入队列、不挂待同步徽标——挂了也永远等不到出队） */
+  /* 打卡（v1.8 起参与同步）：records 是真相，hist/weekDone/streak 由 deriveHabit 派生；
+     每次勾选/取消都入 habit 队列（记录 upsert / 墓碑），markPending 触发对账。 */
   const toggleHabit = useCallback((id: string) => {
     const h = habits.find(x => x.id === id)
     if (!h) return
-    const todayIdx = (new Date().getDay() + 6) % 7
-    const wasDone = !!h.hist[todayIdx]
-    const hist = [...h.hist]; hist[todayIdx] = wasDone ? 0 : 1
-    const weekDone = hist.slice(0, todayIdx + 1).reduce((s, v) => s + v, 0)
-    /* 连续天数含今天：今天已打则从今天起算，取消今天则从昨天起算（首次打卡 = 连续 1 天） */
-    let streak = 0
-    for (let i = hist[todayIdx] ? todayIdx : todayIdx - 1; i >= 0 && hist[i]; i--) streak++
-    setHabits(list => list.map(x => x.id === id ? { ...x, hist, weekDone, streak } : x))
-    if (!wasDone) toast('打卡成功', 'ok')
-  }, [habits, toast])
+    const date = dayIso(0)
+    const nowIso = new Date().toISOString()
+    const wasDone = !!h.records?.[date]
+    const records = { ...(h.records || {}) }
+    if (wasDone) delete records[date]
+    else records[date] = nowIso
+    const next = deriveHabit({ ...h, records })
+    setHabits(list => list.map(x => x.id === id ? next : x))
+    const rid = habitRecordId(id, date)
+    if (wasDone) {
+      enqueueOp({ id: rid, domain: 'habit', updatedAt: nowIso, data: { deleted: true }, label: '取消打卡：' + h.name })
+      markPending('取消打卡：' + h.name, rid)
+    } else {
+      enqueueOp({ id: rid, domain: 'habit', updatedAt: nowIso, data: buildHabitRecordData(id, date), label: '打卡：' + h.name })
+      markPending('打卡：' + h.name, rid)
+      toast('打卡成功', 'ok')
+    }
+  }, [habits, markPending, toast])
 
-  /* 习惯增改删（2026-11-08 打卡提醒落地）：本地数据不入同步队列（与 toggleHabit 同规）。
+  /* 习惯增改删（v1.8 起入同步队列）：定义走 habit 域，删除走墓碑；records 由 toggleHabit 维护。
      char（首字）与 color（色板轮转）自动派生，表单只问名称 / 周目标 / 提醒时间。 */
   const addHabit = useCallback((input: { name: string; target: number; remind?: number }) => {
     const name = input.name.trim()
     if (!name) return
-    const char = [...name][0] ?? '习'
-    setHabits(list => [...list, {
-      id: nextId('h'), name, char, color: HABIT_COLORS[list.length % HABIT_COLORS.length],
+    const nowIso = new Date().toISOString()
+    const id = uuid()
+    const habit: Habit = {
+      id, name, char: [...name][0] ?? '习', color: HABIT_COLORS[habits.length % HABIT_COLORS.length],
       weekDone: 0, target: Math.min(7, Math.max(1, Math.round(input.target) || 7)), streak: 0,
       hist: [0, 0, 0, 0, 0, 0, 0], ...(input.remind != null ? { remind: input.remind } : {}),
-    }])
+      updatedAt: nowIso, records: {}, archived: false,
+    }
+    setHabits(list => [...list, habit])
+    enqueueOp({ id, domain: 'habit', updatedAt: nowIso, data: buildHabitData(habit), label: '习惯「' + name + '」' })
+    markPending('习惯「' + name + '」', id)
     toast(input.remind != null ? '已添加习惯 · 到点提醒打卡' : '已添加习惯', 'ok')
-  }, [toast])
+  }, [habits.length, markPending, toast])
 
   const updateHabit = useCallback((id: string, patch: { name?: string; target?: number; remind?: number | null }) => {
-    setHabits(list => list.map(x => {
-      if (x.id !== id) return x
-      const next = { ...x }
-      if (patch.name != null && patch.name.trim()) { next.name = patch.name.trim(); next.char = [...patch.name.trim()][0] ?? x.char }
-      if (patch.target != null) next.target = Math.min(7, Math.max(1, Math.round(patch.target)))
-      if (patch.remind === null) delete next.remind
-      else if (patch.remind != null) next.remind = patch.remind
-      return next
-    }))
+    const h = habitsRef.current.find(x => x.id === id)
+    if (!h) return
+    const nowIso = new Date().toISOString()
+    const next: Habit = { ...h }
+    if (patch.name != null && patch.name.trim()) { next.name = patch.name.trim(); next.char = [...patch.name.trim()][0] ?? h.char }
+    if (patch.target != null) next.target = Math.min(7, Math.max(1, Math.round(patch.target)))
+    if (patch.remind === null) delete next.remind
+    else if (patch.remind != null) next.remind = patch.remind
+    next.updatedAt = nowIso
+    const derived = deriveHabit(next)
+    setHabits(list => list.map(x => x.id === id ? derived : x))
+    enqueueOp({ id, domain: 'habit', updatedAt: nowIso, data: buildHabitData(derived), label: '习惯「' + derived.name + '」' })
+    markPending('习惯「' + derived.name + '」', id)
     toast('已保存', 'ok')
-  }, [toast])
+  }, [markPending, toast])
 
   const deleteHabit = useCallback((id: string) => {
+    const h = habitsRef.current.find(x => x.id === id)
+    const nowIso = new Date().toISOString()
     setHabits(list => list.filter(x => x.id !== id))
+    enqueueOp({ id, domain: 'habit', updatedAt: nowIso, data: { deleted: true }, label: '删除习惯：' + (h?.name || '') })
+    markPending('删除习惯：' + (h?.name || ''), id)
     toast('已删除习惯', 'ok')
-  }, [toast])
+  }, [markPending, toast])
 
   /* ---------- 记账（M2b：本地真相 = 同步形态，增改删都走同一条上行路径） ---------- */
 
@@ -1672,12 +1934,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void (async () => {
       const perm = await initNotifPermission()
       setNotifPerm(perm)
-      if (perm === 'granted') await rescheduleReminders(todos, habits, prefsRef.current.remindLead)
+      if (perm === 'granted') await rescheduleReminders(todos, habits.filter(h => !h.archived), prefsRef.current.remindLead)
     })()
     // 只在启动跑一次：todos 后续变更由下方随动 effect 接管
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  useEffect(() => { void rescheduleReminders(todos, habits, prefs.remindLead) }, [todos, habits, prefs.remindLead])
+  useEffect(() => { void rescheduleReminders(todos, habits.filter(h => !h.archived), prefs.remindLead) }, [todos, habits, prefs.remindLead])
 
   /* ---- 应用内更新（docs/design.md §7.1）：启动静默检查（≥24h 节流，模块内自带）；
         发现新版 toast 一次指路设置-关于，状态本体走 lib/update 的独立订阅（不走本 Context，
@@ -1689,14 +1951,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const requestNotifPerm = useCallback(async () => {
     const perm = await requestNotifPermission()
     setNotifPerm(perm)
-    if (perm === 'granted') await rescheduleReminders(todos, habits, prefs.remindLead)
+    if (perm === 'granted') await rescheduleReminders(todos, habits.filter(h => !h.archived), prefs.remindLead)
     return perm
   }, [todos, habits, prefs.remindLead])
 
   const value: Store = {
     theme, setTheme, prefs, setPref, toast, toasts, sheet, openSheet, closeSheet, sheetOrigin, activeTab, setActiveTab, kbSim, toggleKbSim, kbOpen,
     sideCollapsed, toggleSide,
-    online, conn, reconnectNow, repairAddress, syncing, syncPct, syncMode, pending, lastSync, paired, runSync, markPending, pairWith, adoptPaired, unpair,
+    online, conn, reconnectNow, repairAddress, syncing, syncPct, syncMode, pending, lastSync, paired, runSync, fullResync, markPending, pairWith, adoptPaired, unpair,
     schedView, setSchedView, selDate, setSelDate, todos, toggleTodo, addTodo, deleteTodo, habits, toggleHabit, addHabit, updateHabit, deleteHabit, editHabitId, openHabitForm,
     entries, txs, saveTx, updateTx, deleteTx, editTxId, openTxEdit,
     folders, toggleFolder, markCached, phoneNotes, addPhoneNote,

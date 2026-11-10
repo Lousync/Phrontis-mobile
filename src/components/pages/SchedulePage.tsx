@@ -345,12 +345,13 @@ function QuickTodoAdd({ selDate, onClose }: { selDate: string; onClose: () => vo
 }
 
 export function SchedulePage({ active }: { active: boolean }) {
-  const { todos, habits, selDate, setSelDate, schedView, setSchedView, openSheet, deleteTodo, openHabitForm } = useApp()
+  const { todos, habits, selDate, setSelDate, schedView, setSchedView, openSheet, deleteTodo, openHabitForm, paired, fullResync } = useApp()
   const tablet = useFormFactor() === 'tablet'
   const [delId, setDelId] = useState<string | null>(null)
   const [quickAdd, setQuickAdd] = useState(false)
   const [weekOff, setWeekOff] = useState(0)
   const dayTodos = todos.filter(t => t.date === selDate)
+  const visibleHabits = habits.filter(h => !h.archived)
   const totalN = dayTodos.filter(t => !t.parentId).length
   const doneN = dayTodos.filter(t => t.done && !t.parentId).length
   const full = totalN > 0 && doneN === totalN
@@ -419,9 +420,18 @@ export function SchedulePage({ active }: { active: boolean }) {
         id => { deleteTodo(id); setDelId(null) },
         () => setDelId(null),
       )}
+      {schedView === 'list' && todos.length === 0 && paired && (
+        <div className="ph-card" style={{ padding: 14, marginTop: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>手机本地还没有日程</div>
+          <div className="model-cnt" style={{ marginTop: 4 }}>
+            可能上次同步的游标已经推到电脑时间之后，更旧的条目就拉不回来了。点下面从电脑全量重拉一次。
+          </div>
+          <button className="btn-primary" style={{ marginTop: 10 }} onClick={fullResync}>从电脑全量拉取</button>
+        </div>
+      )}
       {schedView === 'grid' && <DayGrid key={selDate} dayTodos={dayTodos} />}
-      {schedView === 'habit' && (habits.length
-        ? habits.map(h => <HabitCard key={h.id} h={h} />)
+      {schedView === 'habit' && (visibleHabits.length
+        ? visibleHabits.map(h => <HabitCard key={h.id} h={h} />)
         : <div className="empty empty-spring">还没有打卡习惯</div>)}
 
       {schedView === 'list' && !tablet && (

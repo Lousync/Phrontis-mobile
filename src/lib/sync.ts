@@ -18,7 +18,7 @@
  * 所有键带 pm. 前缀，迁移时整体搬运。
  */
 import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core'
-import type { LedgerSyncData, NoteCache, NoteSyncData, NoteTreePage, PairedDevice, QueueOp, ScheduleSyncData, Todo } from './types'
+import type { Habit, HabitRecordSyncData, HabitSyncData, LedgerSyncData, NoteCache, NoteSyncData, NoteTreePage, PairedDevice, QueueOp, ScheduleSyncData, Todo } from './types'
 
 /* 组播发现插件（仅 Android 注册，见 PhrontisDiscover.java；iOS/web 无实现 → 走扫段回退）。
  * selfIp/selfPrefix = 原生自知出口 IP 与 /24 前缀；selfPrefixes = 全部可用私有网段
@@ -456,16 +456,37 @@ export function removeFromQueue(ids: string[]): void {
   lsSet(K_QUEUE, getQueue().filter(op => !drop.has(op.id)))
 }
 
-export interface LastSyncCursor { ledger: number; schedule: number; notes: number }
+export interface LastSyncCursor { ledger: number; schedule: number; notes: number; habit: number }
 
 export function getLastSync(): LastSyncCursor {
   const raw = lsGet<Partial<LastSyncCursor>>(K_LAST_SYNC, {})
-  return { ledger: Number(raw.ledger) || 0, schedule: Number(raw.schedule) || 0, notes: Number(raw.notes) || 0 }
+  return {
+    ledger: Number(raw.ledger) || 0,
+    schedule: Number(raw.schedule) || 0,
+    notes: Number(raw.notes) || 0,
+    habit: Number(raw.habit) || 0,
+  }
 }
 
-function setLastSync(domain: 'ledger' | 'schedule' | 'notes', ms: number): void {
+function setLastSync(domain: 'ledger' | 'schedule' | 'notes' | 'habit', ms: number): void {
   lsSet(K_LAST_SYNC, { ...getLastSync(), [domain]: ms })
 }
+
+/**
+ * 全量对账：清空游标（可按域）。手机本地数据为空 / 换仓 / 重配对后必须从 0 重拉——
+ * 游标是「服务器 now」，一旦推到现在，所有更旧的条目都会被 `updatedAt > since` 永久过滤掉。
+ * 2026-11-09 实锤：手机「已连接 · 实时」但日程模块全空，就是因为游标已推到今天而本地没有数据。
+ */
+export function resetSyncCursor(domain?: 'ledger' | 'schedule' | 'notes' | 'habit'): void {
+  if (!domain) {
+    try { localStorage.removeItem(K_LAST_SYNC) } catch { /* 忽略 */ }
+    return
+  }
+  setLastSync(domain, 0)
+}
+
+/** push 结果里可重试的原因：这些不能出队（服务端没仓 / 写盘失败 / 仓库不匹配），下次对账还要再推 */
+export const RETRYABLE_PUSH_REASONS = new Set(['no-vault', 'apply-error', 'vaultMismatch'])
 
 /* ================= notes 域负载构建（纯函数，契约脚本直测） ================= */
 
@@ -582,6 +603,60 @@ export function buildScheduleData(
   }
 }
 
+/** 手机 Habit → habit 域定义负载（v1.8）。target 夹取 1..7；remind 缺省 null */
+export function buildHabitData(
+  h: Pick<Habit, 'name' | 'color' | 'target' | 'remind' | 'archived'>,
+): HabitSyncData {
+  return {
+    kind: 'habit',
+    name: String(h.name || '').trim().slice(0, 60),
+    color: String(h.color || '#3B82F6').slice(0, 24),
+    target: Math.max(1, Math.min(7, Math.round(Number(h.target)) || 7)),
+    remind: h.remind == null ? null : Math.max(0, Math.min(1439, Math.round(h.remind))),
+    archived: h.archived === true,
+  }
+}
+
+/** 打卡记录 id（与桌面 protocol.habitRecordId 同口径）：hr:<habitId>:<date> */
+export function habitRecordId(habitId: string, date: string): string {
+  return `hr:${habitId}:${date}`
+}
+
+/** 解析打卡记录 id；非法返回 null */
+export function parseHabitRecordId(id: string): { habitId: string; date: string } | null {
+  const m = /^hr:([^:]+):(\d{4}-\d{2}-\d{2})$/.exec(String(id || ''))
+  return m ? { habitId: m[1], date: m[2] } : null
+}
+
+/** 手机 → habit 域打卡记录负载（v1.8） */
+export function buildHabitRecordData(habitId: string, date: string): HabitRecordSyncData {
+  return { kind: 'record', habitId, date }
+}
+
+/**
+ * 同步时间解析（v1.8）：桌面习惯旧数据是 UTC `'YYYY-MM-DD HH:MM:SS'`（无 Z），
+ * 直接 Date.parse 会被当成本地时间；这里补 Z。手机/新桌面是 ISO，原样解析。
+ */
+export function parseSyncTime(s: string | undefined | null): number {
+  if (!s) return 0
+  const t = String(s).trim()
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(t)) {
+    const ms = Date.parse(t.replace(' ', 'T') + 'Z')
+    return Number.isFinite(ms) ? ms : 0
+  }
+  const ms = Date.parse(t)
+  return Number.isFinite(ms) ? ms : 0
+}
+
+/** 打卡定义/记录 LWW：updatedAt 新者赢；相等视为远端赢（同刻桌面赢） */
+export function habitLww(localUpdatedAt: string | undefined, remoteUpdatedAt: string): 'local' | 'remote' {
+  const l = parseSyncTime(localUpdatedAt)
+  const r = parseSyncTime(remoteUpdatedAt)
+  if (!r) return 'local'
+  if (!l) return 'remote'
+  return r >= l ? 'remote' : 'local'
+}
+
 /** 用户主动停止生成（区别于超时/网络失败的 Error，store 里静默收尾不报错） */
 export class AiStopped extends Error {
   constructor() { super('stopped') }
@@ -642,7 +717,14 @@ export interface RemoteScheduleItem {
   data: ScheduleSyncData
 }
 
-/** 服务端下行的墓碑（deletedAt > min(各域游标)；手机按 id 幂等应用） */
+/** v1.8 habit 域下行：定义与记录共用（按 data.kind 分派） */
+export interface RemoteHabitItem {
+  id: string
+  updatedAt: string
+  data: HabitSyncData | HabitRecordSyncData
+}
+
+/** 服务端下行的墓碑（deletedAt > min(各域游标)；手机按 domain + id 幂等应用） */
 export interface RemoteTombstone {
   domain: string
   id: string
@@ -658,7 +740,7 @@ export interface SyncOutcome {
   applied: number
   /** 服务端更新的条数（本地以服务端版本为准） */
   conflicts: number
-  /** 从电脑拉回的条数（两域合计） */
+  /** 从电脑拉回的条数（四域合计） */
   pulled: number
   /** 拉回的记账条目（调用方按 id 幂等合并进本地列表） */
   remoteLedger: RemoteLedgerItem[]
@@ -666,7 +748,11 @@ export interface SyncOutcome {
   remoteSchedule: RemoteScheduleItem[]
   /** 拉回的笔记变更（v1.6 U 盘模式：桌面端在设备文件夹里的增改，调用方 LWW 合并） */
   remoteNotes: RemoteNoteItem[]
-  /** 墓碑下行的条目 id（调用方从本地删除，并丢弃这些 id 的在途队列操作） */
+  /** v1.8：拉回的习惯定义 + 打卡记录 */
+  remoteHabits: RemoteHabitItem[]
+  /** 墓碑下行（调用方按 domain 分派：habit 走习惯/记录，其余走三域 id 删除） */
+  removedTombstones: RemoteTombstone[]
+  /** 墓碑 id 快照（toast 计数 / 旧调用兼容） */
   removedIds: string[]
   /** 响应游标快照（WP6.3）：应用完成后由调用方 commitPullCursor 提交 */
   cursor: LastSyncCursor
@@ -694,25 +780,19 @@ export function nextProbeDelayMs(failCount: number): number {
   return seq[i]
 }
 
-/** pull 下行结果（v1.7 自 syncNow 拆出单点化；游标推进也在这里完成） */
+/**
+ * pull 下行结果（v1.7 自 syncNow 拆出单点化；v1.8 扩 habit）。
+ * cursor = 响应游标快照：2026-11-08 起不再在 pullOnce 内落盘——迟到响应判废后游标已推进过会漏数据（WP6.3），
+ * 改由调用方在「代数校验通过 + 应用数据」后调 commitPullCursor 提交。
+ */
 export interface RtPullOutcome {
   /** 本请求确实被挂起处理过（桌面 v1.7+ 才有；缺省 = 对端旧桌面，调用方退回轮询） */
   waitSupported: boolean
   remoteLedger: RemoteLedgerItem[]
   remoteSchedule: RemoteScheduleItem[]
   remoteNotes: RemoteNoteItem[]
-  removedIds: string[]
-}
-
-/** pull 下行结果（v1.7 自 syncNow 拆出单点化）。cursor = 响应游标快照：
- *  2026-11-08 起不再在 pullOnce 内落盘——迟到响应判废后游标已推进过会漏数据（WP6.3），
- *  改由调用方在「代数校验通过 + 应用数据」后调 commitPullCursor 提交。 */
-export interface RtPullOutcome {
-  /** 本请求确实被挂起处理过（桌面 v1.7+ 才有；缺省 = 对端旧桌面，调用方退回轮询） */
-  waitSupported: boolean
-  remoteLedger: RemoteLedgerItem[]
-  remoteSchedule: RemoteScheduleItem[]
-  remoteNotes: RemoteNoteItem[]
+  remoteHabits: RemoteHabitItem[]
+  removedTombstones: RemoteTombstone[]
   removedIds: string[]
   cursor: LastSyncCursor
 }
@@ -722,6 +802,7 @@ export function commitPullCursor(out: Pick<RtPullOutcome, 'cursor'>): void {
   setLastSync('ledger', out.cursor.ledger)
   setLastSync('schedule', out.cursor.schedule)
   setLastSync('notes', out.cursor.notes)
+  setLastSync('habit', out.cursor.habit)
 }
 
 /**
@@ -730,7 +811,7 @@ export function commitPullCursor(out: Pick<RtPullOutcome, 'cursor'>): void {
  * 游标不在这里落盘（见 RtPullOutcome.cursor）；401 抛 AuthError 供监督器分诊。
  * 超时：挂起请求 waitMs + 10s 余量，普通 pull 10s；外部 signal（RtDriver 换代顶掉）联动取消。
  */
-export async function pullOnce(opts: { waitMs?: number; signal?: AbortSignal; sinceOverride?: { ledger: number; schedule: number; notes: number } } = {}): Promise<RtPullOutcome> {
+export async function pullOnce(opts: { waitMs?: number; signal?: AbortSignal; sinceOverride?: LastSyncCursor } = {}): Promise<RtPullOutcome> {
   const p = getPaired()
   if (!p) throw new Error('尚未配对电脑')
   const waitMs = Math.max(0, Math.min(RT_WAIT_MS, Math.round(opts.waitMs ?? 0)))
@@ -741,7 +822,7 @@ export async function pullOnce(opts: { waitMs?: number; signal?: AbortSignal; si
   opts.signal?.addEventListener('abort', onOuter, { once: true })
   try {
     const cur = getLastSync()
-    const since = opts.sinceOverride ?? { ledger: cur.ledger, schedule: cur.schedule, notes: cur.notes }
+    const since = opts.sinceOverride ?? { ledger: cur.ledger, schedule: cur.schedule, notes: cur.notes, habit: cur.habit }
     const r = await lanRequest(p.baseUrl + '/api/sync/pull', {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + p.token },
@@ -751,9 +832,9 @@ export async function pullOnce(opts: { waitMs?: number; signal?: AbortSignal; si
     })
     const json = r.data as {
       ok?: boolean; error?: string
-      changes?: { ledger?: RemoteLedgerItem[]; schedule?: RemoteScheduleItem[]; notes?: RemoteNoteItem[] }
+      changes?: { ledger?: RemoteLedgerItem[]; schedule?: RemoteScheduleItem[]; notes?: RemoteNoteItem[]; habit?: RemoteHabitItem[] }
       tombstones?: RemoteTombstone[]
-      cursor?: { ledger?: number; schedule?: number; notes?: number }
+      cursor?: { ledger?: number; schedule?: number; notes?: number; habit?: number }
       waitSupported?: boolean
     }
     if (r.status < 200 || r.status >= 300 || !json?.ok) {
@@ -764,14 +845,21 @@ export async function pullOnce(opts: { waitMs?: number; signal?: AbortSignal; si
       ledger: typeof json.cursor?.ledger === 'number' ? json.cursor.ledger : cur.ledger,
       schedule: typeof json.cursor?.schedule === 'number' ? json.cursor.schedule : cur.schedule,
       notes: typeof json.cursor?.notes === 'number' ? json.cursor.notes : cur.notes,
+      habit: typeof json.cursor?.habit === 'number' ? json.cursor.habit : cur.habit,
     }
+    const removedTombstones = Array.isArray(json.tombstones)
+      ? json.tombstones.filter(t => t && typeof t.id === 'string' && t.id)
+      : []
     return {
       waitSupported: json.waitSupported === true,
       remoteLedger: Array.isArray(json.changes?.ledger) ? json.changes!.ledger! : [],
       remoteSchedule: Array.isArray(json.changes?.schedule) ? json.changes!.schedule! : [],
       /* v1.6 起桌面可回 notes 域（U 盘模式）；旧桌面（v1.5-）不回 → 空数组、notes 游标不动，完全兼容 */
       remoteNotes: Array.isArray(json.changes?.notes) ? json.changes!.notes! : [],
-      removedIds: Array.isArray(json.tombstones) ? json.tombstones.map(t => String(t.id)).filter(Boolean) : [],
+      /* v1.8：旧桌面不回 habit 域 → 空数组、habit 游标不动 */
+      remoteHabits: Array.isArray(json.changes?.habit) ? json.changes!.habit! : [],
+      removedTombstones,
+      removedIds: removedTombstones.map(t => String(t.id)),
       cursor,
     }
   } catch (e) {
@@ -926,8 +1014,8 @@ export async function syncNow(onPhase?: (pct: number) => void): Promise<SyncOutc
       if (r.applied) applied++
       else if (r.conflict) conflicts++
       const op = queue.find(x => x.id === r.id)
-      // unsupported-domain 的留在队列（M3 notes 加域后自然消化），其余出队
-      if (op && r.reason !== 'unsupported-domain') doneIds.push(r.id)
+      // unsupported-domain / 可重试原因（无仓、写盘失败、仓库不符）留在队列，其余出队
+      if (op && r.reason !== 'unsupported-domain' && !RETRYABLE_PUSH_REASONS.has(String(r.reason ?? ''))) doneIds.push(r.id)
     }
     removeFromQueue(doneIds)
   }
@@ -935,7 +1023,7 @@ export async function syncNow(onPhase?: (pct: number) => void): Promise<SyncOutc
 
   // ---- pull（v1.7 起走 pullOnce 单点化；有冲突 → 全量对一次，保证收敛） ----
   const pullOut = await pullOnce({
-    sinceOverride: conflicts > 0 ? { ledger: 0, schedule: 0, notes: 0 } : undefined,
+    sinceOverride: conflicts > 0 ? { ledger: 0, schedule: 0, notes: 0, habit: 0 } : undefined,
   })
   onPhase?.(100)
 
@@ -944,7 +1032,7 @@ export async function syncNow(onPhase?: (pct: number) => void): Promise<SyncOutc
     handledIds: doneIds,
     applied,
     conflicts,
-    pulled: pullOut.remoteLedger.length + pullOut.remoteSchedule.length + pullOut.remoteNotes.length,
+    pulled: pullOut.remoteLedger.length + pullOut.remoteSchedule.length + pullOut.remoteNotes.length + pullOut.remoteHabits.length,
     ...pullOut,
   }
 }

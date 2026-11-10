@@ -436,7 +436,11 @@ button.c-meta:active { opacity: .7; }
 
 .folder-head .count { margin-left: auto; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
-.day-grid { position: relative; background: var(--bg-primary); border: 1px solid var(--border-soft); border-radius: 14px; overflow: hidden; }
+/* ★ 固定高度画布禁止 flex 收缩（与 .add-bar / .fab 同口径）：
+ * .page 是定高 flex 列滚动容器，.day-grid 的 overflow:hidden 会把自动最小尺寸降为 0，
+ * 于是 704px 时间轴被压到一屏内、22:00 之后的时段连同滚动能力一起被裁掉
+ * （2026-11-10 真机反馈「排期列表滑不动，看不到下面的内容」）。flex:none 让页面照常产生滚动。 */
+.day-grid { position: relative; flex: none; background: var(--bg-primary); border: 1px solid var(--border-soft); border-radius: 14px; overflow: hidden; }
 /* 排期画线：小时线逐段画出 → 时间块浮起（按日重挂时重播，SchedulePage 以 selDate 为 key） */
 .hour-row { position: absolute; left: 0; right: 0; height: 1px; background: var(--border-soft); transform-origin: left; animation: drawX .3s cubic-bezier(.23, 1, .32, 1) both; }
 .hour-label { position: absolute; left: 9px; font-size: 10px; color: var(--text-muted); transform: translateY(-50%); font-variant-numeric: tabular-nums; animation: fadeUp .3s ease-out both; }

@@ -71,7 +71,7 @@ const AUTO_SW_LINE = { background: '#8a8a8a' }
  * AI 区 = M4a 直连档配置（pm.aiConfig，Key 只在本机）。
  */
 export function SettingsPage({ active }: { active: boolean }) {
-  const { paired, online, conn, reconnectNow, repairAddress, syncing, syncPct, syncMode, lastSync, runSync, pairWith, adoptPaired, unpair, theme, setTheme, prefs, setPref, toast, aiConfig, setActiveTab, kbSim, toggleKbSim, openSheet, settingsSec } = useApp()
+  const { paired, online, conn, reconnectNow, repairAddress, syncing, syncPct, syncMode, lastSync, runSync, fullResync, pairWith, adoptPaired, unpair, theme, setTheme, prefs, setPref, toast, aiConfig, setActiveTab, kbSim, toggleKbSim, openSheet, settingsSec } = useApp()
   const ff = useFormFactor()
   /* 平板：分类隔离——侧栏点哪个分类就只渲染那个分类的设置项，后续设置项增多互不干扰；
    * 手机：单页滚动全展示。分类清单 SETTINGS_SECS 与此处 data-sec 一一对应（加分类两处同步加） */
@@ -367,8 +367,11 @@ const picker = (
                 </>
               )}
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 10 }}>
-                {paired.baseUrl.replace('http://', '')} · 同步范围：记账 + 日程 + 笔记（含删除）
+                {paired.baseUrl.replace('http://', '')} · 同步范围：记账 + 日程 + 笔记 + 打卡（含删除）
               </div>
+              <button className="btn-ghost" style={{ height: 36, marginTop: 8 }} onClick={fullResync}>
+                全量重新对账（从电脑重拉）
+              </button>
             </>
           )}
         </div>

@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { parsePairInput, uuid, buildScheduleData, buildNoteData, pruneNoteCache, getLastSync, noteLww, nextBackoffMs, nextProbeDelayMs, mergeScanPrefixes, COMMON_PREFIXES, AuthError, RtDriver, RT_WAIT_MS } from '../src/lib/sync.ts'
+import { parsePairInput, uuid, buildScheduleData, buildNoteData, buildHabitData, buildHabitRecordData, habitRecordId, parseHabitRecordId, parseSyncTime, habitLww, pruneNoteCache, getLastSync, noteLww, nextBackoffMs, nextProbeDelayMs, mergeScanPrefixes, COMMON_PREFIXES, AuthError, RtDriver, RT_WAIT_MS, RETRYABLE_PUSH_REASONS } from '../src/lib/sync.ts'
 import { txToDisplay, monthOf, monthShift, monthStats, groupEntriesByDay, weekOf, TODAY, chipListWith, catColorOf } from '../src/lib/data.ts'
 import { AI_TOOLS, validateLedgerAdd, validateTodoAdd, validateNoteCreate, buildSystemPrompt } from '../src/lib/aiTools.ts'
 
@@ -56,8 +56,28 @@ console.log('\n§2b schedule 负载构建（与桌面 TodoRow 映射口径一致
   check('非 HH:MM 的 time 视为无', buildScheduleData({ ...t, time: '' }).time === '' && buildScheduleData({ ...t, time: '9:3' }).time === '')
   check('子任务行携带 parentId', buildScheduleData({ ...t, parentId: 'p-1' }).parentId === 'p-1')
   check('done 原样透传（翻转由调用方先改对象）', buildScheduleData({ ...t, done: true }).done === true)
-  check('游标结构含三域（v1.6 起 notes 入列；Node 无 localStorage 走兜底 0）', eq(getLastSync(), { ledger: 0, schedule: 0, notes: 0 }))
+  check('游标结构含四域（v1.8 起 habit 入列；Node 无 localStorage 走兜底 0）', eq(getLastSync(), { ledger: 0, schedule: 0, notes: 0, habit: 0 }))
 }
+
+console.log('\n§2b3 habit 负载与 LWW（v1.8 打卡同步）')
+{
+  const h = { name: '背单词', color: '#3B82F6', target: 9, remind: 480, archived: false }
+  const d = buildHabitData(h)
+  check('定义 target 夹取 1..7、remind 保留', d.kind === 'habit' && d.target === 7 && d.remind === 480)
+  check('定义 remind 缺省 null', buildHabitData({ ...h, remind: undefined }).remind === null)
+  const rid = habitRecordId('h1', '2026-11-09')
+  check('记录 id = hr:habitId:date', rid === 'hr:h1:2026-11-09')
+  check('记录 id 解析互逆', parseHabitRecordId(rid)?.habitId === 'h1' && parseHabitRecordId(rid)?.date === '2026-11-09')
+  check('记录负载结构', eq(buildHabitRecordData('h1', '2026-11-09'), { kind: 'record', habitId: 'h1', date: '2026-11-09' }))
+  check('habitLww 远端新 → remote', habitLww('2026-11-09T10:00:00.000Z', '2026-11-09T11:00:00.000Z') === 'remote')
+  check('habitLww 本地新 → local', habitLww('2026-11-09T11:00:00.000Z', '2026-11-09T10:00:00.000Z') === 'local')
+  check('habitLww 同刻 → remote（桌面赢）', habitLww('2026-11-09T11:00:00.000Z', '2026-11-09T11:00:00.000Z') === 'remote')
+  check('parseSyncTime SQL(UTC) == ISO', parseSyncTime('2026-11-09 10:00:00') === parseSyncTime('2026-11-09T10:00:00.000Z'))
+}
+
+console.log('\n§2b2 全量对账与可重试 push 原因（2026-11-09 日程空仓修复）')
+check('no-vault / apply-error / vaultMismatch 可重试（不出队）', ['no-vault', 'apply-error', 'vaultMismatch'].every(x => RETRYABLE_PUSH_REASONS.has(x)))
+check('invalid-data / tombstoned 不重试（正常出队）', !RETRYABLE_PUSH_REASONS.has('invalid-data') && !RETRYABLE_PUSH_REASONS.has('tombstoned'))
 
 console.log('\n§2c 账本派生与月视图（同步形态 → 展示/统计，M2b）')
 {
@@ -343,6 +363,9 @@ console.log('\n§3 协议文档契约（docs/design.md §2.1 与手机实现一�
   check('§2.1 v1.7 兼容矩阵：双方离线退避重试', design.includes('任意一方离线 → 手机退避重试，不影响本地记录'))
   check('§2.1 v1.7 前后台硬要求（退后台暂停 / 回前台拉平重建）', design.includes('退后台（`visibilitychange`') && design.includes('立即对账一次（不带 wait）'))
   check('§2.1 v1.7 状态三态文案', design.includes('「实时」') && design.includes('「轮询 30s（电脑版本较旧）」') && design.includes('「离线待同步」'))
+  check('§2.1 v1.8 记录 habit 域（定义 + 每日记录）', design.includes('v1.8 打卡域') && design.includes('hr:<habitId>:<YYYY-MM-DD>'))
+  check('§2.1 v1.8 LWW/墓碑口径', design.includes('取消打卡 = 记录墓碑') && design.includes('删除习惯 = 习惯墓碑 + 级联记录墓碑'))
+  check('§2.1 v1.8 兼容矩阵：旧桌面 unsupported-domain', design.includes('habit push 回 `unsupported-domain`'))
   check('§2.1 记录内容 API 端点', design.includes('/api/notes/tree') && design.includes('/api/notes/content'))
   check('§2.1 记录缓存上限与按 id 解析路径', design.includes('1.5MB') && design.includes('按 id 服务端解析路径'))
   // v1.3 契约（2026-11-06 电脑档整体移除，改为反向断言；决策记录里仍会提到该端点，故只查端点表行）

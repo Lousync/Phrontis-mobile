@@ -27,6 +27,13 @@ export interface Habit {
   hist: number[]
   /** 每日打卡提醒时刻（自 0 点起的分钟数 0–1439；缺省 = 不提醒）。原生壳内按天排本地通知 */
   remind?: number
+  /** v1.8 同步：习惯定义最后变更时刻（LWW 时钟；旧数据缺省按纪元处理） */
+  updatedAt?: string
+  /** v1.8 同步：date(YYYY-MM-DD) → 该条打卡记录最后变更 ISO；有键 = 已打卡。
+   *  hist 是当前周的派生缓存，真实记录以本表为准。 */
+  records?: Record<string, string>
+  /** v1.8 同步：桌面归档的习惯在手机隐藏、不排提醒 */
+  archived?: boolean
 }
 
 export interface Tx {
@@ -151,18 +158,35 @@ export interface NoteSyncData {
   body: string
 }
 
+/** 习惯定义负载（协议 v1.8，与桌面 protocol.HabitItemData 同源） */
+export interface HabitSyncData {
+  kind: 'habit'
+  name: string
+  color: string
+  target: number
+  remind: number | null
+  archived: boolean
+}
+
+/** 每日打卡记录负载（协议 v1.8）：id = hr:<habitId>:<date>，表示该日已打卡 */
+export interface HabitRecordSyncData {
+  kind: 'record'
+  habitId: string
+  date: string
+}
+
 /** 删除同步（墓碑 v1.1）上行负载 */
 export interface TombstoneData {
   deleted: true
 }
 
-export type SyncPayload = LedgerSyncData | ScheduleSyncData | NoteSyncData | TombstoneData
+export type SyncPayload = LedgerSyncData | ScheduleSyncData | NoteSyncData | HabitSyncData | HabitRecordSyncData | TombstoneData
 
-/** 待同步队列条目（v1.2 起 ledger + schedule + notes 三域，删除为墓碑负载） */
+/** 待同步队列条目（v1.2 起 ledger + schedule + notes；v1.8 起 habit；删除为墓碑负载） */
 export interface QueueOp {
   /** 与条目 UUID 相同，服务端据此保 id upsert；删除时亦为该条目 UUID */
   id: string
-  domain: 'ledger' | 'schedule' | 'notes'
+  domain: 'ledger' | 'schedule' | 'notes' | 'habit'
   updatedAt: string
   data: SyncPayload
   /** UI 展示用（待同步徽标文案） */
